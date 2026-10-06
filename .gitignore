@@ -1,0 +1,13 @@
+# Firebase service account credentials
+backend/src/services/*firebase-adminsdk*.json
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+
+# Logs
+*.log
