@@ -4,7 +4,7 @@ const path = require("path");
 const serviceAccount = require(
   path.resolve(
     __dirname,
-    "../services/ticket-b8771-firebase-adminsdk-fbsvc-c08ff3e342.json",
+    "../services/ticket-b8771-firebase-adminsdk-fbsvc-aa26b6ffce.json",
   ),
 );
 
