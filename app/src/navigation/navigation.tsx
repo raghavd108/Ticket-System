@@ -7,7 +7,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import BottomNavigation from './BottomNavigation';
 import LoginPage from '../pages/LoginPage';
 import Notification from '../components/notification';
-
+import CompanyCalendar from '../components/CompanyCalander';
 import { useAuth } from '../context/AuthContext';
 
 type RootStackParamList = {
@@ -15,6 +15,7 @@ type RootStackParamList = {
   Register: undefined;
   Main: undefined;
   Notification: undefined;
+  CompanyCalendar: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -41,6 +42,7 @@ const Navigation = () => {
           <>
             <Stack.Screen name="Main" component={BottomNavigation} />
             <Stack.Screen name="Notification" component={Notification} />
+            <Stack.Screen name="CompanyCalendar" component={CompanyCalendar} />
           </>
         ) : (
           <>

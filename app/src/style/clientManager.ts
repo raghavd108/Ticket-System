@@ -1267,6 +1267,182 @@ const createStyles = (theme: any) => {
       fontWeight: '800',
       color: COLORS.muted,
     },
+    // =========================================================
+    // DOCUMENT UPLOAD MODAL
+    // =========================================================
+
+    uploadModal: {
+      width: '100%',
+      maxWidth: 480,
+      maxHeight: '85%',
+      alignSelf: 'center',
+      backgroundColor: '#FFFFFF',
+      borderRadius: 24,
+      padding: 22,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.15,
+      shadowRadius: 18,
+      elevation: 12,
+    },
+
+    employeeCard: {
+      backgroundColor: '#F5F3FF',
+      borderWidth: 1,
+      borderColor: 'rgba(115, 87, 232, 0.18)',
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 20,
+    },
+
+    employeeLabel: {
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 1,
+      color: '#7357E8',
+      marginBottom: 6,
+    },
+
+    employeeId: {
+      fontSize: 11,
+      color: '#71717A',
+      marginTop: 5,
+    },
+
+    fieldLabel: {
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 0.8,
+      color: '#52525B',
+      marginBottom: 8,
+    },
+
+    titleInput: {
+      height: 50,
+      borderWidth: 1,
+      borderColor: '#E4E4E7',
+      borderRadius: 13,
+      paddingHorizontal: 14,
+      fontSize: 13,
+      color: '#18181B',
+      backgroundColor: '#FFFFFF',
+      marginBottom: 18,
+    },
+
+    filePicker: {
+      borderWidth: 1.5,
+      borderColor: '#C4B5FD',
+      borderStyle: 'dashed',
+      borderRadius: 15,
+      paddingVertical: 22,
+      paddingHorizontal: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: '#FAF9FF',
+      marginBottom: 16,
+    },
+
+    filePickerIcon: {
+      fontSize: 25,
+      marginBottom: 7,
+    },
+
+    filePickerTitle: {
+      fontSize: 13,
+      fontWeight: '900',
+      color: '#7357E8',
+    },
+
+    filePickerSubtitle: {
+      fontSize: 11,
+      color: '#71717A',
+      marginTop: 5,
+    },
+
+    fileItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 11,
+      borderWidth: 1,
+      borderColor: '#E4E4E7',
+      borderRadius: 12,
+      backgroundColor: '#FFFFFF',
+      marginBottom: 8,
+    },
+
+    fileIcon: {
+      fontSize: 20,
+      marginRight: 10,
+    },
+
+    fileInfo: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    fileName: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#18181B',
+    },
+
+    fileSize: {
+      fontSize: 10,
+      color: '#71717A',
+      marginTop: 4,
+    },
+
+    removeButton: {
+      width: 32,
+      height: 32,
+      marginLeft: 6,
+      borderRadius: 9,
+      backgroundColor: '#FEF2F2',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    removeText: {
+      fontSize: 21,
+      lineHeight: 23,
+      color: '#DC2626',
+      fontWeight: '600',
+    },
+
+    fileCount: {
+      fontSize: 10,
+      color: '#71717A',
+      marginTop: 5,
+      marginBottom: 16,
+    },
+
+    uploadButton: {
+      minHeight: 50,
+      paddingHorizontal: 16,
+      borderRadius: 14,
+      backgroundColor: '#7357E8',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      shadowColor: '#7357E8',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.18,
+      shadowRadius: 8,
+      elevation: 3,
+    },
+
+    uploadButtonDisabled: {
+      backgroundColor: '#A1A1AA',
+      shadowOpacity: 0,
+      elevation: 0,
+    },
+
+    uploadButtonText: {
+      fontSize: 13,
+      fontWeight: '900',
+      color: '#FFFFFF',
+      marginLeft: 8,
+    },
   });
 };
 

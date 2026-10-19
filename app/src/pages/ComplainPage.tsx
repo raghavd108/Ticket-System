@@ -3,6 +3,7 @@ import createStyles from '../style/complainStyle';
 import { useTheme } from '../context/ThemeContext';
 import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
+import AttendanceToggle from '../components/attendance';
 
 import {
   View,
@@ -273,7 +274,9 @@ const ComplainPage = () => {
   const handleNotification = () => {
     navigation.navigate('Notification');
   };
-
+  const handleCompanyCalendar = () => {
+    navigation.navigate('CompanyCalendar', { user });
+  };
   /* 
      STATUS
    */
@@ -435,7 +438,7 @@ const ComplainPage = () => {
 
         <ActivityIndicator
           size="small"
-          color="#7357E8"
+          color={theme.primary}
           style={{ marginTop: 18 }}
         />
       </View>
@@ -454,7 +457,7 @@ const ComplainPage = () => {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor="#7357E8"
+              tintColor={theme.primary}
             />
           }
         >
@@ -476,22 +479,32 @@ const ComplainPage = () => {
                 <Text style={styles.subtitle}>
                   {isAdmin || isEmployee
                     ? `Manage support requests from ${
-                        user?.organisation.name || 'your organisations'
+                        user?.organisation?.name || 'your organisations'
                       }`
                     : 'Track and manage your submitted support requests'}
                 </Text>
               </View>
-
+              <TouchableOpacity
+                style={styles.notificationButton}
+                activeOpacity={0.8}
+                onPress={handleCompanyCalendar}
+              >
+                <Text style={styles.notificationIcon}>📅</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.notificationButton}
                 activeOpacity={0.8}
                 onPress={handleNotification}
               >
                 <Text style={styles.notificationIcon}>🔔</Text>
-
                 <View style={styles.notificationDot} />
               </TouchableOpacity>
             </View>
+            {isEmployee && (
+              <View style={styles.attendanceContainer}>
+                <AttendanceToggle />
+              </View>
+            )}
 
             {/* =================================================
                 FILTER
@@ -514,11 +527,7 @@ const ComplainPage = () => {
               STATS
           ================================================= */}
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.statsScroll}
-          >
+          <View style={styles.statsGrid}>
             <View style={[styles.statCard, styles.statTotal]}>
               <View style={styles.statIcon}>
                 <Text style={styles.statIconText}>▤</Text>
@@ -558,7 +567,7 @@ const ComplainPage = () => {
 
               <Text style={styles.statLabel}>Resolved</Text>
             </View>
-          </ScrollView>
+          </View>
 
           {/* =================================================
               MESSAGE

@@ -172,6 +172,16 @@ const createStyles = (theme: any) => {
       marginBottom: 23,
     },
 
+    sectionHeader: {
+      flexDirection: 'row',
+
+      alignItems: 'center',
+
+      justifyContent: 'space-between',
+
+      marginBottom: 12,
+    },
+
     sectionTitle: {
       marginBottom: 10,
 
@@ -736,6 +746,224 @@ const createStyles = (theme: any) => {
     settingSubtitle: {
       fontSize: 13,
       marginTop: 4,
+    },
+
+    leaveOverlay: {
+      flex: 1,
+      justifyContent: 'flex-end',
+      backgroundColor: 'rgba(0,0,0,0.45)',
+    },
+
+    leaveModalContainer: {
+      height: '85%',
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      paddingTop: 22,
+      paddingHorizontal: 20,
+      paddingBottom: 18,
+      overflow: 'hidden',
+    },
+
+    leaveHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 18,
+    },
+
+    leaveHeaderIcon: {
+      width: 48,
+      height: 48,
+      borderRadius: 16,
+      backgroundColor: '#F5EBDD',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    leaveHeaderText: {
+      flex: 1,
+      marginLeft: 12,
+    },
+
+    leaveTitle: {
+      fontSize: 21,
+      fontWeight: '700',
+      letterSpacing: -0.4,
+    },
+
+    leaveSubtitle: {
+      fontSize: 12,
+      color: '#91877D',
+      marginTop: 4,
+    },
+
+    leaveCloseButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 13,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: 'rgba(145,135,125,0.10)',
+    },
+
+    leaveDivider: {
+      height: 1,
+      backgroundColor: '#EAE4DC',
+    },
+
+    leaveFormContent: {
+      paddingTop: 20,
+      paddingBottom: 24,
+    },
+
+    leaveLabel: {
+      fontSize: 13,
+      fontWeight: '600',
+      marginBottom: 9,
+      marginTop: 5,
+    },
+
+    leaveRequired: {
+      color: '#B65C46',
+    },
+
+    leaveInput: {
+      minHeight: 52,
+      borderWidth: 1,
+      borderRadius: 15,
+      paddingHorizontal: 15,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 18,
+    },
+
+    leaveInputLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+
+    leaveDropdown: {
+      borderWidth: 1,
+      borderRadius: 15,
+      marginTop: -10,
+      marginBottom: 18,
+      overflow: 'hidden',
+    },
+
+    leaveDropdownItem: {
+      minHeight: 46,
+      paddingHorizontal: 15,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+
+    leaveDropdownText: {
+      fontSize: 14,
+    },
+
+    leaveDateRow: {
+      flexDirection: 'row',
+      gap: 12,
+      marginBottom: 17,
+    },
+
+    leaveDateColumn: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    leaveDateInput: {
+      minHeight: 52,
+      borderWidth: 1,
+      borderRadius: 14,
+      paddingHorizontal: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 7,
+    },
+
+    leaveDateText: {
+      flex: 1,
+      fontSize: 12,
+      fontWeight: '500',
+    },
+
+    leaveReasonContainer: {
+      borderWidth: 1,
+      borderRadius: 15,
+      minHeight: 115,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+    },
+
+    leaveReasonInput: {
+      minHeight: 95,
+      fontSize: 14,
+      lineHeight: 21,
+      padding: 0,
+    },
+
+    leaveCharacterCount: {
+      textAlign: 'right',
+      fontSize: 11,
+      color: '#91877D',
+      marginTop: 6,
+      marginBottom: 17,
+    },
+
+    leaveInfoBox: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 10,
+      backgroundColor: '#F7F0E6',
+      borderRadius: 14,
+      padding: 13,
+      marginBottom: 22,
+    },
+
+    leaveInfoText: {
+      flex: 1,
+      color: '#79664F',
+      fontSize: 12,
+      lineHeight: 18,
+    },
+
+    leaveButtonRow: {
+      flexDirection: 'row',
+      gap: 12,
+      marginTop: 2,
+    },
+
+    leaveCancelButton: {
+      flex: 0.8,
+      minHeight: 51,
+      borderWidth: 1,
+      borderRadius: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    leaveCancelText: {
+      fontSize: 14,
+      fontWeight: '600',
+    },
+
+    leaveSubmitButton: {
+      flex: 1.5,
+      minHeight: 51,
+      borderRadius: 15,
+      backgroundColor: '#A47745',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 9,
+    },
+
+    leaveSubmitText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '700',
     },
   });
 };

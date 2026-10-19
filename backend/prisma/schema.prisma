@@ -1,0 +1,217 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  admin
+  client
+  employee
+}
+
+enum ComplaintStatus {
+  pending
+  in_progress @map("in-progress")
+  resolved
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  late
+}
+
+enum NotificationType {
+  NEW_TICKET
+  STATUS_UPDATE
+  CUSTOM
+}
+
+enum LeaveStatus {
+  pending
+  approved
+  rejected
+}
+
+model Organisation {
+  id        String   @id @default(cuid())
+  orgType   String
+  name      String
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator    User?       @relation("OrganisationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  users      User[]      @relation("OrganisationUsers")
+  complaints Complaint[]
+
+  @@index([createdBy])
+}
+
+model User {
+  id             String   @id @default(cuid())
+  userName       String   @unique
+  email          String
+  password       String
+  role           Role
+  organisationId String
+  designation    String?
+  fcmToken       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organisation         Organisation   @relation("OrganisationUsers", fields: [organisationId], references: [id], onDelete: Restrict)
+  organisationsCreated Organisation[] @relation("OrganisationCreator")
+
+  assignedEmployees UserAssignment[] @relation("ClientAssignments")
+  assignedToClients UserAssignment[] @relation("EmployeeAssignments")
+
+  complaints    Complaint[]
+  documents     Document[]
+  attendance    Attendance[]
+  notifications Notification[]
+  leaves        Leave[]
+
+  @@index([organisationId])
+  @@index([email])
+  @@index([role])
+}
+
+model UserAssignment {
+  clientId   String
+  employeeId String
+  createdAt  DateTime @default(now())
+
+  client   User @relation("ClientAssignments", fields: [clientId], references: [id], onDelete: Cascade)
+  employee User @relation("EmployeeAssignments", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@id([clientId, employeeId])
+  @@index([employeeId])
+}
+
+model Complaint {
+  id             String          @id @default(cuid())
+  module         String
+  problem        String          @db.Text
+  userId         String
+  organisationId String
+  status         ComplaintStatus @default(pending)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  user          User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  organisation  Organisation     @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  images        ComplaintImage[]
+  notifications Notification[]
+
+  @@index([userId])
+  @@index([organisationId, status])
+}
+
+model ComplaintImage {
+  id          String @id @default(cuid())
+  complaintId String
+  fileName    String
+
+  complaint Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+
+  @@index([complaintId])
+}
+
+model Document {
+  id         String   @id @default(cuid())
+  employeeId String
+  title      String   @db.VarChar(191)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  employee User           @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  files    DocumentFile[]
+
+  @@index([employeeId])
+}
+
+model DocumentFile {
+  id           String  @id @default(cuid())
+  documentId   String
+  fileName     String
+  originalName String
+  mimeType     String?
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model Attendance {
+  id         String           @id @default(cuid())
+  employeeId String
+  date       DateTime         @db.Date
+  status     AttendanceStatus
+  inTime     DateTime?
+  outTime    DateTime?
+  location   String           @default("") @db.VarChar(191)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  employee User @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([employeeId, date])
+  @@index([date])
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  userId      String
+  title       String
+  body        String           @db.Text
+  type        NotificationType
+  read        Boolean          @default(false)
+  complaintId String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  complaint Complaint? @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+
+  @@index([userId, read])
+  @@index([complaintId])
+}
+
+model Leave {
+  id         String      @id @default(cuid())
+  employeeId String
+  leaveType  String
+  startDate  DateTime    @db.Date
+  endDate    DateTime    @db.Date
+  reason     String      @db.Text
+  status     LeaveStatus @default(pending)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  employee User @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@index([employeeId])
+  @@index([status])
+}
+
+enum CalendarDayType {
+  HOLIDAY
+  WORKING_DAY
+}
+
+model CompanyCalendarDay {
+  id          String          @id @default(cuid())
+  date        DateTime        @unique @db.Date
+  type        CalendarDayType
+  name        String          @db.VarChar(191)
+  description String?         @db.Text
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([type, date])
+}

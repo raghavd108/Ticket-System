@@ -104,6 +104,7 @@ const createStyles = (theme: any) => {
     },
 
     headerTopRow: {
+      width: '100%',
       flexDirection: 'row',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
@@ -111,7 +112,8 @@ const createStyles = (theme: any) => {
 
     headerTextContainer: {
       flex: 1,
-      paddingRight: 15,
+      minWidth: 0,
+      paddingRight: 12,
     },
 
     eyebrow: {
@@ -124,10 +126,10 @@ const createStyles = (theme: any) => {
 
     title: {
       fontSize: 32,
-      lineHeight: 37,
+      lineHeight: 38,
       fontWeight: '900',
       color: COLORS.ink,
-      letterSpacing: -1.3,
+      letterSpacing: -1,
     },
 
     subtitle: {
@@ -138,29 +140,25 @@ const createStyles = (theme: any) => {
     },
 
     notificationButton: {
-      width: 47,
-      height: 47,
-      borderRadius: 16,
+      width: 44,
+      height: 44,
+      flexShrink: 0,
+      borderRadius: 14,
       backgroundColor: COLORS.white,
       alignItems: 'center',
       justifyContent: 'center',
-
       borderWidth: 1,
       borderColor: COLORS.border,
-
-      shadowColor: COLORS.primary,
-      shadowOffset: {
-        width: 0,
-        height: 5,
-      },
-      shadowOpacity: 0.08,
-      shadowRadius: 10,
-      elevation: 3,
+      elevation: 2,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 4,
+      marginLeft: 8,
     },
 
     notificationIcon: {
-      fontSize: 25,
-      color: COLORS.ink,
+      fontSize: 22,
     },
 
     notificationDot: {
@@ -169,8 +167,15 @@ const createStyles = (theme: any) => {
       height: 8,
       borderRadius: 4,
       backgroundColor: COLORS.coral,
-      right: 9,
-      top: 8,
+      right: 8,
+      top: 7,
+    },
+
+    attendanceContainer: {
+      width: '100%',
+      alignSelf: 'stretch',
+      marginTop: 14,
+      marginBottom: 4,
     },
 
     /* =====================================================
@@ -179,8 +184,8 @@ const createStyles = (theme: any) => {
 
     searchRow: {
       flexDirection: 'row',
-      marginLeft: 280,
-      marginTop: 10,
+      justifyContent: 'flex-end',
+      marginTop: 14,
     },
 
     searchBox: {
@@ -240,6 +245,7 @@ const createStyles = (theme: any) => {
   ===================================================== */
     statTotal: {
       backgroundColor: COLORS.primary,
+      borderColor: COLORS.primary,
       shadowColor: COLORS.primary,
     },
 
@@ -258,29 +264,28 @@ const createStyles = (theme: any) => {
       shadowColor: COLORS.green,
     },
 
-    statsScroll: {
-      paddingTop: 13,
-      paddingBottom: 7,
-      paddingRight: 10,
-      gap: 9,
+    statsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      paddingTop: 12,
+      paddingBottom: 4,
+      rowGap: 10,
     },
 
     statCard: {
-      width: 112,
-      minHeight: 112,
-      borderRadius: 22,
+      width: '48.5%',
+      minHeight: 104,
+      borderRadius: 18,
       padding: 13,
-
       justifyContent: 'space-between',
-
-      shadowOffset: {
-        width: 0,
-        height: 7,
-      },
-
-      shadowOpacity: 0.12,
-      shadowRadius: 13,
-      elevation: 3,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.045,
+      shadowRadius: 7,
+      elevation: 2,
     },
 
     statIcon: {
@@ -299,9 +304,10 @@ const createStyles = (theme: any) => {
     },
 
     statNumber: {
-      fontSize: 25,
+      fontSize: 27,
       fontWeight: '900',
       color: COLORS.ink,
+      marginTop: 7,
     },
 
     statLabel: {
@@ -450,19 +456,15 @@ const createStyles = (theme: any) => {
 
     ticketCard: {
       backgroundColor: COLORS.white,
-      borderRadius: 22,
+      borderRadius: 18,
       borderWidth: 1,
       borderColor: COLORS.border,
       padding: 15,
-
-      shadowColor: '#7B69A5',
-      shadowOffset: {
-        width: 0,
-        height: 6,
-      },
-      shadowOpacity: 0.07,
-      shadowRadius: 14,
-      elevation: 3,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.045,
+      shadowRadius: 8,
+      elevation: 2,
     },
 
     ticketTopRow: {
@@ -475,7 +477,7 @@ const createStyles = (theme: any) => {
       paddingHorizontal: 9,
       paddingVertical: 6,
       borderRadius: 10,
-      backgroundColor: '#F5F2FA',
+      backgroundColor: COLORS.background,
     },
 
     ticketNumberText: {
@@ -510,7 +512,7 @@ const createStyles = (theme: any) => {
     },
 
     statusUnknown: {
-      backgroundColor: '#F4F1F6',
+      backgroundColor: COLORS.background,
     },
 
     statusDot: {
@@ -547,22 +549,22 @@ const createStyles = (theme: any) => {
   ===================================================== */
     moduleIconPurple: {
       backgroundColor: COLORS.primarySoft,
-      borderColor: 'rgba(115, 87, 232, 0.20)',
+      borderColor: COLORS.border,
     },
 
     moduleIconCoral: {
       backgroundColor: COLORS.coralSoft,
-      borderColor: 'rgba(232, 117, 104, 0.20)',
+      borderColor: COLORS.border,
     },
 
     moduleIconGreen: {
       backgroundColor: COLORS.greenSoft,
-      borderColor: 'rgba(39, 163, 111, 0.20)',
+      borderColor: COLORS.border,
     },
 
     moduleIconBlue: {
       backgroundColor: COLORS.blueSoft,
-      borderColor: 'rgba(77, 131, 232, 0.20)',
+      borderColor: COLORS.border,
     },
     ticketTitleRow: {
       flexDirection: 'row',
@@ -622,7 +624,7 @@ const createStyles = (theme: any) => {
       width: 35,
       height: 35,
       borderRadius: 12,
-      backgroundColor: '#F7F4FA',
+      backgroundColor: COLORS.background,
 
       alignItems: 'center',
       justifyContent: 'center',

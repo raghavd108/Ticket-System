@@ -1,11 +1,59 @@
-const userModel = require("../model/user.model");
-const organisationModel = require("../model/organisations.model");
-
+const prisma = require("../config/prisma");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 
 // =====================================================
-// REGISTER
+// SERIALIZE USER — PRESERVE API RESPONSE STRUCTURE
+// =====================================================
+
+function serializeUser(user) {
+  if (!user) return null;
+
+  const {
+    password,
+    organisationId,
+    assignedEmployees,
+    assignedToClients,
+    organisationsCreated,
+    ...rest
+  } = user;
+
+  const result = {
+    ...rest,
+    _id: user.id,
+  };
+
+  if (user.organisation) {
+    result.organisation = {
+      _id: user.organisation.id,
+      name: user.organisation.name,
+    };
+  } else if (organisationId) {
+    result.organisation = organisationId;
+  }
+
+  if (Array.isArray(assignedEmployees)) {
+    result.assignedEmployee = assignedEmployees.map((assignment) => {
+      if (!assignment.employee) {
+        return assignment.employeeId;
+      }
+
+      return {
+        _id: assignment.employee.id,
+        userName: assignment.employee.userName,
+        email: assignment.employee.email,
+        ...(assignment.employee.designation !== undefined
+          ? { designation: assignment.employee.designation }
+          : {}),
+      };
+    });
+  }
+
+  return result;
+}
+
+// =====================================================
+// REGISTER USER
 // =====================================================
 
 async function register(req, res) {
@@ -20,36 +68,69 @@ async function register(req, res) {
       assignedEmployee,
     } = req.body;
 
-    // ==========================================
-    // VALIDATION
-    // ==========================================
-
-    if (!organisation || !userName || !email || !password || !role) {
+    if (!userName || !email || !password || !role) {
       return res.status(400).json({
-        message:
-          "Organisation, username, email, password and role are required",
+        message: "Username, email, password and role are required",
       });
     }
 
-    // Validate role
     if (!["admin", "client", "employee"].includes(role)) {
       return res.status(400).json({
         message: "Invalid role",
       });
     }
 
-    // Employee must have designation
     if (role === "employee" && !designation) {
       return res.status(400).json({
         message: "Designation is required for employee",
       });
     }
 
-    // ==========================================
-    // FIND ORGANISATION
-    // ==========================================
+    const isAuthenticatedAdmin = req.user?.role === "admin";
 
-    const org = await organisationModel.findById(organisation);
+    const adminOrganisationId = String(
+      req.user?.organisation?.id ||
+        req.user?.organisationId ||
+        req.user?.organisation ||
+        "",
+    );
+
+    // Admins cannot create other admin accounts.
+    if (isAuthenticatedAdmin && role === "admin") {
+      return res.status(403).json({
+        message: "An admin cannot create another admin account",
+      });
+    }
+
+    // Employees always belong to their creating admin's organisation.
+    let targetOrganisationId = organisation ? String(organisation) : "";
+
+    if (isAuthenticatedAdmin && role === "employee") {
+      targetOrganisationId = adminOrganisationId;
+    }
+
+    if (!targetOrganisationId) {
+      return res.status(400).json({
+        message: "Organisation is required",
+      });
+    }
+
+    if (isAuthenticatedAdmin && !adminOrganisationId) {
+      return res.status(400).json({
+        message: "Your account is not linked to an organisation",
+      });
+    }
+
+    // Find the selected organisation.
+    const org = await prisma.organisation.findUnique({
+      where: {
+        id: targetOrganisationId,
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
 
     if (!org) {
       return res.status(404).json({
@@ -57,13 +138,29 @@ async function register(req, res) {
       });
     }
 
-    // ==========================================
-    // CHECK DUPLICATE USER
-    // ==========================================
+    // Employees cannot be created in another organisation.
+    if (
+      isAuthenticatedAdmin &&
+      role !== "client" &&
+      targetOrganisationId !== adminOrganisationId
+    ) {
+      return res.status(403).json({
+        message: "You can only create users in your own organisation",
+      });
+    }
 
-    const existingUser = await userModel.findOne({
-      organisation: org._id,
-      $or: [{ userName }, { email }],
+    const normalizedUserName = String(userName).trim();
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    // Check duplicates.
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        organisationId: org.id,
+        OR: [{ userName: normalizedUserName }, { email: normalizedEmail }],
+      },
+      select: {
+        id: true,
+      },
     });
 
     if (existingUser) {
@@ -72,76 +169,133 @@ async function register(req, res) {
       });
     }
 
-    // ==========================================
-    // VALIDATE ASSIGNED EMPLOYEES
-    // ==========================================
+    // =================================================
+    // VALIDATE CLIENT EMPLOYEE ASSIGNMENTS
+    // =================================================
 
     let employeeIds = [];
 
-    if (role === "client" && assignedEmployee) {
+    if (role === "client" && assignedEmployee !== undefined) {
       if (!Array.isArray(assignedEmployee)) {
         return res.status(400).json({
-          message: "assignedEmployee must be an array",
+          message: "assignedEmployee must be an array of employee IDs",
         });
       }
 
-      employeeIds = assignedEmployee;
+      employeeIds = [...new Set(assignedEmployee.map(String))];
 
-      // Find employees
-      const employees = await userModel.find({
-        _id: { $in: employeeIds },
-        role: "employee",
+      if (
+        employeeIds.some((id) => !id || id === "undefined" || id === "null")
+      ) {
+        return res.status(400).json({
+          message: "Every assignedEmployee value must be a valid employee ID",
+        });
+      }
+
+      // The employees must belong to the logged-in admin's organisation.
+      // The client may belong to a different, selected organisation.
+      const employeeOrganisationId = isAuthenticatedAdmin
+        ? adminOrganisationId
+        : org.id;
+
+      if (!employeeOrganisationId) {
+        return res.status(400).json({
+          message: "Unable to determine the employee organisation",
+        });
+      }
+
+      const employees = await prisma.user.findMany({
+        where: {
+          id: {
+            in: employeeIds,
+          },
+          role: "employee",
+          organisationId: employeeOrganisationId,
+        },
+        select: {
+          id: true,
+        },
       });
 
-      // Make sure all selected employees exist
       if (employees.length !== employeeIds.length) {
         return res.status(400).json({
-          message:
-            "One or more selected employees are invalid or do not belong to this organisation",
+          message: isAuthenticatedAdmin
+            ? "One or more selected employees do not belong to your organisation"
+            : "One or more selected employees are invalid or do not belong to this organisation",
         });
       }
     }
 
-    // ==========================================
-    // HASH PASSWORD
-    // ==========================================
-
-    const hash = await bcrypt.hash(password, 10);
-
-    // ==========================================
+    // =================================================
     // CREATE USER
-    // ==========================================
+    // =================================================
 
-    const user = await userModel.create({
-      organisation: org._id,
-      userName,
-      email,
-      password: hash,
-      role,
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-      designation: role === "employee" ? designation : undefined,
+    const user = await prisma.user.create({
+      data: {
+        userName: normalizedUserName,
+        email: normalizedEmail,
+        password: hashedPassword,
+        role,
+        organisationId: org.id,
+        designation: role === "employee" ? String(designation).trim() : null,
 
-      // Only clients get assigned employees
-      assignedEmployee: role === "client" ? employeeIds : [],
+        ...(role === "client" && employeeIds.length > 0
+          ? {
+              assignedEmployees: {
+                create: employeeIds.map((employeeId) => ({
+                  employee: {
+                    connect: {
+                      id: employeeId,
+                    },
+                  },
+                })),
+              },
+            }
+          : {}),
+      },
+
+      include: {
+        organisation: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        assignedEmployees: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                userName: true,
+                email: true,
+                designation: true,
+              },
+            },
+          },
+        },
+      },
     });
-
-    // ==========================================
-    // RESPONSE
-    // ==========================================
-
-    const populatedUser = await userModel
-      .findById(user._id)
-      .select("-password")
-      .populate("organisation", "name")
-      .populate("assignedEmployee", "userName email designation");
 
     return res.status(201).json({
       message: "User registered successfully",
-
-      user: populatedUser,
+      user: serializeUser(user),
     });
   } catch (error) {
     console.error("REGISTER ERROR:", error);
+
+    if (error.code === "P2002") {
+      return res.status(409).json({
+        message: "A user with this username or email already exists",
+      });
+    }
+
+    if (error.code === "P2003" || error.code === "P2025") {
+      return res.status(400).json({
+        message: "Invalid organisation or employee assignment",
+      });
+    }
 
     return res.status(500).json({
       message: "Server error",
@@ -163,11 +317,19 @@ async function login(req, res) {
       });
     }
 
-    const user = await userModel
-      .findOne({
+    const user = await prisma.user.findFirst({
+      where: {
         userName,
-      })
-      .populate("organisation", "name");
+      },
+      include: {
+        organisation: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
 
     if (!user) {
       return res.status(401).json({
@@ -175,21 +337,19 @@ async function login(req, res) {
       });
     }
 
-    // Check password
-    const isPasswordCorrect = await bcrypt.compare(password, user.password);
+    const passwordCorrect = await bcrypt.compare(password, user.password);
 
-    if (!isPasswordCorrect) {
+    if (!passwordCorrect) {
       return res.status(401).json({
         message: "Invalid username or password",
       });
     }
 
-    // Generate token
     const token = jwt.sign(
       {
-        id: user._id,
+        id: user.id,
         role: user.role,
-        organisation: user.organisation._id,
+        organisation: user.organisation?.id || user.organisationId,
         userName: user.userName,
         email: user.email,
       },
@@ -203,20 +363,18 @@ async function login(req, res) {
 
     return res.status(200).json({
       message: "User login successful",
-
       token,
-
       user: {
-        id: user._id,
+        id: user.id,
         userName: user.userName,
         email: user.email,
         role: user.role,
-
-        organisation: {
-          id: user.organisation._id,
-          name: user.organisation.name,
-        },
-
+        organisation: user.organisation
+          ? {
+              id: user.organisation.id,
+              name: user.organisation.name,
+            }
+          : null,
         designation: user.designation,
       },
     });
@@ -233,12 +391,33 @@ async function login(req, res) {
 // GET CURRENT USER
 // =====================================================
 
-const getMe = async (req, res) => {
+async function getMe(req, res) {
   try {
-    const user = await userModel
-      .findById(req.user.id)
-      .select("-password")
-      .populate("organisation", "name");
+    const user = await prisma.user.findUnique({
+      where: {
+        id: String(req.user.id),
+      },
+      include: {
+        organisation: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        assignedEmployees: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                userName: true,
+                email: true,
+                designation: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
     if (!user) {
       return res.status(404).json({
@@ -248,7 +427,7 @@ const getMe = async (req, res) => {
 
     return res.status(200).json({
       message: "User is authenticated",
-      user,
+      user: serializeUser(user),
     });
   } catch (error) {
     console.error("GET ME ERROR:", error);
@@ -257,7 +436,7 @@ const getMe = async (req, res) => {
       message: "Server error",
     });
   }
-};
+}
 
 // =====================================================
 // UPDATE PROFILE
@@ -273,32 +452,80 @@ async function updateProfile(req, res) {
       });
     }
 
-    const user = await userModel
-      .findByIdAndUpdate(
-        req.user.id,
-        {
-          userName,
-          email,
-        },
-        {
-          new: true,
-          runValidators: true,
-        },
-      )
-      .select("-password");
+    const userId = String(req.user.id);
+    const normalizedUserName = String(userName).trim();
+    const normalizedEmail = String(email).trim().toLowerCase();
 
-    if (!user) {
+    const existingUser = await prisma.user.findUnique({
+      where: {
+        id: userId,
+      },
+    });
+
+    if (!existingUser) {
       return res.status(404).json({
         message: "User not found",
       });
     }
 
+    const duplicate = await prisma.user.findFirst({
+      where: {
+        id: { not: userId },
+        OR: [{ userName: normalizedUserName }, { email: normalizedEmail }],
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (duplicate) {
+      return res.status(409).json({
+        message: "Username or email is already in use",
+      });
+    }
+
+    const user = await prisma.user.update({
+      where: {
+        id: userId,
+      },
+      data: {
+        userName: normalizedUserName,
+        email: normalizedEmail,
+      },
+      include: {
+        organisation: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        assignedEmployees: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                userName: true,
+                email: true,
+                designation: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
     return res.status(200).json({
       message: "Username and email updated successfully",
-      user,
+      user: serializeUser(user),
     });
   } catch (error) {
     console.error("UPDATE PROFILE ERROR:", error);
+
+    if (error.code === "P2002") {
+      return res.status(409).json({
+        message: "Username or email is already in use",
+      });
+    }
 
     return res.status(500).json({
       message: "Failed to update profile",
@@ -320,7 +547,17 @@ async function updatePassword(req, res) {
       });
     }
 
-    const user = await userModel.findById(req.user.id);
+    if (String(newPassword).length < 8) {
+      return res.status(400).json({
+        message: "New password must be at least 8 characters long",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: {
+        id: String(req.user.id),
+      },
+    });
 
     if (!user) {
       return res.status(404).json({
@@ -328,24 +565,27 @@ async function updatePassword(req, res) {
       });
     }
 
-    // Check old password
-    const isPasswordCorrect = await bcrypt.compare(
+    const passwordCorrect = await bcrypt.compare(
       currentPassword,
       user.password,
     );
 
-    if (!isPasswordCorrect) {
+    if (!passwordCorrect) {
       return res.status(401).json({
         message: "Invalid current password",
       });
     }
 
-    // Hash new password
-    const hashNewPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    user.password = hashNewPassword;
-
-    await user.save();
+    await prisma.user.update({
+      where: {
+        id: user.id,
+      },
+      data: {
+        password: hashedPassword,
+      },
+    });
 
     return res.status(200).json({
       message: "Password updated successfully",
@@ -360,30 +600,55 @@ async function updatePassword(req, res) {
 }
 
 // =====================================================
-// GET CLIENTS
+// GET CLIENTS AND EMPLOYEES
 // =====================================================
 
 async function getUser(req, res) {
   try {
-    const clients = await userModel
-      .find({
+    const users = await prisma.user.findMany({
+      where: {
         role: {
-          $in: ["client", "employee"],
+          in: ["client", "employee"],
         },
-      })
-      .populate("organisation", "name")
-      .populate("assignedEmployee", "userName designation email")
-      .select("userName email organisation role");
+      },
+      select: {
+        id: true,
+        userName: true,
+        email: true,
+        role: true,
+        organisation: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        assignedEmployees: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                userName: true,
+                designation: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        userName: "asc",
+      },
+    });
 
     return res.status(200).json({
-      message: "Clients fetched successfully",
-      users: clients,
+      message: "Users fetched successfully",
+      users: users.map(serializeUser),
     });
   } catch (error) {
-    console.error("GET CLIENTS ERROR:", error);
+    console.error("GET USERS ERROR:", error);
 
     return res.status(500).json({
-      message: "Unable to fetch clients",
+      message: "Unable to fetch users",
     });
   }
 }
@@ -403,15 +668,14 @@ async function saveFcmToken(req, res) {
       });
     }
 
-    await userModel.findByIdAndUpdate(
-      req.user.id,
-      {
+    await prisma.user.update({
+      where: {
+        id: String(req.user.id),
+      },
+      data: {
         fcmToken,
       },
-      {
-        new: true,
-      },
-    );
+    });
 
     return res.status(200).json({
       success: true,
@@ -426,23 +690,51 @@ async function saveFcmToken(req, res) {
     });
   }
 }
+
 // =====================================================
-// GET EMPLOYEES
+// GET EMPLOYEES OF LOGGED-IN ADMIN'S ORGANISATION
 // =====================================================
 
 async function getEmployees(req, res) {
   try {
-    const employees = await userModel
-      .find({
+    const organisationId = String(
+      req.user?.organisation?.id ||
+        req.user?.organisationId ||
+        req.user?.organisation ||
+        "",
+    );
+
+    if (!organisationId) {
+      return res.status(400).json({
+        message: "Your account is not linked to an organisation",
+      });
+    }
+
+    const employees = await prisma.user.findMany({
+      where: {
         role: "employee",
-        organisation: req.user.organisation,
-      })
-      .select("_id userName email designation organisation")
-      .populate("organisation", "name");
+        organisationId,
+      },
+      select: {
+        id: true,
+        userName: true,
+        email: true,
+        designation: true,
+        organisation: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: {
+        userName: "asc",
+      },
+    });
 
     return res.status(200).json({
       message: "Employees fetched successfully",
-      employees,
+      employees: employees.map(serializeUser),
     });
   } catch (error) {
     console.error("GET EMPLOYEES ERROR:", error);

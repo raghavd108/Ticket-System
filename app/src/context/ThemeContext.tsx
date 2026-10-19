@@ -7,17 +7,35 @@ interface Theme {
   text: string;
   muted: string;
   light: string;
+
   primary: string;
   primaryDark: string;
   primarySoft: string;
+  softPrimary: string;
+
   blue: string;
   blueSoft: string;
+
   coral: string;
   coralSoft: string;
+
   orange: string;
   orangeSoft: string;
+
   green: string;
   greenSoft: string;
+
+  success: string;
+  successSoft: string;
+
+  danger: string;
+  dangerSoft: string;
+
+  warning: string;
+  warningSoft: string;
+
+  input: string;
+
   border: string;
   divider: string;
   dark: string;
@@ -26,136 +44,122 @@ interface Theme {
 
 interface ThemeContextType {
   isDarkMode: boolean;
-
   theme: Theme;
-
   toggleTheme: () => void;
 }
 
 const lightTheme: Theme = {
   // Main background
-  background: '#F3F6F8',
+  background: '#F7F6F2',
 
-  // Cards / surfaces
+  // Cards and surfaces
   white: '#FFFFFF',
-  everWhite: '#ffffff',
-  // Strongest text
-  ink: '#17212B',
+  everWhite: '#FFFFFF',
 
-  // Normal text
-  text: '#37475A',
+  // Text
+  ink: '#242720',
+  text: '#242720',
+  muted: '#777D72',
+  light: '#A7ADA4',
 
-  // Secondary text
-  muted: '#6B7785',
+  // Primary brand — warm earthy brown
+  primary: '#A47745',
+  primaryDark: '#805A32',
+  primarySoft: '#F5EDE2',
+  softPrimary: '#F5EDE2',
 
-  // Disabled / subtle text
-  light: '#9AA5B1',
-
-  // Main brand / CTA
-  primary: '#FF9900',
-
-  // Dark orange
-  primaryDark: '#E47911',
-
-  // Soft orange
-  primarySoft: '#FFF3E0',
-
-  // Supporting blue
+  // Supporting colours
   blue: '#4FA3D1',
-
-  // Soft blue
   blueSoft: '#E8F4FA',
 
-  // Danger
-  coral: '#D9534F',
+  // Coral
+  coral: '#C34D4D',
+  coralSoft: '#FCECEC',
 
-  // Soft danger
-  coralSoft: '#FDECEC',
+  // Warning orange
+  orange: '#A66C13',
+  orangeSoft: '#FFF3D9',
 
-  // Warning
-  orange: '#F5A623',
+  // Success green
+  green: '#238653',
+  greenSoft: '#E7F5EC',
 
-  // Soft warning
-  orangeSoft: '#FFF4DE',
+  // Status colours
+  success: '#238653',
+  successSoft: '#E7F5EC',
 
-  // Success
-  green: '#168F6B',
+  danger: '#C34D4D',
+  dangerSoft: '#FCECEC',
 
-  // Soft success
-  greenSoft: '#E7F6F0',
+  warning: '#A66C13',
+  warningSoft: '#FFF3D9',
 
-  // Borders
-  border: '#DDE3E8',
+  // Inputs
+  input: '#FFFFFF',
 
-  // Dividers
-  divider: '#EAEFF3',
+  // Borders and dividers
+  border: '#E6E5DD',
+  divider: '#ECEBE5',
 
-  // Deep navy / ink
-  dark: '#232F3E',
+  // Dark surface
+  dark: '#242720',
 };
 
 const darkTheme: Theme = {
   // Main background
-  background: '#0F1822',
+  background: '#151715',
 
-  // Cards / surfaces
-  white: '#182533',
+  // Cards and surfaces
+  white: '#202320',
+  everWhite: '#FFFFFF',
 
-  everWhite: '#ffffff',
+  // Text
+  ink: '#F4F4EF',
+  text: '#F4F4EF',
+  muted: '#A7ADA4',
+  light: '#777D72',
 
-  // Strongest text
-  ink: '#FFFFFF',
+  // Primary brand — warm earthy brown
+  primary: '#A47745',
+  primaryDark: '#C29460',
+  primarySoft: '#3A3025',
+  softPrimary: '#3A3025',
 
-  // Normal text
-  text: '#E7EDF3',
-
-  // Secondary text
-  muted: '#A7B4C0',
-
-  // Disabled / subtle text
-  light: '#6F7D89',
-
-  // Main brand / CTA
-  primary: '#FF9900',
-
-  // Dark orange
-  primaryDark: '#E47911',
-
-  // Soft orange
-  primarySoft: '#3A2A18',
-
-  // Supporting blue
+  // Supporting colours
   blue: '#62B5E5',
-
-  // Soft blue
   blueSoft: '#1C3445',
 
-  // Danger
+  // Coral
   coral: '#F07870',
+  coralSoft: '#3D2525',
 
-  // Soft danger
-  coralSoft: '#422624',
-
-  // Warning
+  // Warning orange
   orange: '#FFB74D',
+  orangeSoft: '#3D3320',
 
-  // Soft warning
-  orangeSoft: '#3C301E',
-
-  // Success
+  // Success green
   green: '#43B98D',
+  greenSoft: '#1D3829',
 
-  // Soft success
-  greenSoft: '#19382F',
+  // Status colours
+  success: '#238653',
+  successSoft: '#1D3829',
 
-  // Borders
-  border: '#2B3A48',
+  danger: '#C34D4D',
+  dangerSoft: '#3D2525',
 
-  // Dividers
-  divider: '#22313E',
+  warning: '#A66C13',
+  warningSoft: '#3D3320',
 
-  // Deep navy
-  dark: '#0B121A',
+  // Inputs
+  input: '#202320',
+
+  // Borders and dividers
+  border: '#3A4039',
+  divider: '#2B302A',
+
+  // Dark surface
+  dark: '#0D100D',
 };
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);

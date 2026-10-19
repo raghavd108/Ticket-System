@@ -1,10 +1,23 @@
 require("dotenv").config();
+
 const app = require("./src/app");
+const prisma = require("./src/config/prisma");
 
-const connectDb = require("./src/db/db");
+const PORT = process.env.PORT || 3000;
 
-connectDb();
+async function startServer() {
+  try {
+    // Connect to MySQL through Prisma.
+    await prisma.$connect();
+    console.log("MySQL connected successfully through Prisma");
 
-app.listen(3000, () => {
-  console.log("server is running on the port 3000");
-});
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server is running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+}
+
+startServer();

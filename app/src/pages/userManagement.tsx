@@ -16,6 +16,11 @@ import { useTheme } from '../context/ThemeContext';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import {
+  pick,
+  isErrorWithCode,
+  errorCodes,
+} from '@react-native-documents/picker';
 import createstyles from '../style/clientManager';
 
 interface AssignedEmployee {
@@ -65,6 +70,9 @@ const ClientPage = () => {
   const [role, setRole] = useState('');
   const [password, setPassword] = useState('');
   const [designation, setDesignation] = useState('');
+  const [documentTitle, setDocumentTitle] = useState('');
+
+  const [uploadingDocuments, setUploadingDocuments] = useState(false);
 
   // DATA
 
@@ -75,12 +83,14 @@ const ClientPage = () => {
   const [assignedEmployee, setAssignedEmployee] = useState<string[]>([]);
   const [showEmployeeList, setShowEmployeeList] = useState(false);
   const [selectedClient, setSelectedClient] = useState<User | null>(null);
+  const [documentFiles, setDocumentFiles] = useState<any[]>([]);
 
   // UI
 
   // Separate modals
   const [showClientModal, setShowClientModal] = useState(false);
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
 
   // Existing organisation modal
   const [showOrganisationModal, setShowOrganisationModal] = useState(false);
@@ -672,6 +682,160 @@ const ClientPage = () => {
   const openOrganisationModal = () => {
     setNewOrganisationName('');
     setShowOrganisationModal(true);
+  };
+
+  // OPEN UPLOAD MODAL
+  const openUploadModal = () => {
+    if (selectedClient?.role !== 'employee') {
+      Alert.alert(
+        'Employee Required',
+        'Please select an employee before uploading documents.',
+      );
+      return;
+    }
+
+    setDocumentTitle('');
+    setDocumentFiles([]);
+    setShowUploadModal(true);
+  };
+
+  // CLOSE UPLOAD MODAL
+  const closeUploadModal = () => {
+    if (uploadingDocuments) {
+      return;
+    }
+
+    setShowUploadModal(false);
+    setDocumentTitle('');
+    setDocumentFiles([]);
+  };
+
+  // PICK DOCUMENTS
+  const pickDocuments = async () => {
+    try {
+      const remainingSlots = 10 - documentFiles.length;
+
+      if (remainingSlots <= 0) {
+        Alert.alert('File Limit', 'You can select a maximum of 10 files.');
+        return;
+      }
+
+      const result = await pick({
+        allowMultiSelection: true,
+      });
+
+      setDocumentFiles(previous => {
+        const existingUris = new Set(previous.map(file => file.uri));
+        const newFiles = result.filter(file => !existingUris.has(file.uri));
+        const availableSlots = 10 - previous.length;
+
+        if (newFiles.length > availableSlots) {
+          Alert.alert('File Limit', 'You can select a maximum of 10 files.');
+        }
+
+        return [...previous, ...newFiles.slice(0, availableSlots)];
+      });
+    } catch (error) {
+      if (
+        isErrorWithCode(error) &&
+        error.code === errorCodes.OPERATION_CANCELED
+      ) {
+        return;
+      }
+
+      console.log('DOCUMENT PICKER ERROR:', error);
+      Alert.alert('Error', 'Unable to select documents.');
+    }
+  };
+
+  // REMOVE SELECTED FILE
+  const removeDocument = (uri: string) => {
+    setDocumentFiles(previous => previous.filter(file => file.uri !== uri));
+  };
+
+  // UPLOAD DOCUMENTS
+  const uploadDocuments = async () => {
+    const employeeId = selectedClient?._id || selectedClient?.id;
+
+    if (selectedClient?.role !== 'employee' || !employeeId) {
+      Alert.alert('Employee Required', 'Please select a valid employee.');
+      return;
+    }
+
+    if (!documentTitle.trim()) {
+      Alert.alert('Title Required', 'Please enter a document title.');
+      return;
+    }
+
+    if (documentFiles.length === 0) {
+      Alert.alert('Files Required', 'Please select at least one file.');
+      return;
+    }
+
+    if (documentFiles.length > 10) {
+      Alert.alert('File Limit', 'You can upload a maximum of 10 files.');
+      return;
+    }
+
+    try {
+      setUploadingDocuments(true);
+
+      const token = await AsyncStorage.getItem('token');
+
+      if (!token) {
+        Alert.alert('Authentication Error', 'Please log in again.');
+        return;
+      }
+
+      const formData = new FormData();
+
+      // Selected employee's ID is sent automatically.
+      formData.append('employeeId', employeeId);
+      formData.append('title', documentTitle.trim());
+
+      documentFiles.forEach((file, index) => {
+        formData.append('files', {
+          uri: file.uri,
+          name: file.name || `document-${index + 1}`,
+          type: file.type || 'application/octet-stream',
+        } as any);
+      });
+
+      const response = await axios.post(
+        'http://10.0.2.2:3000/api/documents/upload',
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data',
+          },
+        },
+      );
+
+      console.log('DOCUMENT UPLOAD RESPONSE:', response.data);
+
+      Alert.alert(
+        'Upload Successful',
+        'Documents have been assigned to the selected employee.',
+      );
+
+      setShowUploadModal(false);
+      setDocumentTitle('');
+      setDocumentFiles([]);
+    } catch (error: any) {
+      console.log(
+        'DOCUMENT UPLOAD ERROR:',
+        error.response?.data || error.message,
+      );
+
+      Alert.alert(
+        'Upload Failed',
+        error.response?.data?.message ||
+          'Unable to upload documents. Please try again.',
+      );
+    } finally {
+      setUploadingDocuments(false);
+    }
   };
 
   // VIEW USER
@@ -2173,6 +2337,34 @@ const ClientPage = () => {
                   </Text>
                 </View>
               </View>
+              {selectedClient?.role === 'employee' && (
+                <View>
+                  <TouchableOpacity
+                    onPress={openUploadModal}
+                    activeOpacity={0.8}
+                    style={{
+                      backgroundColor: '#7357E8',
+                      borderRadius: 12,
+                      paddingVertical: 14,
+                      paddingHorizontal: 16,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: '#FFFFFF',
+                        fontSize: 15,
+                        fontWeight: '700',
+                      }}
+                    >
+                      + Upload Documents
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
 
               {/* Assigned Employees */}
               {selectedClient?.role === 'client' && (
@@ -2222,6 +2414,142 @@ const ClientPage = () => {
             >
               <Text style={styles.doneButtonText}>Close</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={showUploadModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          if (!uploadingDocuments) {
+            setShowUploadModal(false);
+          }
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.uploadModal}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Header */}
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Upload Documents</Text>
+
+                <TouchableOpacity
+                  disabled={uploadingDocuments}
+                  onPress={() => setShowUploadModal(false)}
+                  style={styles.closeButton}
+                >
+                  <Text style={styles.closeText}>×</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.modalSubtitle}>
+                Assign documents directly to this employee.
+              </Text>
+
+              {/* Selected employee */}
+              <View style={styles.employeeCard}>
+                <Text style={styles.employeeLabel}>ASSIGNED EMPLOYEE</Text>
+
+                <Text style={styles.employeeName}>
+                  {selectedClient?.userName || 'Unknown employee'}
+                </Text>
+
+                <Text style={styles.employeeId}>
+                  ID:{' '}
+                  {selectedClient?._id || selectedClient?.id || 'Unavailable'}
+                </Text>
+              </View>
+
+              {/* Document title */}
+              <Text style={styles.fieldLabel}>DOCUMENT TITLE</Text>
+
+              <TextInput
+                value={documentTitle}
+                onChangeText={setDocumentTitle}
+                placeholder="e.g. Employment Documents"
+                placeholderTextColor="#A1A1AA"
+                editable={!uploadingDocuments}
+                style={styles.titleInput}
+              />
+
+              {/* File picker */}
+              <TouchableOpacity
+                onPress={pickDocuments}
+                disabled={uploadingDocuments}
+                activeOpacity={0.8}
+                style={styles.filePicker}
+              >
+                <Text style={styles.filePickerIcon}>📎</Text>
+                <Text style={styles.filePickerTitle}>Select Files</Text>
+                <Text style={styles.filePickerSubtitle}>
+                  Choose multiple documents
+                </Text>
+              </TouchableOpacity>
+
+              {/* Selected files */}
+              {documentFiles.map((file, index) => (
+                <View key={`${file.uri}-${index}`} style={styles.fileItem}>
+                  <Text style={styles.fileIcon}>📄</Text>
+
+                  <View style={styles.fileInfo}>
+                    <Text style={styles.fileName} numberOfLines={2}>
+                      {file.name || 'Unnamed document'}
+                    </Text>
+
+                    {typeof file.size === 'number' && (
+                      <Text style={styles.fileSize}>
+                        {(file.size / (1024 * 1024)).toFixed(2)} MB
+                      </Text>
+                    )}
+                  </View>
+
+                  <TouchableOpacity
+                    disabled={uploadingDocuments}
+                    onPress={() => removeDocument(file.uri)}
+                    style={styles.removeButton}
+                  >
+                    <Text style={styles.removeText}>×</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+
+              <Text style={styles.fileCount}>
+                {documentFiles.length} file(s) selected · Maximum 10 files
+              </Text>
+
+              {/* Upload button */}
+              <TouchableOpacity
+                onPress={uploadDocuments}
+                disabled={uploadingDocuments}
+                activeOpacity={0.8}
+                style={[
+                  styles.uploadButton,
+                  uploadingDocuments && styles.uploadButtonDisabled,
+                ]}
+              >
+                {uploadingDocuments ? (
+                  <>
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                    <Text style={styles.uploadButtonText}>Uploading...</Text>
+                  </>
+                ) : (
+                  <Text style={styles.uploadButtonText}>Upload Documents</Text>
+                )}
+              </TouchableOpacity>
+
+              {/* Cancel */}
+              <TouchableOpacity
+                disabled={uploadingDocuments}
+                onPress={() => setShowUploadModal(false)}
+                style={styles.cancelButton}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>
