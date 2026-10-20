@@ -10,6 +10,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  PermissionsAndroid,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext.tsx';
 import axios from 'axios';
@@ -84,35 +85,62 @@ const ReportPage = () => {
       }
     });
   };
-  const takePhoto = () => {
-    const options: CameraOptions = {
-      mediaType: 'photo',
-      quality: 0.8,
-      cameraType: 'back',
-      saveToPhotos: false,
-    };
-    launchCamera(options, response => {
-      if (response.didCancel) {
-        return;
-      }
 
-      if (response.errorCode) {
-        console.log('Camera Error:', response.errorMessage);
-
-        Alert.alert(
-          'Camera Error',
-          response.errorMessage || 'Unable to open camera',
+  const takePhoto = async () => {
+    try {
+      if (Platform.OS === 'android') {
+        const permission = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.CAMERA,
+          {
+            title: 'Camera Permission',
+            message:
+              'Allow access to your camera to take complaint screenshots.',
+            buttonPositive: 'Allow',
+            buttonNegative: 'Cancel',
+          },
         );
 
-        return;
+        if (permission !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert(
+            'Camera Permission Required',
+            'Please allow camera access in your device settings to take a photo.',
+          );
+          return;
+        }
       }
-      if (response.assets && response.assets.length > 0) {
-        const photo = response.assets[0];
 
-        setImage(prev => [...prev, photo]);
-      }
-    });
+      const options: CameraOptions = {
+        mediaType: 'photo',
+        quality: 0.8,
+        cameraType: 'back',
+        saveToPhotos: false,
+      };
+
+      launchCamera(options, response => {
+        if (response.didCancel) {
+          return;
+        }
+
+        if (response.errorCode) {
+          console.log('Camera Error:', response.errorMessage);
+
+          Alert.alert(
+            'Camera Error',
+            response.errorMessage || 'Unable to open camera.',
+          );
+          return;
+        }
+
+        if (response.assets?.length) {
+          setImage(prev => [...prev, response.assets![0]]);
+        }
+      });
+    } catch (error) {
+      console.log('Camera Permission Error:', error);
+      Alert.alert('Error', 'Unable to access the camera.');
+    }
   };
+
   const removeImage = (indexToRemove: number) => {
     setImage(prev => prev.filter((_, index) => index !== indexToRemove));
   };

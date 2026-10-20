@@ -23,7 +23,10 @@ enum AttendanceStatus {
   present
   absent
   late
+  leave
+  holiday
 }
+
 
 enum NotificationType {
   NEW_TICKET
@@ -146,6 +149,8 @@ model DocumentFile {
 
   @@index([documentId])
 }
+
+
 
 model Attendance {
   id         String           @id @default(cuid())

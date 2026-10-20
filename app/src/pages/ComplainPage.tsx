@@ -484,13 +484,15 @@ const ComplainPage = () => {
                     : 'Track and manage your submitted support requests'}
                 </Text>
               </View>
-              <TouchableOpacity
-                style={styles.notificationButton}
-                activeOpacity={0.8}
-                onPress={handleCompanyCalendar}
-              >
-                <Text style={styles.notificationIcon}>📅</Text>
-              </TouchableOpacity>
+              {(isAdmin || isEmployee) && (
+                <TouchableOpacity
+                  style={styles.notificationButton}
+                  activeOpacity={0.8}
+                  onPress={handleCompanyCalendar}
+                >
+                  <Text style={styles.notificationIcon}>📅</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={styles.notificationButton}
                 activeOpacity={0.8}

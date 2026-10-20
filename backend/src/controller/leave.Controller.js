@@ -1,5 +1,13 @@
 const prisma = require("../config/prisma");
 
+const { DateTime } = require("luxon");
+
+const {
+  TIMEZONE,
+  getAttendanceDate,
+  isRegularHoliday,
+} = require("../utils/attendanceUtils.js");
+
 // =====================================================
 // HELPERS
 // =====================================================
@@ -318,6 +326,7 @@ exports.updateLeaveStatus = async (req, res) => {
       });
     }
 
+    // Verify that the leave belongs to an employee in this organisation.
     const leave = await prisma.leave.findFirst({
       where: {
         id: leaveId,
@@ -345,45 +354,132 @@ exports.updateLeaveStatus = async (req, res) => {
       });
     }
 
-    // Atomic conditional update prevents two admins from processing
-    // the same pending request simultaneously.
-    const result = await prisma.leave.updateMany({
+    // Build the requested date range using calendar dates.
+    const startDay = DateTime.fromJSDate(new Date(leave.startDate), {
+      zone: "utc",
+    })
+      .setZone(TIMEZONE)
+      .startOf("day");
+
+    const endDay = DateTime.fromJSDate(new Date(leave.endDate), { zone: "utc" })
+      .setZone(TIMEZONE)
+      .startOf("day");
+
+    const startDate = getAttendanceDate(startDay);
+    const endDate = getAttendanceDate(endDay);
+
+    // Load company calendar overrides for this leave period.
+    const calendarEntries = await prisma.companyCalendarDay.findMany({
       where: {
-        id: leaveId,
-        status: "pending",
-        employee: {
-          organisationId,
-          role: "employee",
+        date: {
+          gte: startDate,
+          lte: endDate,
         },
       },
-      data: {
-        status,
+      select: {
+        date: true,
+        type: true,
       },
     });
 
-    if (result.count === 0) {
-      return res.status(409).json({
-        message: "This leave request has already been processed.",
-      });
+    const calendarByDate = new Map(
+      calendarEntries.map((entry) => [
+        DateTime.fromJSDate(new Date(entry.date), {
+          zone: "utc",
+        }).toISODate(),
+        entry.type,
+      ]),
+    );
+
+    const attendanceDates = [];
+
+    // Include working days only.
+    // A company calendar override takes precedence over regular holidays.
+    for (
+      let day = startDay;
+      day.toMillis() <= endDay.toMillis();
+      day = day.plus({ days: 1 })
+    ) {
+      const dateKey = day.toISODate();
+      const calendarType = calendarByDate.get(dateKey);
+
+      const isHoliday =
+        calendarType !== undefined
+          ? calendarType === "HOLIDAY"
+          : isRegularHoliday(day);
+
+      if (!isHoliday) {
+        attendanceDates.push(getAttendanceDate(day));
+      }
     }
 
-    const updatedLeave = await prisma.leave.findUnique({
-      where: {
-        id: leaveId,
-      },
-      include: {
-        employee: {
-          select: employeeSelect,
+    // Update the leave and create attendance records in one transaction.
+    // Existing attendance records are never overwritten.
+    const updatedLeave = await prisma.$transaction(async (tx) => {
+      const result = await tx.leave.updateMany({
+        where: {
+          id: leaveId,
+          status: "pending",
+          employee: {
+            organisationId,
+            role: "employee",
+          },
         },
-      },
+        data: {
+          status,
+        },
+      });
+
+      if (result.count === 0) {
+        const error = new Error(
+          "This leave request has already been processed.",
+        );
+        error.code = "LEAVE_ALREADY_PROCESSED";
+        throw error;
+      }
+
+      // Only approval creates attendance records.
+      if (status === "approved" && attendanceDates.length > 0) {
+        await tx.attendance.createMany({
+          data: attendanceDates.map((date) => ({
+            employeeId: leave.employeeId,
+            date,
+            status: "leave",
+            inTime: null,
+            outTime: null,
+            location: "",
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      return tx.leave.findUnique({
+        where: {
+          id: leaveId,
+        },
+        include: {
+          employee: {
+            select: employeeSelect,
+          },
+        },
+      });
     });
 
     return res.status(200).json({
       success: true,
-      message: `Leave request ${status} successfully.`,
+      message:
+        status === "approved"
+          ? "Leave approved and attendance updated successfully."
+          : "Leave request rejected successfully.",
       leave: formatLeave(updatedLeave),
     });
   } catch (error) {
+    if (error.code === "LEAVE_ALREADY_PROCESSED") {
+      return res.status(409).json({
+        message: error.message,
+      });
+    }
+
     console.error("UPDATE LEAVE STATUS ERROR:", error);
 
     return res.status(500).json({
