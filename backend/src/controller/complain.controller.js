@@ -1,6 +1,6 @@
 const prisma = require("../config/prisma");
 const { uploadImage } = require("../services/imagekitService");
-const { getImageUrl } = require("../services/fileService");
+const { getSignedImageUrl } = require("../services/fileService");
 const { sendNotification } = require("../services/fcmService");
 
 // =====================================================
@@ -42,8 +42,7 @@ function getOrganisationId(user) {
   return id ? String(id) : null;
 }
 
-// Get all clients assigned to employees belonging to this organisation.
-// A client may belong to a different organisation.
+// Get clients assigned to employees in this organisation.
 async function getAssignedClientIds(organisationId) {
   if (!organisationId) return [];
 
@@ -65,7 +64,7 @@ async function getAssignedClientIds(organisationId) {
   return [...new Set(assignments.map((item) => item.clientId))];
 }
 
-// Get clients assigned to one particular employee.
+// Get clients assigned to a particular employee.
 async function getEmployeeClientIds(employeeId, organisationId) {
   const assignments = await prisma.userAssignment.findMany({
     where: {
@@ -86,7 +85,8 @@ async function getEmployeeClientIds(employeeId, organisationId) {
   return [...new Set(assignments.map((item) => item.clientId))];
 }
 
-function formatComplaint(complaint) {
+// Format a complaint and resolve all signed image URLs.
+async function formatComplaint(complaint) {
   if (!complaint) return null;
 
   const {
@@ -98,6 +98,14 @@ function formatComplaint(complaint) {
     status,
     ...rest
   } = complaint;
+
+  const formattedImages = await Promise.all(
+    (images || []).map(async (image) => ({
+      ...image,
+      _id: image.id,
+      url: await getSignedImageUrl(image.fileName),
+    })),
+  );
 
   return {
     ...rest,
@@ -118,11 +126,7 @@ function formatComplaint(complaint) {
         }
       : organisationId,
 
-    image: (images || []).map((image) => ({
-      ...image,
-      _id: image.id,
-      url: getImageUrl(image.fileName),
-    })),
+    image: formattedImages,
   };
 }
 
@@ -164,7 +168,7 @@ async function complain(req, res) {
       });
     }
 
-    // Only a valid client can create a complaint.
+    // Only clients belonging to an organisation can create tickets.
     const user = await prisma.user.findFirst({
       where: {
         id: userId,
@@ -184,7 +188,7 @@ async function complain(req, res) {
       });
     }
 
-    // Upload images.
+    // Upload images and save their file names.
     const uploadedImages = [];
 
     for (const file of req.files) {
@@ -195,7 +199,7 @@ async function complain(req, res) {
       });
     }
 
-    // Save complaint in MySQL.
+    // Create the complaint in MySQL through Prisma.
     const complaint = await prisma.complaint.create({
       data: {
         module,
@@ -210,8 +214,7 @@ async function complain(req, res) {
       include: complaintInclude,
     });
 
-    // Notify admins in the client's organisation and employees
-    // assigned to this client, regardless of organisation.
+    // Notify organisation admins and employees assigned to this client.
     try {
       const [admins, assignments] = await Promise.all([
         prisma.user.findMany({
@@ -251,6 +254,7 @@ async function complain(req, res) {
         .map((assignment) => assignment.employee)
         .filter(Boolean);
 
+      // Avoid notifying the same recipient more than once.
       const recipients = [
         ...new Map(
           [...admins, ...assignedEmployees].map((recipient) => [
@@ -297,7 +301,7 @@ async function complain(req, res) {
 
     return res.status(201).json({
       message: "Complaint registered successfully",
-      complaint: formatComplaint(complaint),
+      complaint: await formatComplaint(complaint),
     });
   } catch (error) {
     console.error("Complaint creation error:", error);
@@ -329,9 +333,8 @@ async function getComplain(req, res) {
 
       const assignedClientIds = await getAssignedClientIds(organisationId);
 
-      // Admin sees:
-      // 1. Complaints belonging to their own organisation.
-      // 2. Complaints created by clients assigned to their employees.
+      // Admins see their organisation's tickets and tickets
+      // belonging to clients assigned to their employees.
       where = {
         OR: [
           {
@@ -357,8 +360,7 @@ async function getComplain(req, res) {
         });
       }
 
-      // Do not filter by employee organisation here.
-      // The client's organisation may be different.
+      // Assigned clients may belong to another organisation.
       where = {
         userId: {
           in: clientIds,
@@ -383,8 +385,13 @@ async function getComplain(req, res) {
       },
     });
 
+    // Resolve image URLs for every complaint before responding.
+    const formattedComplaints = await Promise.all(
+      complaints.map((complaint) => formatComplaint(complaint)),
+    );
+
     return res.status(200).json({
-      complains: complaints.map(formatComplaint),
+      complains: formattedComplaints,
     });
   } catch (error) {
     console.error("Get complaints error:", error);
@@ -443,7 +450,7 @@ async function updateComplaintStatus(req, res) {
     const organisationId = getOrganisationId(req.user);
 
     if (req.user.role === "employee") {
-      // Employee can update only complaints belonging to assigned clients.
+      // Employees can update tickets only for assigned clients.
       const assignment = await prisma.userAssignment.findUnique({
         where: {
           clientId_employeeId: {
@@ -489,7 +496,7 @@ async function updateComplaintStatus(req, res) {
       include: complaintInclude,
     });
 
-    // Notify the client about the status change.
+    // Notify the client about the ticket status change.
     try {
       const client = complaint.user;
 
@@ -523,7 +530,7 @@ async function updateComplaintStatus(req, res) {
 
     return res.status(200).json({
       message: "Status updated successfully",
-      complaint: formatComplaint(updatedComplaint),
+      complaint: await formatComplaint(updatedComplaint),
     });
   } catch (error) {
     console.error("Status update error:", error);
@@ -539,7 +546,7 @@ async function updateComplaintStatus(req, res) {
 // GET /complain/search?q=searchValue
 // =====================================================
 
-async function searchCompalin(req, res) {
+async function searchComplaint(req, res) {
   try {
     const { q } = req.query;
 
@@ -636,9 +643,13 @@ async function searchCompalin(req, res) {
       },
     });
 
+    const formattedComplaints = await Promise.all(
+      complaints.map((complaint) => formatComplaint(complaint)),
+    );
+
     return res.status(200).json({
       message: "Complaint fetched successfully",
-      complaint: complaints.map(formatComplaint),
+      complaint: formattedComplaints,
     });
   } catch (error) {
     console.error("Complaint search error:", error);
@@ -649,9 +660,13 @@ async function searchCompalin(req, res) {
   }
 }
 
+// =====================================================
+// EXPORT CONTROLLERS
+// =====================================================
+
 module.exports = {
   complain,
   getComplain,
   updateComplaintStatus,
-  searchCompalin,
+  searchComplaint,
 };

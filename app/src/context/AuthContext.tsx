@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { setupFCM } from '../services/fcmService';
@@ -18,14 +19,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Check authentication when app starts
+  // Validate the saved session against the backend on app startup.
   useEffect(() => {
+    let mounted = true;
+
     const checkAuth = async () => {
       try {
         const token = await AsyncStorage.getItem('token');
 
         if (!token) {
-          setIsAuthenticated(false);
+          if (mounted) {
+            setIsAuthenticated(false);
+          }
           return;
         }
 
@@ -35,32 +40,71 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           },
         });
 
-        setIsAuthenticated(true);
+        if (mounted) {
+          setIsAuthenticated(true);
+        }
       } catch (error) {
+        // The session is invalid, expired, revoked, or its user was deleted.
         await AsyncStorage.removeItem('token');
-        setIsAuthenticated(false);
+        await AsyncStorage.removeItem('user');
+
+        if (mounted) {
+          setIsAuthenticated(false);
+        }
       } finally {
-        setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
     checkAuth();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // Called after successful login
+  // Called after a successful login.
   const login = async (token: string) => {
+    // Verify the token with the backend before saving it.
+    await axios.get(`${API_URL}/auth/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
     await AsyncStorage.setItem('token', token);
     setIsAuthenticated(true);
   };
+
+  // Register FCM for the currently authenticated user.
   useEffect(() => {
     if (isAuthenticated) {
-      setupFCM();
+      void setupFCM();
     }
   }, [isAuthenticated]);
 
-  // Called when user logs out
+  // Revoke the server session and clear the backend FCM token.
   const logout = async () => {
+    const token = await AsyncStorage.getItem('token');
+
+    if (token) {
+      // If this fails, preserve local authentication so logout can be retried.
+      await axios.post(
+        `${API_URL}/auth/logout`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+    }
+
+    // The backend has confirmed logout; clear the local session.
     await AsyncStorage.removeItem('token');
+    await AsyncStorage.removeItem('user');
     setIsAuthenticated(false);
   };
 

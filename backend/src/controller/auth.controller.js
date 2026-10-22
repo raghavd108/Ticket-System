@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 
 // =====================================================
-// SERIALIZE USER — PRESERVE API RESPONSE STRUCTURE
+// SERIALIZE USER
 // =====================================================
 
 function serializeUser(user) {
@@ -95,14 +95,12 @@ async function register(req, res) {
         "",
     );
 
-    // Admins cannot create other admin accounts.
     if (isAuthenticatedAdmin && role === "admin") {
       return res.status(403).json({
         message: "An admin cannot create another admin account",
       });
     }
 
-    // Employees always belong to their creating admin's organisation.
     let targetOrganisationId = organisation ? String(organisation) : "";
 
     if (isAuthenticatedAdmin && role === "employee") {
@@ -121,7 +119,6 @@ async function register(req, res) {
       });
     }
 
-    // Find the selected organisation.
     const org = await prisma.organisation.findUnique({
       where: {
         id: targetOrganisationId,
@@ -138,7 +135,6 @@ async function register(req, res) {
       });
     }
 
-    // Employees cannot be created in another organisation.
     if (
       isAuthenticatedAdmin &&
       role !== "client" &&
@@ -152,7 +148,6 @@ async function register(req, res) {
     const normalizedUserName = String(userName).trim();
     const normalizedEmail = String(email).trim().toLowerCase();
 
-    // Check duplicates.
     const existingUser = await prisma.user.findFirst({
       where: {
         organisationId: org.id,
@@ -169,10 +164,7 @@ async function register(req, res) {
       });
     }
 
-    // =================================================
-    // VALIDATE CLIENT EMPLOYEE ASSIGNMENTS
-    // =================================================
-
+    // Validate employee assignments for clients.
     let employeeIds = [];
 
     if (role === "client" && assignedEmployee !== undefined) {
@@ -192,8 +184,6 @@ async function register(req, res) {
         });
       }
 
-      // The employees must belong to the logged-in admin's organisation.
-      // The client may belong to a different, selected organisation.
       const employeeOrganisationId = isAuthenticatedAdmin
         ? adminOrganisationId
         : org.id;
@@ -226,10 +216,6 @@ async function register(req, res) {
       }
     }
 
-    // =================================================
-    // CREATE USER
-    // =================================================
-
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await prisma.user.create({
@@ -255,7 +241,6 @@ async function register(req, res) {
             }
           : {}),
       },
-
       include: {
         organisation: {
           select: {
@@ -304,7 +289,7 @@ async function register(req, res) {
 }
 
 // =====================================================
-// LOGIN
+// LOGIN — CREATE VERSIONED JWT
 // =====================================================
 
 async function login(req, res) {
@@ -319,7 +304,7 @@ async function login(req, res) {
 
     const user = await prisma.user.findFirst({
       where: {
-        userName,
+        userName: String(userName).trim(),
       },
       include: {
         organisation: {
@@ -345,6 +330,14 @@ async function login(req, res) {
       });
     }
 
+    if (!process.env.JWT_SECRET) {
+      console.error("JWT_SECRET is not configured");
+
+      return res.status(500).json({
+        message: "Server configuration error",
+      });
+    }
+
     const token = jwt.sign(
       {
         id: user.id,
@@ -352,6 +345,7 @@ async function login(req, res) {
         organisation: user.organisation?.id || user.organisationId,
         userName: user.userName,
         email: user.email,
+        tokenVersion: user.tokenVersion,
       },
       process.env.JWT_SECRET,
       {
@@ -383,6 +377,40 @@ async function login(req, res) {
 
     return res.status(500).json({
       message: "Server error",
+    });
+  }
+}
+
+// =====================================================
+// LOGOUT — REVOKE SESSIONS AND CLEAR FCM TOKEN
+// =====================================================
+
+async function logout(req, res) {
+  try {
+    await prisma.user.update({
+      where: {
+        id: String(req.user.id),
+      },
+      data: {
+        tokenVersion: {
+          increment: 1,
+        },
+        fcmToken: null,
+      },
+    });
+
+    res.clearCookie("token");
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    console.error("LOGOUT ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Logout failed",
     });
   }
 }
@@ -470,7 +498,9 @@ async function updateProfile(req, res) {
 
     const duplicate = await prisma.user.findFirst({
       where: {
-        id: { not: userId },
+        id: {
+          not: userId,
+        },
         OR: [{ userName: normalizedUserName }, { email: normalizedEmail }],
       },
       select: {
@@ -534,7 +564,7 @@ async function updateProfile(req, res) {
 }
 
 // =====================================================
-// UPDATE PASSWORD
+// UPDATE PASSWORD — REVOKE EXISTING SESSIONS
 // =====================================================
 
 async function updatePassword(req, res) {
@@ -584,11 +614,15 @@ async function updatePassword(req, res) {
       },
       data: {
         password: hashedPassword,
+        tokenVersion: {
+          increment: 1,
+        },
+        fcmToken: null,
       },
     });
 
     return res.status(200).json({
-      message: "Password updated successfully",
+      message: "Password updated successfully. Please log in again.",
     });
   } catch (error) {
     console.error("UPDATE PASSWORD ERROR:", error);
@@ -661,10 +695,10 @@ async function saveFcmToken(req, res) {
   try {
     const { fcmToken } = req.body;
 
-    if (!fcmToken) {
+    if (typeof fcmToken !== "string" || !fcmToken.trim()) {
       return res.status(400).json({
         success: false,
-        message: "FCM token is required",
+        message: "A valid FCM token is required",
       });
     }
 
@@ -673,7 +707,7 @@ async function saveFcmToken(req, res) {
         id: String(req.user.id),
       },
       data: {
-        fcmToken,
+        fcmToken: fcmToken.trim(),
       },
     });
 
@@ -752,6 +786,7 @@ async function getEmployees(req, res) {
 module.exports = {
   register,
   login,
+  logout,
   getMe,
   updateProfile,
   updatePassword,

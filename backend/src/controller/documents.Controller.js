@@ -1,13 +1,13 @@
 const prisma = require("../config/prisma");
 
 const { uploadFile } = require("../services/imagekitService");
-const { getImageUrl } = require("../services/fileService");
+const { getSignedImageUrl } = require("../services/fileService");
 
 // =====================================================
 // FORMAT DOCUMENT RESPONSE
 // =====================================================
 
-function formatDocument(document) {
+async function formatDocument(document) {
   if (!document) return null;
 
   const { id, employeeId, employee, files, ...rest } = document;
@@ -30,11 +30,13 @@ function formatDocument(document) {
         }
       : employeeId,
 
-    files: (files || []).map((file) => ({
-      ...file,
-      _id: file.id,
-      url: getImageUrl(file.fileName),
-    })),
+    files: await Promise.all(
+      (files || []).map(async (file) => ({
+        ...file,
+        _id: file.id,
+        url: await getSignedImageUrl(file.fileName),
+      })),
+    ),
   };
 }
 
@@ -142,7 +144,7 @@ async function DocumentUpload(req, res) {
 
     return res.status(201).json({
       message: "Documents uploaded and assigned successfully",
-      document: formatDocument(document),
+      document: await formatDocument(document),
     });
   } catch (error) {
     console.error("Document upload error:", error);
@@ -179,7 +181,9 @@ async function getMyDocuments(req, res) {
 
     return res.status(200).json({
       count: documents.length,
-      documents: documents.map(formatDocument),
+      documents: await Promise.all(
+        documents.map((document) => formatDocument(document)),
+      ),
     });
   } catch (error) {
     console.error("Get my documents error:", error);
@@ -240,25 +244,27 @@ async function getEmployeeDocuments(req, res) {
 
     return res.status(200).json({
       count: documents.length,
-      documents: documents.map((document) => ({
-        ...formatDocument(document),
-        employeeId: {
-          ...employee,
-          _id: employee.id,
-          organisation: employee.organisation
-            ? {
-                ...employee.organisation,
-                _id: employee.organisation.id,
-              }
-            : employee.organisationId,
-        },
-      })),
+      documents: await Promise.all(
+        documents.map(async (document) => ({
+          ...(await formatDocument(document)),
+          employeeId: {
+            ...employee,
+            _id: employee.id,
+            organisation: employee.organisation
+              ? {
+                  ...employee.organisation,
+                  _id: employee.organisation.id,
+                }
+              : employee.organisationId,
+          },
+        })),
+      ),
     });
   } catch (error) {
     console.error("Get employee documents error:", error);
 
     return res.status(500).json({
-      message: "Failed to fetch employee documents",
+      message: "Failed to fetch documents",
     });
   }
 }

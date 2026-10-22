@@ -6,8 +6,52 @@ const imagekit = new ImageKit({
   privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
 });
 
-const uploadFile = async (buffer, originalName) => {
-  const extension = path.extname(originalName || "").toLowerCase() || ".jpg";
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+
+const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+// Validate file content, not just the filename or MIME header.
+const validateImage = async (buffer, originalName = "image.jpg") => {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+    throw new Error("Invalid or empty image");
+  }
+
+  if (buffer.length > MAX_FILE_SIZE) {
+    throw new Error("Image must not exceed 5 MB");
+  }
+
+  const { fileTypeFromBuffer } = await import("file-type");
+  const detected = await fileTypeFromBuffer(buffer);
+
+  if (!detected || !ALLOWED_TYPES.has(detected.mime)) {
+    throw new Error("Only JPEG, PNG and WebP images are allowed");
+  }
+
+  // Prevent a misleading extension from being used.
+  const expectedExtension = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+  }[detected.mime];
+
+  const extension = path.extname(originalName).toLowerCase();
+
+  if (
+    extension &&
+    ![
+      expectedExtension,
+      ...(detected.mime === "image/jpeg" ? [".jpeg"] : []),
+    ].includes(extension)
+  ) {
+    throw new Error("Image extension does not match its content");
+  }
+
+  return { mime: detected.mime, extension: expectedExtension };
+};
+
+const uploadFile = async (buffer, originalName = "image.jpg") => {
+  const { extension } = await validateImage(buffer, originalName);
+
   const fileName = `${crypto.randomUUID()}${extension}`;
 
   const result = await imagekit.files.upload({
@@ -21,7 +65,7 @@ const uploadFile = async (buffer, originalName) => {
   };
 };
 
-// Keep this function for your existing complaint controller
+// Keep this function for the existing complaint controller.
 const uploadImage = async (buffer, originalName = "image.jpg") => {
   return uploadFile(buffer, originalName);
 };
@@ -29,4 +73,6 @@ const uploadImage = async (buffer, originalName = "image.jpg") => {
 module.exports = {
   uploadImage,
   uploadFile,
+  validateImage,
+  MAX_FILE_SIZE,
 };

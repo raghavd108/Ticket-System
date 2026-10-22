@@ -22,10 +22,11 @@ Router.patch(
   authMiddleware.verifyToken,
   authController.updatePassword,
 );
-Router.get("/getUser", authMiddleware.verifyToken, authController.getUser);
+Router.get("/getUser", authMiddleware.verifyAdmin, authController.getUser);
 Router.post(
   "/fcm-token",
   authMiddleware.verifyToken,
   authController.saveFcmToken,
 );
+Router.post("/logout", authMiddleware.verifyToken, authController.logout);
 module.exports = Router;
