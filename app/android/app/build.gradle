@@ -77,9 +77,13 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.app"
+    namespace "com.system.ticket"
+
+    buildFeatures {
+        buildConfig true
+    }
     defaultConfig {
-        applicationId "com.app"
+        applicationId "com.system.ticket"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -11,7 +11,7 @@ const orgainsationRoutes = require("./routes/organisation.route");
 const documentRoutes = require("./routes/documents.routes");
 const attendanceRoutes = require("./routes/attendance.route");
 const leaveRoutes = require("./routes/leave.route");
-const companyCalendarRoutes = require("./routes/companyCalendarRoutes");
+const companyCalendarRoutes = require("./routes/companyCalendar.routes");
 
 app.use(express.json());
 app.use(cookieParser());
