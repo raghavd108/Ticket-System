@@ -20,7 +20,7 @@ import DateTimePicker, {
 } from '@react-native-community/datetimepicker';
 import { useTheme } from '../context/ThemeContext';
 
-const API_URL = 'http://10.0.2.2:3000/api/leave';
+const API_URL = 'http://10.0.2.2:3002/api/leave';
 
 const LEAVE_TYPES = [
   'Casual Leave',

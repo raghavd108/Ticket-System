@@ -19,7 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useTheme } from '../context/ThemeContext';
 
-const BASE_URL = 'http://10.0.2.2:3000/api';
+const BASE_URL = 'http://10.0.2.2:3002/api';
 
 interface NotificationItem {
   _id: string;

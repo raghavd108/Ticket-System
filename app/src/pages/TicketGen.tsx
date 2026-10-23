@@ -50,7 +50,7 @@ const ReportPage = () => {
         return;
       }
 
-      await axios.get('http://10.0.2.2:3000/api/auth/me', {
+      await axios.get('http://10.0.2.2:3002/api/auth/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -180,7 +180,7 @@ const ReportPage = () => {
       });
 
       const response = await axios.post(
-        'http://10.0.2.2:3000/api/complain/postcomplain',
+        'http://10.0.2.2:3002/api/complain/postcomplain',
         formData,
         {
           headers: {

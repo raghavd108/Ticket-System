@@ -122,7 +122,7 @@ const ComplainPage = () => {
         return;
       }
 
-      const response = await axios.get('http://10.0.2.2:3000/api/auth/me', {
+      const response = await axios.get('http://10.0.2.2:3002/api/auth/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -150,7 +150,7 @@ const ComplainPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       const response = await axios.get(
-        'http://10.0.2.2:3000/api/complain/getcomplain',
+        'http://10.0.2.2:3002/api/complain/getcomplain',
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -174,7 +174,7 @@ const ComplainPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       await axios.patch(
-        `http://10.0.2.2:3000/api/complain/update-status/${complaintId}`,
+        `http://10.0.2.2:3002/api/complain/update-status/${complaintId}`,
         {
           status,
         },

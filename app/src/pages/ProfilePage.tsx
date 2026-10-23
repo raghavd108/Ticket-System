@@ -146,7 +146,7 @@ const ProfilePage = () => {
         return;
       }
 
-      const response = await axios.get('http://10.0.2.2:3000/api/auth/me', {
+      const response = await axios.get('http://10.0.2.2:3002/api/auth/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -199,7 +199,7 @@ const ProfilePage = () => {
       }
 
       const response = await axios.patch(
-        'http://10.0.2.2:3000/api/auth/update-profile',
+        'http://10.0.2.2:3002/api/auth/update-profile',
         {
           userName: editUserName.trim(),
           email: editEmail.trim(),
@@ -279,7 +279,7 @@ const ProfilePage = () => {
       }
 
       const response = await axios.patch(
-        'http://10.0.2.2:3000/api/auth/update-password',
+        'http://10.0.2.2:3002/api/auth/update-password',
         {
           currentPassword,
           newPassword,
@@ -324,7 +324,7 @@ const ProfilePage = () => {
       }
 
       const response = await axios.get(
-        'http://10.0.2.2:3000/api/documents/my-documents',
+        'http://10.0.2.2:3002/api/documents/my-documents',
         {
           headers: {
             Authorization: `Bearer ${token}`,

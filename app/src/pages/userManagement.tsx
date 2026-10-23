@@ -135,7 +135,7 @@ const ClientPage = () => {
         return;
       }
 
-      const res = await axios.get('http://10.0.2.2:3000/api/auth/getUser', {
+      const res = await axios.get('http://10.0.2.2:3002/api/auth/getUser', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -169,7 +169,7 @@ const ClientPage = () => {
         return;
       }
 
-      const res = await axios.get('http://10.0.2.2:3000/api/org/get-org', {
+      const res = await axios.get('http://10.0.2.2:3002/api/org/get-org', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -203,7 +203,7 @@ const ClientPage = () => {
         return;
       }
 
-      const res = await axios.get('http://10.0.2.2:3000/api/auth/employees', {
+      const res = await axios.get('http://10.0.2.2:3002/api/auth/employees', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -247,7 +247,7 @@ const ClientPage = () => {
         throw new Error('Authentication token not found.');
       }
 
-      const res = await axios.get('http://10.0.2.2:3000/api/auth/me', {
+      const res = await axios.get('http://10.0.2.2:3002/api/auth/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },

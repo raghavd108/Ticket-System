@@ -3,7 +3,7 @@ require("dotenv").config();
 const app = require("./src/app");
 const prisma = require("./src/config/prisma");
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 3002;
 const HOST = "127.0.0.1";
 
 async function startServer() {

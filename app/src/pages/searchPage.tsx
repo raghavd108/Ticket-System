@@ -74,7 +74,7 @@ const SearchPage = () => {
       }
 
       const response = await axios.get(
-        'http://10.0.2.2:3000/api/complain/search',
+        'http://10.0.2.2:3002/api/complain/search',
         {
           params: {
             q: query,

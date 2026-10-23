@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { setupFCM } from '../services/fcmService';
 
-const API_URL = 'http://10.0.2.2:3000/api';
+const API_URL = 'http://10.0.2.2:3002/api';
 
 type AuthContextType = {
   isAuthenticated: boolean;

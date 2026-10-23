@@ -10,7 +10,7 @@ import {
 } from '@react-native-firebase/messaging';
 
 const BASE_URL = __DEV__
-  ? 'http://10.0.2.2:3000/api'
+  ? 'http://10.0.2.2:3002/api'
   : 'https://your-production-api.com/api';
 
 export const setupFCM = async () => {
