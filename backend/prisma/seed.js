@@ -4,39 +4,59 @@ const bcrypt = require("bcrypt");
 const prisma = new PrismaClient();
 
 async function main() {
-  // Find the existing SP Infocom organisation
-  const organisation = await prisma.organisation.findFirst({
-    where: {
-      name: "spinfocom",
-    },
+  const result = await prisma.$transaction(async (tx) => {
+    // 1. Find or create the SP Infocom organisation
+    let organisation = await tx.organisation.findFirst({
+      where: {
+        name: "spinfocom",
+      },
+    });
+
+    if (!organisation) {
+      organisation = await tx.organisation.create({
+        data: {
+          name: "spinfocom",
+          orgType: "company",
+        },
+      });
+    }
+
+    // 2. Create or find the admin and connect the organisation
+    const admin = await tx.user.upsert({
+      where: {
+        userName: "sp Infocom-admin",
+      },
+      update: {
+        organisationId: organisation.id,
+      },
+      create: {
+        userName: "sp Infocom-admin",
+        email: "admin@example.com",
+        password: await bcrypt.hash("Admin@123", 10),
+        role: "admin",
+        designation: "Administrator",
+        organisationId: organisation.id,
+      },
+    });
+
+    // 3. Link the admin as the organisation creator
+    await tx.organisation.update({
+      where: {
+        id: organisation.id,
+      },
+      data: {
+        createdBy: admin.id,
+      },
+    });
+
+    return { admin, organisation };
   });
 
-  if (!organisation) {
-    throw new Error(
-      'Organisation "spinfocom" does not exist. Create it first.',
-    );
-  }
-
-  // Create or find the SP Infocom admin using unique userName
-  const admin = await prisma.user.upsert({
-    where: {
-      userName: "spinfocom-admin",
-    },
-    update: {
-      organisationId: organisation.id,
-    },
-    create: {
-      userName: "spinfocom-admin",
-      email: "admin@example.com",
-      password: await bcrypt.hash("Admin@123", 10),
-      role: "admin",
-      designation: "Administrator",
-      organisationId: organisation.id,
-    },
-  });
-
-  console.log("SP Infocom admin seeded successfully:", admin.userName);
-  console.log("Organisation:", organisation.name);
+  console.log("Seeding completed successfully!");
+  console.log("Username:", result.admin.userName);
+  console.log("Email:", result.admin.email);
+  console.log("Role:", result.admin.role);
+  console.log("Organisation:", result.organisation.name);
 }
 
 main()
