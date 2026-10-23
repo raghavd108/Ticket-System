@@ -2,9 +2,7 @@ import notifee, { AndroidImportance } from '@notifee/react-native';
 
 import { getMessaging, onMessage } from '@react-native-firebase/messaging';
 
-// =====================================================
 // NOTIFICATION MESSAGE TYPE
-// =====================================================
 
 type NotificationMessage = {
   messageId?: string;
@@ -19,9 +17,7 @@ type NotificationMessage = {
   };
 };
 
-// =====================================================
 // NOTIFICATION CHANNEL IDS
-// =====================================================
 
 const CHANNEL_NEW_TICKET = 'new_ticket';
 
@@ -29,15 +25,11 @@ const CHANNEL_STATUS_UPDATE = 'status_update';
 
 const CHANNEL_CUSTOM = 'custom_notification';
 
-// =====================================================
 // CREATE NOTIFICATION CHANNELS
-// =====================================================
 
 export const createNotificationChannel = async () => {
   try {
-    // =================================================
     // NEW TICKET CHANNEL
-    // =================================================
 
     await notifee.createChannel({
       id: CHANNEL_NEW_TICKET,
@@ -46,9 +38,7 @@ export const createNotificationChannel = async () => {
       sound: 'new_ticket',
     });
 
-    // =================================================
     // STATUS UPDATE CHANNEL
-    // =================================================
 
     await notifee.createChannel({
       id: CHANNEL_STATUS_UPDATE,
@@ -57,9 +47,7 @@ export const createNotificationChannel = async () => {
       sound: 'status_update',
     });
 
-    // =================================================
     // CUSTOM MESSAGE CHANNEL
-    // =================================================
 
     await notifee.createChannel({
       id: CHANNEL_CUSTOM,
@@ -74,9 +62,7 @@ export const createNotificationChannel = async () => {
   }
 };
 
-// =====================================================
 // REQUEST NOTIFICATION PERMISSION
-// =====================================================
 
 export const requestNotificationPermission = async () => {
   try {
@@ -88,22 +74,16 @@ export const requestNotificationPermission = async () => {
   }
 };
 
-// =====================================================
 // GET MESSAGE BODY
-// =====================================================
 
 const getMessageBody = (remoteMessage: NotificationMessage): string => {
-  // -----------------------------------------------
   // FCM notification body
-  // -----------------------------------------------
 
   if (typeof remoteMessage.notification?.body === 'string') {
     return remoteMessage.notification.body;
   }
 
-  // -----------------------------------------------
   // FCM data body
-  // -----------------------------------------------
 
   const dataBody = remoteMessage.data?.body;
 
@@ -111,32 +91,24 @@ const getMessageBody = (remoteMessage: NotificationMessage): string => {
     return dataBody;
   }
 
-  // -----------------------------------------------
   // DEFAULT
-  // -----------------------------------------------
 
   return 'You have a new notification';
 };
 
-// =====================================================
 // GET MESSAGE TITLE
-// =====================================================
 
 const getMessageTitle = (
   remoteMessage: NotificationMessage,
   defaultTitle: string,
 ): string => {
-  // -----------------------------------------------
   // FCM notification title
-  // -----------------------------------------------
 
   if (typeof remoteMessage.notification?.title === 'string') {
     return remoteMessage.notification.title;
   }
 
-  // -----------------------------------------------
   // FCM data title
-  // -----------------------------------------------
 
   const dataTitle = remoteMessage.data?.title;
 
@@ -144,16 +116,12 @@ const getMessageTitle = (
     return dataTitle;
   }
 
-  // -----------------------------------------------
   // DEFAULT
-  // -----------------------------------------------
 
   return defaultTitle;
 };
 
-// =====================================================
 // DISPLAY NEW TICKET NOTIFICATION
-// =====================================================
 
 const displayNewTicketNotification = async (
   remoteMessage: NotificationMessage,
@@ -183,9 +151,7 @@ const displayNewTicketNotification = async (
   }
 };
 
-// =====================================================
 // DISPLAY STATUS UPDATE NOTIFICATION
-// =====================================================
 
 const displayStatusUpdateNotification = async (
   remoteMessage: NotificationMessage,
@@ -215,9 +181,7 @@ const displayStatusUpdateNotification = async (
   }
 };
 
-// =====================================================
 // DISPLAY CUSTOM NOTIFICATION
-// =====================================================
 
 const displayCustomNotification = async (
   remoteMessage: NotificationMessage,
@@ -247,9 +211,7 @@ const displayCustomNotification = async (
   }
 };
 
-// =====================================================
 // FOREGROUND NOTIFICATION
-// =====================================================
 
 export const setupForegroundNotification = () => {
   const messagingInstance = getMessaging();
@@ -268,17 +230,13 @@ export const setupForegroundNotification = () => {
 
       console.log('Data:', remoteMessage.data);
 
-      // =================================================
       // GET NOTIFICATION TYPE
-      // =================================================
 
       const notificationType = remoteMessage.data?.type;
 
       console.log('Notification type:', notificationType);
 
-      // =================================================
       // NEW TICKET
-      // =================================================
 
       if (notificationType === 'NEW_TICKET') {
         console.log('Displaying NEW TICKET notification');
@@ -288,9 +246,7 @@ export const setupForegroundNotification = () => {
         return;
       }
 
-      // =================================================
       // STATUS UPDATE
-      // =================================================
 
       if (notificationType === 'STATUS_UPDATE') {
         console.log('Displaying STATUS UPDATE notification');
@@ -300,9 +256,7 @@ export const setupForegroundNotification = () => {
         return;
       }
 
-      // =================================================
       // CUSTOM
-      // =================================================
 
       if (notificationType === 'CUSTOM') {
         console.log('Displaying CUSTOM notification');
@@ -312,9 +266,7 @@ export const setupForegroundNotification = () => {
         return;
       }
 
-      // =================================================
       // UNKNOWN TYPE
-      // =================================================
 
       console.log(
         'Notification ignored. Unknown notification type:',
