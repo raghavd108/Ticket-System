@@ -5,36 +5,51 @@ const prisma = new PrismaClient();
 
 async function main() {
   const result = await prisma.$transaction(async (tx) => {
-    // 1. Find or create the SP Infocom organisation
+    // 1. Find the existing SP Infocom organisation
     let organisation = await tx.organisation.findFirst({
       where: {
-        name: "sp Infocom",
+        name: {
+          equals: "SP Infocom",
+        },
       },
     });
 
+    // 2. Check for an existing organisation with different capitalization
+    if (!organisation) {
+      organisation = await tx.organisation.findFirst({
+        where: {
+          name: {
+            equals: "sp Infocom",
+          },
+        },
+      });
+    }
+
+    // 3. Create the organisation if it doesn't exist
     if (!organisation) {
       organisation = await tx.organisation.create({
         data: {
-          name: "sp Infocom",
+          name: "SP Infocom",
           orgType: "company",
         },
       });
     } else {
-      // Update existing organisation details
+      // Update the existing organisation details
       organisation = await tx.organisation.update({
         where: {
           id: organisation.id,
         },
         data: {
+          name: "SP Infocom",
           orgType: "company",
         },
       });
     }
 
-    // 2. Hash the password
+    // 4. Hash the admin password
     const hashedPassword = await bcrypt.hash("Admin@123", 10);
 
-    // 3. Create or update the SP Infocom admin
+    // 5. Create or update the SP Infocom admin
     const admin = await tx.user.upsert({
       where: {
         userName: "spinfocom",
@@ -56,7 +71,7 @@ async function main() {
       },
     });
 
-    // 4. Link the admin as the organisation creator
+    // 6. Link the admin as the organisation creator
     await tx.organisation.update({
       where: {
         id: organisation.id,
@@ -66,14 +81,21 @@ async function main() {
       },
     });
 
-    return { admin, organisation };
+    return {
+      admin,
+      organisation,
+    };
   });
 
+  // 7. Display the result
   console.log("Seeding completed successfully!");
-  console.log("Username:", result.admin.userName);
-  console.log("Email:", result.admin.email);
-  console.log("Role:", result.admin.role);
+  console.log("--------------------------------");
   console.log("Organisation:", result.organisation.name);
+  console.log("Organisation ID:", result.organisation.id);
+  console.log("Admin username:", result.admin.userName);
+  console.log("Admin email:", result.admin.email);
+  console.log("Admin role:", result.admin.role);
+  console.log("--------------------------------");
 }
 
 main()
