@@ -1,12 +1,21 @@
 const { initializeApp, cert, getApps } = require("firebase-admin/app");
 const { getMessaging } = require("firebase-admin/messaging");
 const path = require("path");
-const serviceAccount = require(
-  path.resolve(
-    __dirname,
-    "../services/ticket-b8771-firebase-adminsdk-fbsvc-aa26b6ffce.json",
-  ),
+const fs = require("fs");
+
+const serviceAccountPath = path.resolve(
+  __dirname,
+  "../../",
+  process.env.Firebase_path,
 );
+
+if (!fs.existsSync(serviceAccountPath)) {
+  throw new Error(
+    `Firebase service account file not found: ${serviceAccountPath}`,
+  );
+}
+
+const serviceAccount = require(serviceAccountPath);
 
 const firebaseApp =
   getApps().length === 0
