@@ -16,8 +16,9 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../context/ThemeContext';
+import { Config } from 'react-native-config';
 
-const BASE_URL = 'http://10.0.2.2:3002';
+const BASE_URL = Config.API_URL;
 const API_URL = `${BASE_URL}/api/company-calendar`;
 
 type CalendarDayType = 'HOLIDAY' | 'WORKING_DAY';

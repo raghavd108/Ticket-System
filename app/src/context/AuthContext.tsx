@@ -3,8 +3,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { setupFCM } from '../services/fcmService';
-
-const API_URL = 'http://10.0.2.2:3002/api';
+import { Config } from 'react-native-config';
+const API_URL = Config.API_URL;
 
 type AuthContextType = {
   isAuthenticated: boolean;
@@ -34,7 +34,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           return;
         }
 
-        await axios.get(`${API_URL}/auth/me`, {
+        await axios.get(`${API_URL}/api/auth/me`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -68,7 +68,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   // Called after a successful login.
   const login = async (token: string) => {
     // Verify the token with the backend before saving it.
-    await axios.get(`${API_URL}/auth/me`, {
+    await axios.get(`${API_URL}/api/auth/me`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -92,7 +92,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     if (token) {
       // If this fails, preserve local authentication so logout can be retried.
       await axios.post(
-        `${API_URL}/auth/logout`,
+        `${API_URL}/api/auth/logout`,
         {},
         {
           headers: {

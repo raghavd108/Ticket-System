@@ -9,7 +9,7 @@ import ComplainPage from '../pages/ComplainPage';
 import ReportPage from '../pages/TicketGen';
 import SearchPage from '../pages/searchPage';
 import ClientPage from '../pages/userManagement';
-
+import { Config } from 'react-native-config';
 import { useTheme } from '../context/ThemeContext';
 
 const Tab = createBottomTabNavigator();
@@ -39,7 +39,7 @@ const BottomNavigation = () => {
         return;
       }
 
-      const response = await axios.get('http://10.0.2.2:3002/api/auth/me', {
+      const response = await axios.get(`${Config.API_URL}/api/auth/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

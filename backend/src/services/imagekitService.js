@@ -8,8 +8,14 @@ const imagekit = new ImageKit({
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 
-const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-
+const ALLOWED_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 // Validate file content, not just the filename or MIME header.
 const validateImage = async (buffer, originalName = "image.jpg") => {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {

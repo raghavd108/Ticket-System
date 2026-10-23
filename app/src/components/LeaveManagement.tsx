@@ -13,8 +13,9 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useTheme } from '../context/ThemeContext';
+import { Config } from 'react-native-config';
 
-const API_URL = 'http://10.0.2.2:3002/api/leave';
+const API_URL = `${Config.API_URL}/api/leave`;
 
 type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
 type LeaveFilter = 'all' | LeaveStatus;

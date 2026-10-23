@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { Platform } from 'react-native';
-
+import { Config } from 'react-native-config';
 import {
   getMessaging,
   getToken,
@@ -9,9 +9,7 @@ import {
   AuthorizationStatus,
 } from '@react-native-firebase/messaging';
 
-const BASE_URL = __DEV__
-  ? 'http://10.0.2.2:3002/api'
-  : 'https://your-production-api.com/api';
+const BASE_URL = __DEV__ ? `${Config.API_URL}/api` : `${Config.API_URL}/api`;
 
 export const setupFCM = async () => {
   try {

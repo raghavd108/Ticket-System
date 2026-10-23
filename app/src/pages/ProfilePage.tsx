@@ -26,6 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import LeaveRequest from '../components/leaveRequest';
 import LeaveManagement from '../components/LeaveManagement';
+import { Config } from 'react-native-config';
 
 interface Organisation {
   _id: string;
@@ -146,7 +147,7 @@ const ProfilePage = () => {
         return;
       }
 
-      const response = await axios.get('http://10.0.2.2:3002/api/auth/me', {
+      const response = await axios.get(`${Config.API_URL}/api/auth/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -199,7 +200,7 @@ const ProfilePage = () => {
       }
 
       const response = await axios.patch(
-        'http://10.0.2.2:3002/api/auth/update-profile',
+        `${Config.API_URL}/api/auth/update-profile`,
         {
           userName: editUserName.trim(),
           email: editEmail.trim(),
@@ -279,7 +280,7 @@ const ProfilePage = () => {
       }
 
       const response = await axios.patch(
-        'http://10.0.2.2:3002/api/auth/update-password',
+        `${Config.API_URL}/api/auth/update-password`,
         {
           currentPassword,
           newPassword,
@@ -324,7 +325,7 @@ const ProfilePage = () => {
       }
 
       const response = await axios.get(
-        'http://10.0.2.2:3002/api/documents/my-documents',
+        `${Config.API_URL}/api/documents/my-documents`,
         {
           headers: {
             Authorization: `Bearer ${token}`,

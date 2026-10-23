@@ -21,6 +21,7 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFilter } from '../hooks/useFilter';
 import Filter from '../components/filter';
+import { Config } from 'react-native-config';
 
 interface User {
   id: string;
@@ -122,7 +123,7 @@ const ComplainPage = () => {
         return;
       }
 
-      const response = await axios.get('http://10.0.2.2:3002/api/auth/me', {
+      const response = await axios.get(`${Config.API_URL}/api/auth/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -150,7 +151,7 @@ const ComplainPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       const response = await axios.get(
-        'http://10.0.2.2:3002/api/complain/getcomplain',
+        `${Config.API_URL}/api/complain/getcomplain`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -174,7 +175,7 @@ const ComplainPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       await axios.patch(
-        `http://10.0.2.2:3002/api/complain/update-status/${complaintId}`,
+        `${Config.API_URL}/api/complain/update-status/${complaintId}`,
         {
           status,
         },

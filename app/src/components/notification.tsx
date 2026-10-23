@@ -18,8 +18,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useTheme } from '../context/ThemeContext';
-
-const BASE_URL = 'http://10.0.2.2:3002/api';
+import { Config } from 'react-native-config';
+const BASE_URL = `${Config.API_URL}/api`;
 
 interface NotificationItem {
   _id: string;

@@ -15,7 +15,7 @@ import {
 import { useTheme } from '../context/ThemeContext';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
+import { Config } from 'react-native-config';
 import {
   pick,
   isErrorWithCode,
@@ -110,7 +110,7 @@ const ClientPage = () => {
 
   // THE DEFAULT EMPLOYEE ORGANISATION
 
-  const DEFAULT_EMPLOYEE_ORGANISATION = 'spinfocom';
+  const DEFAULT_EMPLOYEE_ORGANISATION = 'SP Infocom';
 
   const { theme } = useTheme();
   const styles = useMemo(() => createstyles(theme), [theme]);
@@ -135,7 +135,7 @@ const ClientPage = () => {
         return;
       }
 
-      const res = await axios.get('http://10.0.2.2:3002/api/auth/getUser', {
+      const res = await axios.get(`${Config.API_URL}/api/auth/getUser`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -169,7 +169,7 @@ const ClientPage = () => {
         return;
       }
 
-      const res = await axios.get('http://10.0.2.2:3002/api/org/get-org', {
+      const res = await axios.get(`${Config.API_URL}/api/org/get-org`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -203,7 +203,7 @@ const ClientPage = () => {
         return;
       }
 
-      const res = await axios.get('http://10.0.2.2:3002/api/auth/employees', {
+      const res = await axios.get(`${Config.API_URL}/api/auth/employees`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -247,7 +247,7 @@ const ClientPage = () => {
         throw new Error('Authentication token not found.');
       }
 
-      const res = await axios.get('http://10.0.2.2:3002/api/auth/me', {
+      const res = await axios.get(`${Config.API_URL}/api/auth/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -429,7 +429,7 @@ const ClientPage = () => {
       // API CALL
 
       const res = await axios.post(
-        'http://10.0.2.2:3000/api/auth/register',
+        `${Config.API_URL}/api/auth/register`,
         payload,
         {
           headers: {
@@ -504,7 +504,7 @@ const ClientPage = () => {
       }
 
       const res = await axios.post(
-        `http://10.0.2.2:3000/api/org/add-org/${adminId}`,
+        `${Config.API_URL}/api/org/add-org/${adminId}`,
         {
           orgType: newOrganisationType,
           name: cleanName,
@@ -802,7 +802,7 @@ const ClientPage = () => {
       });
 
       const response = await axios.post(
-        'http://10.0.2.2:3000/api/documents/upload',
+        `${Config.API_URL}/api/documents/upload`,
         formData,
         {
           headers: {

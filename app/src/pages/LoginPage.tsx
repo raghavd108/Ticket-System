@@ -4,6 +4,7 @@ import createStyles from '../style/LoginStyle';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import Config from 'react-native-config';
 
 const LoginPage = () => {
   const [userName, setUserName] = useState('');
@@ -16,7 +17,7 @@ const LoginPage = () => {
   const Login = async () => {
     try {
       setMessage('');
-      const response = await axios.post('http://10.0.2.2:3002/api/auth/login', {
+      const response = await axios.post(`${Config.API_URL}/api/auth/login`, {
         userName,
         password,
       });

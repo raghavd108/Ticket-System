@@ -25,6 +25,7 @@ import {
 } from 'react-native-image-picker';
 
 import createStyles from '../style/TicketGen.ts';
+import { Config } from 'react-native-config';
 
 const ReportPage = () => {
   const [module, setModule] = useState('');
@@ -50,7 +51,7 @@ const ReportPage = () => {
         return;
       }
 
-      await axios.get('http://10.0.2.2:3002/api/auth/me', {
+      await axios.get(`${Config.API_URL}/api/auth/me`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -180,7 +181,7 @@ const ReportPage = () => {
       });
 
       const response = await axios.post(
-        'http://10.0.2.2:3002/api/complain/postcomplain',
+        `${Config.API_URL}/api/complain/postcomplain`,
         formData,
         {
           headers: {

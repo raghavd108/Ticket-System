@@ -19,8 +19,9 @@ import DateTimePicker, {
   DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import { useTheme } from '../context/ThemeContext';
+import { Config } from 'react-native-config';
 
-const API_URL = 'http://10.0.2.2:3002/api/leave';
+const API_URL = `${Config.API_URL}/api/leave`;
 
 const LEAVE_TYPES = [
   'Casual Leave',

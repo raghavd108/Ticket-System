@@ -12,6 +12,7 @@ import axios from 'axios';
 
 import createStyles from '../style/searchStyle';
 import { useTheme } from '../context/ThemeContext';
+import { Config } from 'react-native-config';
 
 interface Organisation {
   _id: string;
@@ -74,7 +75,7 @@ const SearchPage = () => {
       }
 
       const response = await axios.get(
-        'http://10.0.2.2:3002/api/complain/search',
+        `${Config.API_URL}/api/complain/search`,
         {
           params: {
             q: query,
