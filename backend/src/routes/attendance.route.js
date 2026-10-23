@@ -8,7 +8,7 @@ const {
   getTodayAttendance,
   getMyAttendance,
   getAttendanceHistory,
-} = require("../controller/attendanceController");
+} = require("../controller/attendancecontroller");
 
 router.post("/check-in", auth.verifyToken, checkIn);
 router.patch("/check-out", auth.verifyToken, checkOut);
