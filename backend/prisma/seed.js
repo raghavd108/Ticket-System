@@ -8,38 +8,55 @@ async function main() {
     // 1. Find or create the SP Infocom organisation
     let organisation = await tx.organisation.findFirst({
       where: {
-        name: "spinfocom",
+        name: "sp Infocom",
       },
     });
 
     if (!organisation) {
       organisation = await tx.organisation.create({
         data: {
-          name: "spinfocom",
+          name: "sp Infocom",
+          orgType: "company",
+        },
+      });
+    } else {
+      // Update existing organisation details
+      organisation = await tx.organisation.update({
+        where: {
+          id: organisation.id,
+        },
+        data: {
           orgType: "company",
         },
       });
     }
 
-    // 2. Create or find the admin and connect the organisation
+    // 2. Hash the password
+    const hashedPassword = await bcrypt.hash("Admin@123", 10);
+
+    // 3. Create or update the SP Infocom admin
     const admin = await tx.user.upsert({
       where: {
-        userName: "sp Infocom-admin",
+        userName: "spinfocom",
       },
       update: {
+        email: "support@spinfocom.com",
+        password: hashedPassword,
+        role: "admin",
+        designation: "Administrator",
         organisationId: organisation.id,
       },
       create: {
-        userName: "sp Infocom-admin",
-        email: "admin@example.com",
-        password: await bcrypt.hash("Admin@123", 10),
+        userName: "spinfocom",
+        email: "support@spinfocom.com",
+        password: hashedPassword,
         role: "admin",
         designation: "Administrator",
         organisationId: organisation.id,
       },
     });
 
-    // 3. Link the admin as the organisation creator
+    // 4. Link the admin as the organisation creator
     await tx.organisation.update({
       where: {
         id: organisation.id,
