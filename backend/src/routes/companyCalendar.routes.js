@@ -8,7 +8,7 @@ const {
   createCalendarDay,
   updateCalendarDay,
   deleteCalendarDay,
-} = require("../controller/companyCalendarcontroller");
+} = require("../controller/companyCalendar.controller");
 
 router.get("/", auth.verifyToken, getCalendar);
 
