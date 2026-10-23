@@ -1,6 +1,6 @@
 const express = require("express");
 const authMiddleware = require("../middleware/authMiddleware");
-const complainController = require("../controller/complain.controller");
+const complainController = require("../controller/complaincontroller");
 
 const multer = require("multer");
 

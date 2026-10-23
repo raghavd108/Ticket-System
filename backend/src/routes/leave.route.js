@@ -8,7 +8,7 @@ const {
   getMyLeaves,
   getAllLeaves,
   updateLeaveStatus,
-} = require("../controller/leave.controller");
+} = require("../controller/leavecontroller");
 
 // Employee routes
 router.post("/apply", auth.verifyToken, applyLeave);
