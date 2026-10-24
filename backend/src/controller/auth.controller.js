@@ -836,7 +836,7 @@ async function updateUser(req, res) {
     }
 
     // UPDATE PASSWORD
-    // Password is optional. If omitted, the existing password is unchanged.
+    // Password is optional. If omitted, keep the existing password.
     if (password !== undefined && password !== "") {
       if (typeof password !== "string") {
         return res.status(400).json({
@@ -856,10 +856,15 @@ async function updateUser(req, res) {
         });
       }
 
-      // Use the same hashing library as your registration/login controller.
-      const bcrypt = require("bcryptjs");
-
+      // Use the same bcrypt library used by registration and login.
       data.password = await bcrypt.hash(password, 10);
+
+      data.tokenVersion = {
+        increment: 1,
+      };
+
+      // Remove the saved push token after password reset.
+      data.fcmToken = null;
     }
 
     // UPDATE DESIGNATION
