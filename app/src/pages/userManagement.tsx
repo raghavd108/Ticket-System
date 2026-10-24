@@ -536,7 +536,7 @@ const ClientPage = () => {
     const cleanOrgType = newOrganisationType.trim();
 
     if (!cleanName) {
-      Alert.alert('Organisation Required', 'Please enter organisation name.');
+      Alert.alert('Organisation Required', 'Please enter organisation type.');
       return;
     }
 
