@@ -42,6 +42,7 @@ function serializeUser(user) {
         _id: assignment.employee.id,
         userName: assignment.employee.userName,
         email: assignment.employee.email,
+        mobileNumber: assignment.employee.mobileNumber ?? null,
         ...(assignment.employee.designation !== undefined
           ? { designation: assignment.employee.designation }
           : {}),
@@ -65,6 +66,7 @@ async function register(req, res) {
       password,
       role,
       designation,
+      mobileNumber,
       assignedEmployee,
     } = req.body;
 
@@ -80,9 +82,26 @@ async function register(req, res) {
       });
     }
 
-    if (role === "employee" && !designation) {
+    const normalizedUserName = String(userName).trim();
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedMobileNumber = String(mobileNumber || "").trim();
+    const normalizedDesignation = String(designation || "").trim();
+
+    if (!normalizedUserName || !normalizedEmail || !password) {
+      return res.status(400).json({
+        message: "Username, email and password cannot be empty",
+      });
+    }
+
+    if (role === "employee" && !normalizedDesignation) {
       return res.status(400).json({
         message: "Designation is required for employee",
+      });
+    }
+
+    if (role === "employee" && !/^\d{10}$/.test(normalizedMobileNumber)) {
+      return res.status(400).json({
+        message: "A valid 10-digit mobile number is required for employee",
       });
     }
 
@@ -107,15 +126,15 @@ async function register(req, res) {
       targetOrganisationId = adminOrganisationId;
     }
 
-    if (!targetOrganisationId) {
-      return res.status(400).json({
-        message: "Organisation is required",
-      });
-    }
-
     if (isAuthenticatedAdmin && !adminOrganisationId) {
       return res.status(400).json({
         message: "Your account is not linked to an organisation",
+      });
+    }
+
+    if (!targetOrganisationId) {
+      return res.status(400).json({
+        message: "Organisation is required",
       });
     }
 
@@ -145,9 +164,6 @@ async function register(req, res) {
       });
     }
 
-    const normalizedUserName = String(userName).trim();
-    const normalizedEmail = String(email).trim().toLowerCase();
-
     const existingUser = await prisma.user.findFirst({
       where: {
         organisationId: org.id,
@@ -164,7 +180,6 @@ async function register(req, res) {
       });
     }
 
-    // Validate employee assignments for clients.
     let employeeIds = [];
 
     if (role === "client" && assignedEmployee !== undefined) {
@@ -225,7 +240,8 @@ async function register(req, res) {
         password: hashedPassword,
         role,
         organisationId: org.id,
-        designation: role === "employee" ? String(designation).trim() : null,
+        designation: role === "employee" ? normalizedDesignation : null,
+        mobileNumber: role === "employee" ? normalizedMobileNumber : null,
 
         ...(role === "client" && employeeIds.length > 0
           ? {
@@ -256,6 +272,7 @@ async function register(req, res) {
                 userName: true,
                 email: true,
                 designation: true,
+                mobileNumber: true,
               },
             },
           },
@@ -362,6 +379,7 @@ async function login(req, res) {
         id: user.id,
         userName: user.userName,
         email: user.email,
+        mobileNumber: user.mobileNumber ?? null,
         role: user.role,
         organisation: user.organisation
           ? {
@@ -440,6 +458,7 @@ async function getMe(req, res) {
                 userName: true,
                 email: true,
                 designation: true,
+                mobileNumber: true,
               },
             },
           },
@@ -537,6 +556,7 @@ async function updateProfile(req, res) {
                 userName: true,
                 email: true,
                 designation: true,
+                mobileNumber: true,
               },
             },
           },
@@ -562,7 +582,6 @@ async function updateProfile(req, res) {
     });
   }
 }
-
 // =====================================================
 // UPDATE PASSWORD — REVOKE EXISTING SESSIONS
 // =====================================================
@@ -650,6 +669,8 @@ async function getUser(req, res) {
         userName: true,
         email: true,
         role: true,
+        mobileNumber: true,
+        designation: true,
         organisation: {
           select: {
             id: true,
@@ -664,6 +685,7 @@ async function getUser(req, res) {
                 userName: true,
                 designation: true,
                 email: true,
+                mobileNumber: true,
               },
             },
           },
@@ -687,6 +709,332 @@ async function getUser(req, res) {
   }
 }
 
+// =====================================================
+// ADMIN UPDATE USER — EMPLOYEES AND CLIENTS
+// PATCH /api/auth/update-user/:userId
+// =====================================================
+async function updateUser(req, res) {
+  try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({
+        message: "Only admins can update employee and client details",
+      });
+    }
+
+    const userId = String(req.params.userId || "").trim();
+
+    if (!userId) {
+      return res.status(400).json({
+        message: "User ID is required",
+      });
+    }
+
+    const adminOrganisationId = String(
+      req.user?.organisation?.id ||
+        req.user?.organisationId ||
+        req.user?.organisation ||
+        "",
+    );
+
+    if (!adminOrganisationId) {
+      return res.status(400).json({
+        message: "Your admin account is not linked to an organisation",
+      });
+    }
+
+    // Admins can update employees in their organisation and clients
+    // assigned to employees in that organisation.
+    const target = await prisma.user.findFirst({
+      where: {
+        id: userId,
+        OR: [
+          {
+            role: "employee",
+            organisationId: adminOrganisationId,
+          },
+          {
+            role: "client",
+            assignedEmployees: {
+              some: {
+                employee: {
+                  organisationId: adminOrganisationId,
+                  role: "employee",
+                },
+              },
+            },
+          },
+        ],
+      },
+      select: {
+        id: true,
+        role: true,
+        organisationId: true,
+      },
+    });
+
+    if (!target) {
+      return res.status(404).json({
+        message:
+          "Employee or client not found, or you do not have permission to update this user",
+      });
+    }
+
+    const {
+      userName,
+      email,
+      mobileNumber,
+      designation,
+      assignedEmployee,
+      password,
+    } = req.body || {};
+
+    const data = {};
+
+    // UPDATE USERNAME
+    if (userName !== undefined) {
+      const value = String(userName).trim();
+
+      if (!value) {
+        return res.status(400).json({
+          message: "Username cannot be empty",
+        });
+      }
+
+      data.userName = value;
+    }
+
+    // UPDATE EMAIL
+    if (email !== undefined) {
+      const value = String(email).trim().toLowerCase();
+
+      if (!value) {
+        return res.status(400).json({
+          message: "Email cannot be empty",
+        });
+      }
+
+      data.email = value;
+    }
+
+    // UPDATE MOBILE NUMBER
+    if (mobileNumber !== undefined) {
+      const value = mobileNumber === null ? "" : String(mobileNumber).trim();
+
+      if (value && !/^\d{10}$/.test(value)) {
+        return res.status(400).json({
+          message: "Mobile number must contain exactly 10 digits",
+        });
+      }
+
+      if (target.role === "employee" && !value) {
+        return res.status(400).json({
+          message: "A valid 10-digit mobile number is required for employees",
+        });
+      }
+
+      data.mobileNumber = value || null;
+    }
+
+    // UPDATE PASSWORD
+    // Password is optional. If omitted, the existing password is unchanged.
+    if (password !== undefined && password !== "") {
+      if (typeof password !== "string") {
+        return res.status(400).json({
+          message: "Password must be a valid string",
+        });
+      }
+
+      if (!password.trim()) {
+        return res.status(400).json({
+          message: "Password cannot contain only spaces",
+        });
+      }
+
+      if (password.length < 8) {
+        return res.status(400).json({
+          message: "Password must be at least 8 characters long",
+        });
+      }
+
+      // Use the same hashing library as your registration/login controller.
+      const bcrypt = require("bcryptjs");
+
+      data.password = await bcrypt.hash(password, 10);
+    }
+
+    // UPDATE DESIGNATION
+    if (designation !== undefined) {
+      if (target.role !== "employee") {
+        return res.status(400).json({
+          message: "Designation can only be changed for employees",
+        });
+      }
+
+      const value = String(designation).trim();
+
+      if (!value) {
+        return res.status(400).json({
+          message: "Designation cannot be empty for employees",
+        });
+      }
+
+      data.designation = value;
+    }
+
+    // UPDATE CLIENT EMPLOYEE ASSIGNMENTS
+    if (assignedEmployee !== undefined) {
+      if (target.role !== "client" || !Array.isArray(assignedEmployee)) {
+        return res.status(400).json({
+          message: "assignedEmployee must be an array for a client",
+        });
+      }
+
+      const employeeIds = [...new Set(assignedEmployee.map(String))];
+
+      if (
+        employeeIds.some(
+          (id) => !id.trim() || id === "undefined" || id === "null",
+        )
+      ) {
+        return res.status(400).json({
+          message: "Every assigned employee ID must be valid",
+        });
+      }
+
+      const validEmployees = await prisma.user.findMany({
+        where: {
+          id: {
+            in: employeeIds,
+          },
+          role: "employee",
+          organisationId: adminOrganisationId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (validEmployees.length !== employeeIds.length) {
+        return res.status(400).json({
+          message:
+            "One or more employees are invalid or outside your organisation",
+        });
+      }
+
+      data.assignedEmployees = {
+        deleteMany: {},
+        ...(employeeIds.length
+          ? {
+              create: employeeIds.map((employeeId) => ({
+                employee: {
+                  connect: {
+                    id: employeeId,
+                  },
+                },
+              })),
+            }
+          : {}),
+      };
+    }
+
+    // ENSURE AT LEAST ONE FIELD IS PROVIDED
+    if (Object.keys(data).length === 0) {
+      return res.status(400).json({
+        message: "Provide at least one field to update",
+      });
+    }
+
+    // CHECK USERNAME/EMAIL UNIQUENESS WITHIN THE TARGET ORGANISATION
+    if (data.userName !== undefined || data.email !== undefined) {
+      const duplicateOr = [];
+
+      if (data.userName !== undefined) {
+        duplicateOr.push({
+          userName: data.userName,
+        });
+      }
+
+      if (data.email !== undefined) {
+        duplicateOr.push({
+          email: data.email,
+        });
+      }
+
+      const duplicate = await prisma.user.findFirst({
+        where: {
+          id: {
+            not: target.id,
+          },
+          organisationId: target.organisationId,
+          OR: duplicateOr,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (duplicate) {
+        return res.status(409).json({
+          message: "Username or email is already in use in this organisation",
+        });
+      }
+    }
+
+    // SAVE UPDATED USER
+    const updatedUser = await prisma.user.update({
+      where: {
+        id: target.id,
+      },
+      data,
+      include: {
+        organisation: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        assignedEmployees: {
+          include: {
+            employee: {
+              select: {
+                id: true,
+                userName: true,
+                email: true,
+                mobileNumber: true,
+                designation: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return res.status(200).json({
+      message: `${
+        target.role === "employee" ? "Employee" : "Client"
+      } details updated successfully`,
+      user: serializeUser(updatedUser),
+    });
+  } catch (error) {
+    console.error("ADMIN UPDATE USER ERROR:", error);
+
+    if (error.code === "P2002") {
+      return res.status(409).json({
+        message: "Username or email is already in use",
+      });
+    }
+
+    if (error.code === "P2025" || error.code === "P2003") {
+      return res.status(400).json({
+        message: "Invalid user or employee assignment",
+      });
+    }
+
+    return res.status(500).json({
+      message: "Failed to update user details",
+    });
+  }
+}
 // =====================================================
 // SAVE FCM TOKEN
 // =====================================================
@@ -753,6 +1101,7 @@ async function getEmployees(req, res) {
         id: true,
         userName: true,
         email: true,
+        mobileNumber: true,
         designation: true,
         organisation: {
           select: {
@@ -791,6 +1140,7 @@ module.exports = {
   updateProfile,
   updatePassword,
   getUser,
+  updateUser,
   saveFcmToken,
   getEmployees,
 };

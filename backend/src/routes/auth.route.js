@@ -28,5 +28,10 @@ Router.post(
   authMiddleware.verifyToken,
   authController.saveFcmToken,
 );
+Router.patch(
+  "/update-user/:userId",
+  authMiddleware.verifyToken,
+  authController.updateUser,
+);
 Router.post("/logout", authMiddleware.verifyToken, authController.logout);
 module.exports = Router;

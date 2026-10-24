@@ -16,18 +16,21 @@ import { useTheme } from '../context/ThemeContext';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Config } from 'react-native-config';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   pick,
   isErrorWithCode,
   errorCodes,
 } from '@react-native-documents/picker';
 import createstyles from '../style/clientManager';
+import AttendanceHistory from '../components/AttendanceHistory';
 
 interface AssignedEmployee {
   _id: string;
   userName: string;
   email: string;
   designation?: string;
+  mobileNumber?: string;
   organisation?: {
     _id: string;
     orgType: string;
@@ -40,12 +43,14 @@ interface User {
   _id?: string;
   userName: string;
   email: string;
+  mobileNumber?: string;
   role: string;
   organisation: {
     _id: string;
-    orgType: string;
+    orgType?: string;
     name: string;
   };
+  designation?: string;
   assignedEmployee?: AssignedEmployee[];
 }
 
@@ -67,6 +72,7 @@ const ClientPage = () => {
   const [organisation, setOrganisation] = useState('');
   const [userName, setUserName] = useState('');
   const [email, setEmail] = useState('');
+  const [mobileNumber, setMobileNumber] = useState('');
   const [role, setRole] = useState('');
   const [password, setPassword] = useState('');
   const [designation, setDesignation] = useState('');
@@ -83,6 +89,20 @@ const ClientPage = () => {
   const [assignedEmployee, setAssignedEmployee] = useState<string[]>([]);
   const [showEmployeeList, setShowEmployeeList] = useState(false);
   const [selectedClient, setSelectedClient] = useState<User | null>(null);
+
+  // Selected employee attendance and admin editing
+  const [attendanceVisible, setAttendanceVisible] = useState(false);
+  const [editEmployeeVisible, setEditEmployeeVisible] = useState(false);
+  const [savingEmployee, setSavingEmployee] = useState(false);
+  const [editEmployeeName, setEditEmployeeName] = useState('');
+  const [editEmployeeEmail, setEditEmployeeEmail] = useState('');
+  const [editEmployeeMobile, setEditEmployeeMobile] = useState('');
+  const [editEmployeeDesignation, setEditEmployeeDesignation] = useState('');
+  const [editEmployeePassword, setEditEmployeePassword] = useState('');
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [editAssignedEmployees, setEditAssignedEmployees] = useState<string[]>(
+    [],
+  );
   const [documentFiles, setDocumentFiles] = useState<any[]>([]);
 
   // UI
@@ -143,7 +163,35 @@ const ClientPage = () => {
 
       console.log('GET USERS RESPONSE:', res.data);
 
-      setClient(res.data.users || []);
+      const users = Array.isArray(res.data?.users) ? res.data.users : [];
+      setClient(
+        users.map((item: any) => ({
+          ...item,
+          id: String(item.id || item._id || ''),
+          _id: String(item._id || item.id || ''),
+          mobileNumber:
+            item.mobileNumber ?? item.phoneNumber ?? item.mobile ?? '',
+          organisation:
+            typeof item.organisation === 'object' && item.organisation
+              ? {
+                  ...item.organisation,
+                  _id: String(
+                    item.organisation._id || item.organisation.id || '',
+                  ),
+                }
+              : item.organisation,
+          assignedEmployee: (
+            item.assignedEmployee ||
+            item.assignedEmployees ||
+            []
+          ).map((entry: any) => {
+            const employee = entry.employee || entry;
+            return typeof employee === 'string'
+              ? { _id: employee, userName: 'Employee', email: '' }
+              : { ...employee, _id: String(employee._id || employee.id || '') };
+          }),
+        })),
+      );
     } catch (error: any) {
       console.log('GET USERS ERROR:', error);
 
@@ -211,7 +259,24 @@ const ClientPage = () => {
 
       console.log('GET EMPLOYEES RESPONSE:', res.data);
 
-      setEmployees(res.data?.employees || []);
+      const list = Array.isArray(res.data?.employees) ? res.data.employees : [];
+      setEmployees(
+        list.map((item: any) => ({
+          ...item,
+          _id: String(item._id || item.id || ''),
+          mobileNumber:
+            item.mobileNumber ?? item.phoneNumber ?? item.mobile ?? '',
+          organisation:
+            typeof item.organisation === 'object' && item.organisation
+              ? {
+                  ...item.organisation,
+                  _id: String(
+                    item.organisation._id || item.organisation.id || '',
+                  ),
+                }
+              : item.organisation,
+        })),
+      );
     } catch (error: any) {
       console.log('GET EMPLOYEES ERROR:', error);
 
@@ -316,15 +381,12 @@ const ClientPage = () => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanRole = selectedRole.trim().toLowerCase();
     const cleanDesignation = designation.trim();
-
-    // CLIENT ORGANISATION VALIDATION
+    const cleanMobileNumber = mobileNumber.trim();
 
     if (cleanRole === 'client' && !organisation) {
       Alert.alert('Organisation Required', 'Please select an organisation.');
       return;
     }
-
-    // EMPLOYEE DEFAULT ORGANISATION
 
     let employeeOrganisationId = organisation;
 
@@ -342,28 +404,33 @@ const ClientPage = () => {
       employeeOrganisationId = spinfocomOrganisation._id;
     }
 
-    // USERNAME
-
     if (!cleanUserName) {
       Alert.alert('Username Required', 'Please enter a username.');
       return;
     }
-
-    // EMAIL
 
     if (!cleanEmail) {
       Alert.alert('Email Required', 'Please enter an email address.');
       return;
     }
 
-    // PASSWORD
-
     if (!password) {
       Alert.alert('Password Required', 'Please enter a password.');
       return;
     }
 
-    // EMPLOYEE DESIGNATION
+    if (cleanRole === 'employee' && !cleanMobileNumber) {
+      Alert.alert('Mobile Number Required', 'Please enter a mobile number.');
+      return;
+    }
+
+    if (cleanRole === 'employee' && !/^\d{10}$/.test(cleanMobileNumber)) {
+      Alert.alert(
+        'Invalid Mobile Number',
+        'Please enter a valid 10-digit mobile number.',
+      );
+      return;
+    }
 
     if (cleanRole === 'employee' && !cleanDesignation) {
       Alert.alert(
@@ -372,8 +439,6 @@ const ClientPage = () => {
       );
       return;
     }
-
-    // CLIENT EMPLOYEE VALIDATION
 
     if (cleanRole === 'client') {
       const employeesForOrganisation = getEmployeesForSelectedOrganisation();
@@ -404,8 +469,6 @@ const ClientPage = () => {
         return;
       }
 
-      // PAYLOAD
-
       const payload: any = {
         organisation: employeeOrganisationId,
         userName: cleanUserName,
@@ -414,19 +477,16 @@ const ClientPage = () => {
         role: cleanRole,
       };
 
-      // Only send designation for Employee
       if (cleanRole === 'employee') {
         payload.designation = cleanDesignation;
+        payload.mobileNumber = cleanMobileNumber;
       }
 
-      // Send selected employee IDs for Client
       if (cleanRole === 'client') {
         payload.assignedEmployee = assignedEmployee;
       }
 
       console.log('CREATE USER PAYLOAD:', payload);
-
-      // API CALL
 
       const res = await axios.post(
         `${Config.API_URL}/api/auth/register`,
@@ -440,8 +500,6 @@ const ClientPage = () => {
 
       console.log('CREATE USER RESPONSE:', res.data);
 
-      // SUCCESS
-
       Alert.alert(
         'Account Created',
         `${getRoleLabel(cleanRole)} account has been created successfully.`,
@@ -449,7 +507,6 @@ const ClientPage = () => {
 
       resetUserForm();
 
-      // Close correct modal
       if (cleanRole === 'client') {
         setShowClientModal(false);
       }
@@ -552,6 +609,7 @@ const ClientPage = () => {
     setOrganisation('');
     setUserName('');
     setEmail('');
+    setMobileNumber('');
     setPassword('');
     setRole('');
     setDesignation('');
@@ -618,6 +676,8 @@ const ClientPage = () => {
   // OPEN CLIENT MODAL
 
   const openClientModal = () => {
+    setShowEmployeeModal(false);
+    setShowClientModal(false);
     resetUserForm();
     setRole('client');
     setShowClientModal(true);
@@ -637,6 +697,8 @@ const ClientPage = () => {
       return;
     }
 
+    setShowClientModal(false);
+    setShowEmployeeModal(false);
     resetUserForm();
 
     // Automatically assign Spinfocom
@@ -838,8 +900,160 @@ const ClientPage = () => {
     }
   };
 
-  // VIEW USER
+  const loadEmployeeAttendance = () => {
+    const employeeId = selectedClient?._id || selectedClient?.id;
 
+    if (!employeeId || selectedClient?.role !== 'employee') {
+      Alert.alert('Employee Required', 'Please select a valid employee.');
+      return;
+    }
+
+    setAttendanceVisible(true);
+  };
+
+  const openEditEmployee = () => {
+    if (
+      !selectedClient ||
+      !['employee', 'client'].includes(selectedClient.role)
+    )
+      return;
+    setEditEmployeeName(selectedClient.userName || '');
+    setEditEmployeeEmail(selectedClient.email || '');
+    setEditEmployeeMobile(selectedClient.mobileNumber || '');
+    setEditEmployeeDesignation(selectedClient.designation || '');
+    setEditEmployeePassword('');
+    setShowEditPassword(false);
+    setEditAssignedEmployees(
+      (selectedClient.assignedEmployee || [])
+        .map(item => String(item._id || (item as any).id || ''))
+        .filter(Boolean),
+    );
+    setEditEmployeeVisible(true);
+  };
+
+  const updateSelectedEmployee = async () => {
+    const userId = selectedClient?._id || selectedClient?.id;
+    const isEmployee = selectedClient?.role === 'employee';
+    const isClient = selectedClient?.role === 'client';
+    const cleanName = editEmployeeName.trim();
+    const cleanEmail = editEmployeeEmail.trim().toLowerCase();
+    const cleanMobile = editEmployeeMobile.trim();
+    const cleanDesignation = editEmployeeDesignation.trim();
+    const newPassword = editEmployeePassword;
+
+    if (!userId || (!isEmployee && !isClient)) return;
+    if (newPassword.length > 0 && newPassword.trim().length === 0) {
+      Alert.alert('Invalid password', 'Password cannot contain only spaces.');
+      return;
+    }
+    if (newPassword.length > 0 && newPassword.length < 8) {
+      Alert.alert(
+        'Invalid password',
+        'Password must be at least 8 characters long.',
+      );
+      return;
+    }
+    if (!cleanName || !cleanEmail) {
+      Alert.alert('Missing details', 'Username and email are required.');
+      return;
+    }
+    if (cleanMobile && !/^\d{10}$/.test(cleanMobile)) {
+      Alert.alert(
+        'Invalid mobile number',
+        'Enter a valid 10-digit mobile number.',
+      );
+      return;
+    }
+    if (isEmployee && (!cleanMobile || !cleanDesignation)) {
+      Alert.alert(
+        'Missing details',
+        'Employee mobile number and designation are required.',
+      );
+      return;
+    }
+    if (
+      isClient &&
+      editAssignedEmployees.some(
+        id => !employees.some(employee => employee._id === id),
+      )
+    ) {
+      Alert.alert(
+        'Invalid employee selection',
+        'Refresh the employee list and try again.',
+      );
+      return;
+    }
+
+    try {
+      setSavingEmployee(true);
+      const token = await AsyncStorage.getItem('token');
+      if (!token) throw new Error('Authentication token not found.');
+
+      const payload: any = {
+        userName: cleanName,
+        email: cleanEmail,
+        mobileNumber: cleanMobile || null,
+      };
+      // Only send a password when the admin entered a new one.
+      if (newPassword.length > 0) payload.password = newPassword;
+      if (isEmployee) payload.designation = cleanDesignation;
+      if (isClient) payload.assignedEmployee = editAssignedEmployees;
+
+      const response = await axios.patch(
+        `${Config.API_URL}/api/auth/update-user/${userId}`,
+        payload,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      const updated = response.data?.user || response.data?.updatedUser || {};
+      const nextUser = {
+        ...selectedClient,
+        ...updated,
+        id: updated.id || updated._id || userId,
+        _id: updated._id || updated.id || userId,
+        userName: updated.userName ?? cleanName,
+        email: updated.email ?? cleanEmail,
+        mobileNumber: updated.mobileNumber ?? cleanMobile,
+        designation:
+          updated.designation ??
+          (isEmployee ? cleanDesignation : selectedClient?.designation),
+        assignedEmployee:
+          updated.assignedEmployee ??
+          (isClient
+            ? employees.filter(item => editAssignedEmployees.includes(item._id))
+            : selectedClient?.assignedEmployee),
+      } as User;
+
+      setSelectedClient(nextUser);
+      setClient(previous =>
+        previous.map(item =>
+          String(item._id || item.id) === String(userId)
+            ? { ...item, ...nextUser }
+            : item,
+        ),
+      );
+      setEditEmployeeVisible(false);
+      setEditEmployeePassword('');
+      setShowEditPassword(false);
+      Alert.alert(
+        'Details updated',
+        `${isEmployee ? 'Employee' : 'Client'} details have been updated.`,
+      );
+      await Promise.all([getUser(), getEmployees()]);
+    } catch (error: any) {
+      console.log('ADMIN UPDATE USER ERROR:', error?.response?.data || error);
+      Alert.alert(
+        'Update failed',
+        error?.response?.data?.message ||
+          error?.message ||
+          'Could not update user details. Check the backend route and permissions.',
+      );
+    } finally {
+      setSavingEmployee(false);
+    }
+  };
+
+  // VIEW USER
   const viewClient = (item: User) => {
     setSelectedClient(item);
   };
@@ -917,10 +1131,17 @@ const ClientPage = () => {
             style={styles.moreButton}
             activeOpacity={0.75}
             onPress={() => {
-              Alert.alert(
-                'User Actions',
-                'Edit and delete actions can be connected to your backend.',
+              setSelectedClient(item);
+              setEditEmployeeName(item.userName || '');
+              setEditEmployeeEmail(item.email || '');
+              setEditEmployeeMobile(item.mobileNumber || '');
+              setEditEmployeeDesignation(item.designation || '');
+              setEditEmployeePassword('');
+              setShowEditPassword(false);
+              setEditAssignedEmployees(
+                (item.assignedEmployee || []).map(employee => employee._id),
               );
+              setEditEmployeeVisible(true);
             }}
           >
             <Text style={styles.moreButtonText}>•••</Text>
@@ -941,9 +1162,15 @@ const ClientPage = () => {
   const renderClientForm = () => {
     return (
       <ScrollView
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.modalScrollContent}
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+        contentContainerStyle={[
+          styles.modalScrollContent,
+          { flexGrow: 1, paddingBottom: 50 },
+        ]}
       >
         {/* =====================================================
             USERNAME
@@ -1008,7 +1235,7 @@ const ClientPage = () => {
             >
               <Text
                 style={{
-                  color: '#7357E8',
+                  color: theme.primary,
                   fontWeight: '700',
                   fontSize: 13,
                 }}
@@ -1027,11 +1254,11 @@ const ClientPage = () => {
             style={{
               minHeight: 52,
               borderWidth: 1,
-              borderColor: organisation ? '#7357E8' : '#E4E4E7',
+              borderColor: organisation ? theme.primary : theme.border,
               borderRadius: 12,
               paddingHorizontal: 15,
               justifyContent: 'center',
-              backgroundColor: '#FFFFFF',
+              backgroundColor: theme.background,
             }}
           >
             {loadingOrganisations ? (
@@ -1046,7 +1273,7 @@ const ClientPage = () => {
                 <Text
                   style={{
                     marginLeft: 9,
-                    color: '#71717A',
+                    color: theme.muted,
                   }}
                 >
                   Loading organisations...
@@ -1062,7 +1289,7 @@ const ClientPage = () => {
               >
                 <Text
                   style={{
-                    color: selectedOrganisation ? '#18181B' : '#A1A1AA',
+                    color: selectedOrganisation ? theme.ink : theme.muted,
                     fontSize: 15,
                     flex: 1,
                   }}
@@ -1076,7 +1303,7 @@ const ClientPage = () => {
                 <Text
                   style={{
                     fontSize: 18,
-                    color: '#71717A',
+                    color: theme.muted,
                   }}
                 >
                   {showOrganisationList ? '▲' : '▼'}
@@ -1092,9 +1319,9 @@ const ClientPage = () => {
               style={{
                 marginTop: 8,
                 borderWidth: 1,
-                borderColor: '#E4E4E7',
+                borderColor: theme.border,
                 borderRadius: 12,
-                backgroundColor: '#FFFFFF',
+                backgroundColor: theme.background,
                 overflow: 'hidden',
               }}
             >
@@ -1107,7 +1334,7 @@ const ClientPage = () => {
                 >
                   <Text
                     style={{
-                      color: '#71717A',
+                      color: theme.muted,
                       marginBottom: 10,
                     }}
                   >
@@ -1120,7 +1347,7 @@ const ClientPage = () => {
                   >
                     <Text
                       style={{
-                        color: '#7357E8',
+                        color: theme.primary,
                         fontWeight: '700',
                       }}
                     >
@@ -1141,7 +1368,7 @@ const ClientPage = () => {
                         paddingHorizontal: 15,
                         paddingVertical: 14,
                         borderBottomWidth: 1,
-                        borderBottomColor: '#F4F4F5',
+                        borderBottomColor: theme.divider,
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'space-between',
@@ -1150,7 +1377,7 @@ const ClientPage = () => {
                       <Text
                         style={{
                           fontSize: 15,
-                          color: selected ? '#7357E8' : '#18181B',
+                          color: selected ? theme.primary : theme.ink,
                           fontWeight: selected ? '700' : '500',
                         }}
                       >
@@ -1160,7 +1387,7 @@ const ClientPage = () => {
                       {selected && (
                         <Text
                           style={{
-                            color: '#7357E8',
+                            color: theme.primary,
                             fontWeight: '700',
                           }}
                         >
@@ -1177,13 +1404,13 @@ const ClientPage = () => {
                 activeOpacity={0.7}
                 style={{
                   padding: 15,
-                  backgroundColor: '#FAFAFA',
+                  backgroundColor: theme.background,
                   alignItems: 'center',
                 }}
               >
                 <Text
                   style={{
-                    color: '#7357E8',
+                    color: theme.primary,
                     fontWeight: '700',
                   }}
                 >
@@ -1208,11 +1435,12 @@ const ClientPage = () => {
             style={{
               minHeight: 52,
               borderWidth: 1,
-              borderColor: assignedEmployee.length > 0 ? '#7357E8' : '#E4E4E7',
+              borderColor:
+                assignedEmployee.length > 0 ? theme.primary : theme.border,
               borderRadius: 12,
               paddingHorizontal: 15,
               justifyContent: 'center',
-              backgroundColor: '#FFFFFF',
+              backgroundColor: theme.background,
             }}
           >
             {loadingEmployees ? (
@@ -1227,7 +1455,7 @@ const ClientPage = () => {
                 <Text
                   style={{
                     marginLeft: 9,
-                    color: '#71717A',
+                    color: theme.muted,
                   }}
                 >
                   Loading employees...
@@ -1236,7 +1464,7 @@ const ClientPage = () => {
             ) : !organisation ? (
               <Text
                 style={{
-                  color: '#A1A1AA',
+                  color: theme.muted,
                   fontSize: 15,
                 }}
               >
@@ -1252,7 +1480,8 @@ const ClientPage = () => {
               >
                 <Text
                   style={{
-                    color: assignedEmployee.length > 0 ? '#18181B' : '#A1A1AA',
+                    color:
+                      assignedEmployee.length > 0 ? theme.ink : theme.muted,
                     fontSize: 15,
                     flex: 1,
                   }}
@@ -1268,7 +1497,7 @@ const ClientPage = () => {
                 <Text
                   style={{
                     fontSize: 18,
-                    color: '#71717A',
+                    color: theme.muted,
                   }}
                 >
                   {showEmployeeList ? '▲' : '▼'}
@@ -1296,9 +1525,9 @@ const ClientPage = () => {
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    backgroundColor: '#F5F3FF',
+                    backgroundColor: theme.primarySoft,
                     borderWidth: 1,
-                    borderColor: '#DDD6FE',
+                    borderColor: theme.border,
                     borderRadius: 20,
                     paddingVertical: 7,
                     paddingHorizontal: 10,
@@ -1306,7 +1535,7 @@ const ClientPage = () => {
                 >
                   <Text
                     style={{
-                      color: '#5B43C6',
+                      color: theme.primary,
                       fontSize: 13,
                       fontWeight: '700',
                     }}
@@ -1317,7 +1546,7 @@ const ClientPage = () => {
 
                   <Text
                     style={{
-                      color: '#7357E8',
+                      color: theme.primary,
                       fontSize: 16,
                       fontWeight: '700',
                       marginLeft: 6,
@@ -1336,9 +1565,9 @@ const ClientPage = () => {
               style={{
                 marginTop: 8,
                 borderWidth: 1,
-                borderColor: '#E4E4E7',
+                borderColor: theme.border,
                 borderRadius: 12,
-                backgroundColor: '#FFFFFF',
+                backgroundColor: theme.background,
                 overflow: 'hidden',
               }}
             >
@@ -1351,7 +1580,7 @@ const ClientPage = () => {
                 >
                   <Text
                     style={{
-                      color: '#71717A',
+                      color: theme.muted,
                       textAlign: 'center',
                       lineHeight: 20,
                     }}
@@ -1375,7 +1604,7 @@ const ClientPage = () => {
                         paddingHorizontal: 15,
                         paddingVertical: 13,
                         borderBottomWidth: 1,
-                        borderBottomColor: '#F4F4F5',
+                        borderBottomColor: theme.divider,
                         flexDirection: 'row',
                         alignItems: 'center',
                         justifyContent: 'space-between',
@@ -1385,7 +1614,7 @@ const ClientPage = () => {
                         <Text
                           style={{
                             fontSize: 15,
-                            color: selected ? '#7357E8' : '#18181B',
+                            color: selected ? theme.primary : theme.ink,
                             fontWeight: selected ? '700' : '600',
                           }}
                           numberOfLines={1}
@@ -1396,7 +1625,7 @@ const ClientPage = () => {
                         <Text
                           style={{
                             fontSize: 12,
-                            color: '#71717A',
+                            color: theme.muted,
                             marginTop: 3,
                           }}
                           numberOfLines={1}
@@ -1412,8 +1641,10 @@ const ClientPage = () => {
                           height: 23,
                           borderRadius: 6,
                           borderWidth: 1.5,
-                          borderColor: selected ? '#7357E8' : '#D4D4D8',
-                          backgroundColor: selected ? '#7357E8' : '#FFFFFF',
+                          borderColor: selected ? theme.primary : theme.border,
+                          backgroundColor: selected
+                            ? theme.primary
+                            : theme.background,
                           justifyContent: 'center',
                           alignItems: 'center',
                         }}
@@ -1421,7 +1652,7 @@ const ClientPage = () => {
                         {selected && (
                           <Text
                             style={{
-                              color: '#FFFFFF',
+                              color: theme.everWhite,
                               fontSize: 15,
                               fontWeight: '800',
                             }}
@@ -1441,13 +1672,13 @@ const ClientPage = () => {
                   activeOpacity={0.7}
                   style={{
                     padding: 13,
-                    backgroundColor: '#FAFAFA',
+                    backgroundColor: theme.background,
                     alignItems: 'center',
                   }}
                 >
                   <Text
                     style={{
-                      color: '#7357E8',
+                      color: theme.primary,
                       fontWeight: '700',
                     }}
                   >
@@ -1539,9 +1770,15 @@ const ClientPage = () => {
   const renderEmployeeForm = () => {
     return (
       <ScrollView
+        style={{ flex: 1 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.modalScrollContent}
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+        contentContainerStyle={[
+          styles.modalScrollContent,
+          { paddingBottom: 50, flexGrow: 1 },
+        ]}
       >
         {/* =====================================================
             DEFAULT ORGANISATION INFO
@@ -1605,6 +1842,7 @@ const ClientPage = () => {
             onChangeText={setUserName}
             autoCapitalize="none"
             autoCorrect={false}
+            returnKeyType="next"
             editable={!creating}
           />
         </View>
@@ -1625,6 +1863,29 @@ const ClientPage = () => {
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
+            returnKeyType="next"
+            editable={!creating}
+          />
+        </View>
+
+        {/* =====================================================
+            MOBILE NUMBER
+        ===================================================== */}
+
+        <View style={styles.field}>
+          <Text style={styles.label}>MOBILE NUMBER</Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="Enter employee mobile number"
+            placeholderTextColor="#A1A1AA"
+            value={mobileNumber}
+            onChangeText={text =>
+              setMobileNumber(text.replace(/\D/g, '').slice(0, 10))
+            }
+            keyboardType="phone-pad"
+            maxLength={10}
+            autoCapitalize="none"
             editable={!creating}
           />
         </View>
@@ -1645,6 +1906,8 @@ const ClientPage = () => {
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
               autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="next"
               editable={!creating}
             />
 
@@ -1675,6 +1938,7 @@ const ClientPage = () => {
             value={designation}
             onChangeText={setDesignation}
             autoCapitalize="words"
+            returnKeyType="done"
             editable={!creating}
           />
         </View>
@@ -1725,7 +1989,10 @@ const ClientPage = () => {
   // RETURN
 
   return (
-    <View style={styles.screen}>
+    <SafeAreaView
+      style={[styles.screen, { flex: 1 }]}
+      edges={['top', 'left', 'right', 'bottom']}
+    >
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -1952,13 +2219,25 @@ const ClientPage = () => {
         visible={showClientModal}
         animationType="slide"
         transparent
+        statusBarTranslucent
         onRequestClose={closeClientModal}
       >
         <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={[styles.modalOverlay, { flex: 1, justifyContent: 'flex-end' }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
         >
-          <View style={styles.modalContainer}>
+          <View
+            style={[
+              styles.modalContainer,
+              {
+                height: '90%',
+                maxHeight: '90%',
+                flexShrink: 1,
+                overflow: 'hidden',
+              },
+            ]}
+          >
             {/* Modal Header */}
 
             <View style={styles.modalHeader}>
@@ -1998,13 +2277,25 @@ const ClientPage = () => {
         visible={showEmployeeModal}
         animationType="slide"
         transparent
+        statusBarTranslucent
         onRequestClose={closeEmployeeModal}
       >
         <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={[styles.modalOverlay, { flex: 1, justifyContent: 'flex-end' }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={0}
         >
-          <View style={styles.modalContainer}>
+          <View
+            style={[
+              styles.modalContainer,
+              {
+                height: '90%',
+                maxHeight: '90%',
+                flexShrink: 1,
+                overflow: 'hidden',
+              },
+            ]}
+          >
             {/* Modal Header */}
 
             <View style={styles.modalHeader}>
@@ -2044,6 +2335,7 @@ const ClientPage = () => {
         visible={showOrganisationModal}
         animationType="fade"
         transparent
+        statusBarTranslucent
         onRequestClose={() => {
           if (!creatingOrganisation) {
             setShowOrganisationModal(false);
@@ -2053,20 +2345,20 @@ const ClientPage = () => {
         <View
           style={{
             flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.45)',
+            backgroundColor: 'rgba(0,0,0,0.55)',
             justifyContent: 'center',
             padding: 20,
           }}
         >
           <View
             style={{
-              backgroundColor: '#FFFFFF',
-              borderRadius: 18,
+              backgroundColor: theme.background,
+              borderRadius: 22,
               padding: 22,
+              borderWidth: 1,
+              borderColor: theme.border,
             }}
           >
-            {/* Header */}
-
             <View
               style={{
                 flexDirection: 'row',
@@ -2075,24 +2367,34 @@ const ClientPage = () => {
                 marginBottom: 22,
               }}
             >
-              <View style={{ flex: 1 }}>
-                <Text
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <View
                   style={{
-                    fontSize: 11,
-                    fontWeight: '800',
-                    color: '#7357E8',
-                    letterSpacing: 1,
-                    marginBottom: 7,
+                    alignSelf: 'flex-start',
+                    backgroundColor: theme.primarySoft,
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 8,
+                    marginBottom: 9,
                   }}
                 >
-                  NEW ORGANISATION
-                </Text>
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      fontWeight: '800',
+                      color: theme.primary,
+                      letterSpacing: 1,
+                    }}
+                  >
+                    NEW ORGANISATION
+                  </Text>
+                </View>
 
                 <Text
                   style={{
                     fontSize: 23,
                     fontWeight: '800',
-                    color: '#18181B',
+                    color: theme.ink,
                   }}
                 >
                   Add Organisation
@@ -2100,9 +2402,10 @@ const ClientPage = () => {
 
                 <Text
                   style={{
-                    fontSize: 14,
-                    color: '#71717A',
-                    marginTop: 5,
+                    fontSize: 13,
+                    lineHeight: 20,
+                    color: theme.muted,
+                    marginTop: 6,
                   }}
                 >
                   Create an organisation that can be assigned to users.
@@ -2116,32 +2419,37 @@ const ClientPage = () => {
                   }
                 }}
                 disabled={creatingOrganisation}
+                activeOpacity={0.7}
                 style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: 18,
-                  backgroundColor: '#F4F4F5',
+                  width: 38,
+                  height: 38,
+                  borderRadius: 12,
+                  backgroundColor: theme.primarySoft,
+                  borderWidth: 1,
+                  borderColor: theme.border,
                   justifyContent: 'center',
                   alignItems: 'center',
                 }}
               >
                 <Text
                   style={{
-                    fontSize: 23,
-                    color: '#52525B',
+                    fontSize: 24,
+                    lineHeight: 27,
+                    color: theme.ink,
                   }}
                 >
                   ×
                 </Text>
               </TouchableOpacity>
             </View>
-            {/* org type */}
+
             <Text
               style={{
-                fontSize: 12,
-                fontWeight: '700',
-                color: '#52525B',
+                fontSize: 11,
+                fontWeight: '800',
+                color: theme.text,
                 marginBottom: 8,
+                letterSpacing: 0.5,
               }}
             >
               ORGANISATION TYPE
@@ -2150,30 +2458,30 @@ const ClientPage = () => {
             <TextInput
               value={newOrganisationType}
               onChangeText={setNewOrganisationType}
-              placeholder="Enter organisation Type"
-              placeholderTextColor="#A1A1AA"
+              placeholder="Enter organisation type"
+              placeholderTextColor={theme.muted}
               autoCapitalize="words"
               editable={!creatingOrganisation}
               style={{
                 height: 52,
                 borderWidth: 1,
-                borderColor: '#E4E4E7',
+                borderColor: theme.border,
                 borderRadius: 12,
                 paddingHorizontal: 15,
-                fontSize: 15,
-                color: '#18181B',
+                fontSize: 14,
+                color: theme.ink,
+                backgroundColor: theme.background,
                 marginBottom: 18,
               }}
             />
 
-            {/* Organisation name */}
-
             <Text
               style={{
-                fontSize: 12,
-                fontWeight: '700',
-                color: '#52525B',
+                fontSize: 11,
+                fontWeight: '800',
+                color: theme.text,
                 marginBottom: 8,
+                letterSpacing: 0.5,
               }}
             >
               ORGANISATION NAME
@@ -2183,22 +2491,22 @@ const ClientPage = () => {
               value={newOrganisationName}
               onChangeText={setNewOrganisationName}
               placeholder="Enter organisation name"
-              placeholderTextColor="#A1A1AA"
+              placeholderTextColor={theme.muted}
               autoCapitalize="words"
               editable={!creatingOrganisation}
+              returnKeyType="done"
               style={{
                 height: 52,
                 borderWidth: 1,
-                borderColor: '#E4E4E7',
+                borderColor: theme.border,
                 borderRadius: 12,
                 paddingHorizontal: 15,
-                fontSize: 15,
-                color: '#18181B',
-                marginBottom: 18,
+                fontSize: 14,
+                color: theme.ink,
+                backgroundColor: theme.background,
+                marginBottom: 20,
               }}
             />
-
-            {/* Create */}
 
             <TouchableOpacity
               onPress={createOrganisation}
@@ -2206,22 +2514,23 @@ const ClientPage = () => {
               activeOpacity={0.8}
               style={{
                 height: 52,
-                borderRadius: 12,
-                backgroundColor: creatingOrganisation ? '#A1A1AA' : '#7357E8',
+                borderRadius: 14,
+                backgroundColor: theme.primary,
                 justifyContent: 'center',
                 alignItems: 'center',
                 flexDirection: 'row',
+                opacity: creatingOrganisation ? 0.7 : 1,
               }}
             >
               {creatingOrganisation ? (
                 <>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-
+                  <ActivityIndicator size="small" color={theme.everWhite} />
                   <Text
                     style={{
-                      color: '#FFFFFF',
-                      fontWeight: '700',
-                      marginLeft: 8,
+                      color: theme.everWhite,
+                      fontWeight: '800',
+                      marginLeft: 9,
+                      fontSize: 14,
                     }}
                   >
                     Creating...
@@ -2230,17 +2539,15 @@ const ClientPage = () => {
               ) : (
                 <Text
                   style={{
-                    color: '#FFFFFF',
-                    fontWeight: '700',
-                    fontSize: 15,
+                    color: theme.everWhite,
+                    fontWeight: '800',
+                    fontSize: 14,
                   }}
                 >
                   Create Organisation
                 </Text>
               )}
             </TouchableOpacity>
-
-            {/* Cancel */}
 
             <TouchableOpacity
               onPress={() => {
@@ -2251,7 +2558,7 @@ const ClientPage = () => {
               disabled={creatingOrganisation}
               activeOpacity={0.7}
               style={{
-                height: 48,
+                height: 46,
                 justifyContent: 'center',
                 alignItems: 'center',
                 marginTop: 5,
@@ -2259,8 +2566,9 @@ const ClientPage = () => {
             >
               <Text
                 style={{
-                  color: '#71717A',
-                  fontWeight: '600',
+                  color: theme.muted,
+                  fontWeight: '700',
+                  fontSize: 13,
                 }}
               >
                 Cancel
@@ -2269,127 +2577,286 @@ const ClientPage = () => {
           </View>
         </View>
       </Modal>
+
       <Modal
         visible={!!selectedClient}
         transparent
         animationType="fade"
+        statusBarTranslucent
         onRequestClose={() => setSelectedClient(null)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.clientModalCard}>
-            {/* Header */}
+        <View
+          style={[
+            styles.modalOverlay,
+            {
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              justifyContent: 'center',
+              padding: 20,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.clientModalCard,
+              {
+                backgroundColor: theme.background,
+                borderColor: theme.border,
+                borderWidth: 1,
+              },
+            ]}
+          >
             <View style={styles.clientModalHeader}>
-              <View style={styles.clientAvatar}>
-                <Text style={styles.clientAvatarText}>
+              <View
+                style={[
+                  styles.clientAvatar,
+                  {
+                    backgroundColor: theme.primarySoft,
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.clientAvatarText, { color: theme.primary }]}
+                >
                   {selectedClient?.userName?.charAt(0)?.toUpperCase() || 'U'}
                 </Text>
               </View>
 
               <View style={styles.clientHeaderInfo}>
-                <Text style={styles.clientModalName}>
+                <Text style={[styles.clientModalName, { color: theme.ink }]}>
                   {selectedClient?.userName}
                 </Text>
 
-                <View style={styles.roleBadge}>
-                  <Text style={styles.roleBadgeText}>
+                <View
+                  style={[
+                    styles.roleBadge,
+                    {
+                      backgroundColor: theme.primarySoft,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[styles.roleBadgeText, { color: theme.primary }]}
+                  >
                     {selectedClient && getRoleLabel(selectedClient.role)}
                   </Text>
                 </View>
               </View>
 
               <TouchableOpacity
-                style={styles.closeButton}
+                style={[
+                  styles.closeButton,
+                  {
+                    backgroundColor: theme.background,
+                    borderColor: theme.border,
+                  },
+                ]}
                 onPress={() => setSelectedClient(null)}
+                activeOpacity={0.7}
               >
-                <Text style={styles.closeButtonText}>×</Text>
+                <Text style={[styles.closeButtonText, { color: theme.ink }]}>
+                  ×
+                </Text>
               </TouchableOpacity>
             </View>
 
-            {/* Divider */}
-            <View style={styles.modalDivider} />
+            <View
+              style={[styles.modalDivider, { backgroundColor: theme.divider }]}
+            />
 
-            {/* Details */}
             <View style={styles.detailsSection}>
-              {/* Email */}
               <View style={styles.detailRow}>
-                <View style={styles.detailIcon}>
+                <View
+                  style={[
+                    styles.detailIcon,
+                    { backgroundColor: theme.primarySoft },
+                  ]}
+                >
                   <Text>✉️</Text>
                 </View>
 
                 <View style={styles.detailContent}>
-                  <Text style={styles.detailLabel}>EMAIL</Text>
-                  <Text style={styles.detailValue}>
+                  <Text style={[styles.detailLabel, { color: theme.muted }]}>
+                    EMAIL
+                  </Text>
+
+                  <Text style={[styles.detailValue, { color: theme.ink }]}>
                     {selectedClient?.email || 'Not available'}
                   </Text>
                 </View>
               </View>
 
-              {/* Organisation */}
               <View style={styles.detailRow}>
-                <View style={styles.detailIcon}>
+                <View
+                  style={[
+                    styles.detailIcon,
+                    { backgroundColor: theme.primarySoft },
+                  ]}
+                >
+                  <Text>✉️</Text>
+                </View>
+
+                <View style={styles.detailContent}>
+                  <Text style={[styles.detailLabel, { color: theme.muted }]}>
+                    Phone Number
+                  </Text>
+
+                  <Text style={[styles.detailValue, { color: theme.ink }]}>
+                    {selectedClient?.mobileNumber || 'Not available'}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.detailRow}>
+                <View
+                  style={[
+                    styles.detailIcon,
+                    { backgroundColor: theme.primarySoft },
+                  ]}
+                >
                   <Text>🏢</Text>
                 </View>
 
                 <View style={styles.detailContent}>
-                  <Text style={styles.detailLabel}>ORGANISATION</Text>
-                  <Text style={styles.detailValue}>
+                  <Text style={[styles.detailLabel, { color: theme.muted }]}>
+                    ORGANISATION
+                  </Text>
+
+                  <Text style={[styles.detailValue, { color: theme.ink }]}>
                     {selectedClient?.organisation?.name || 'No Organisation'}
                   </Text>
                 </View>
               </View>
-              {selectedClient?.role === 'employee' && (
-                <View>
+
+              {(selectedClient?.role === 'employee' ||
+                selectedClient?.role === 'client') && (
+                <View
+                  style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}
+                >
                   <TouchableOpacity
-                    onPress={openUploadModal}
+                    onPress={openEditEmployee}
                     activeOpacity={0.8}
                     style={{
-                      backgroundColor: '#7357E8',
-                      borderRadius: 12,
-                      paddingVertical: 14,
-                      paddingHorizontal: 16,
-                      flexDirection: 'row',
+                      flex: 1,
+                      backgroundColor: theme.primarySoft,
+                      borderColor: theme.border,
+                      borderWidth: 1,
+                      borderRadius: 10,
+                      paddingVertical: 12,
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      marginBottom: 12,
                     }}
                   >
-                    <Text
-                      style={{
-                        color: '#FFFFFF',
-                        fontSize: 15,
-                        fontWeight: '700',
-                      }}
-                    >
-                      + Upload Documents
+                    <Text style={{ color: theme.primary, fontWeight: '800' }}>
+                      Edit{' '}
+                      {selectedClient?.role === 'employee'
+                        ? 'Employee'
+                        : 'Client'}
                     </Text>
                   </TouchableOpacity>
+                  {selectedClient?.role === 'employee' && (
+                    <TouchableOpacity
+                      onPress={loadEmployeeAttendance}
+                      activeOpacity={0.8}
+                      style={{
+                        flex: 1,
+                        backgroundColor: theme.primary,
+                        borderRadius: 10,
+                        paddingVertical: 12,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Text
+                        style={{ color: theme.everWhite, fontWeight: '800' }}
+                      >
+                        Attendance History
+                      </Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
 
-              {/* Assigned Employees */}
+              {selectedClient?.role === 'employee' && (
+                <TouchableOpacity
+                  onPress={openUploadModal}
+                  activeOpacity={0.8}
+                  style={{
+                    backgroundColor: theme.primary,
+                    borderRadius: 12,
+                    paddingVertical: 14,
+                    paddingHorizontal: 16,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: theme.everWhite,
+                      fontSize: 14,
+                      fontWeight: '800',
+                    }}
+                  >
+                    + Upload Documents
+                  </Text>
+                </TouchableOpacity>
+              )}
+
               {selectedClient?.role === 'client' && (
                 <View style={styles.detailRow}>
-                  <View style={styles.detailIcon}>
+                  <View
+                    style={[
+                      styles.detailIcon,
+                      { backgroundColor: theme.primarySoft },
+                    ]}
+                  >
                     <Text>👨‍💼</Text>
                   </View>
 
                   <View style={styles.detailContent}>
-                    <Text style={styles.detailLabel}>ASSIGNED EMPLOYEES</Text>
+                    <Text style={[styles.detailLabel, { color: theme.muted }]}>
+                      ASSIGNED EMPLOYEES
+                    </Text>
 
                     {selectedClient?.assignedEmployee &&
                     selectedClient.assignedEmployee.length > 0 ? (
                       <View style={styles.employeeList}>
                         {selectedClient.assignedEmployee.map(employee => (
-                          <View key={employee._id} style={styles.employeeChip}>
-                            <View style={styles.employeeDot} />
+                          <View
+                            key={employee._id}
+                            style={[
+                              styles.employeeChip,
+                              {
+                                backgroundColor: theme.primarySoft,
+                                borderWidth: 1,
+                                borderColor: theme.border,
+                              },
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.employeeDot,
+                                { backgroundColor: theme.primary },
+                              ]}
+                            />
 
-                            <View>
-                              <Text style={styles.employeeName}>
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={[
+                                  styles.employeeName,
+                                  { color: theme.ink },
+                                ]}
+                              >
                                 {employee.userName}
                               </Text>
 
                               {employee.designation && (
-                                <Text style={styles.employeeDesignation}>
+                                <Text
+                                  style={[
+                                    styles.employeeDesignation,
+                                    { color: theme.muted },
+                                  ]}
+                                >
                                   {employee.designation}
                                 </Text>
                               )}
@@ -2398,7 +2865,9 @@ const ClientPage = () => {
                         ))}
                       </View>
                     ) : (
-                      <Text style={styles.noEmployeeText}>
+                      <Text
+                        style={[styles.noEmployeeText, { color: theme.muted }]}
+                      >
                         No employee assigned
                       </Text>
                     )}
@@ -2407,101 +2876,631 @@ const ClientPage = () => {
               )}
             </View>
 
-            {/* Footer */}
             <TouchableOpacity
-              style={styles.doneButton}
+              style={[styles.doneButton, { backgroundColor: theme.primary }]}
               onPress={() => setSelectedClient(null)}
+              activeOpacity={0.8}
             >
-              <Text style={styles.doneButtonText}>Close</Text>
+              <Text
+                style={{
+                  color: theme.everWhite,
+                  fontSize: 14,
+                  fontWeight: '800',
+                }}
+              >
+                Close
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+
+      {/* ADMIN EDIT EMPLOYEE MODAL */}
+      <Modal
+        visible={editEmployeeVisible}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!savingEmployee) {
+            setEditEmployeeVisible(false);
+            setEditEmployeePassword('');
+            setShowEditPassword(false);
+          }
+        }}
+      >
+        <KeyboardAvoidingView
+          style={[
+            styles.modalOverlay,
+            { justifyContent: 'center', padding: 20 },
+          ]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View
+            style={{
+              backgroundColor: theme.background,
+              borderColor: theme.border,
+              borderWidth: 1,
+              borderRadius: 20,
+              padding: 20,
+              maxHeight: '90%',
+            }}
+          >
+            <Text
+              style={{
+                color: theme.ink,
+                fontSize: 20,
+                fontWeight: '800',
+                marginBottom: 4,
+              }}
+            >
+              Edit {selectedClient?.role === 'employee' ? 'Employee' : 'Client'}
+            </Text>
+            <Text
+              style={{ color: theme.muted, fontSize: 13, marginBottom: 16 }}
+            >
+              Update account details and assignments.
+            </Text>
+            {[
+              {
+                label: 'USERNAME',
+                value: editEmployeeName,
+                set: setEditEmployeeName,
+                placeholder: 'Username',
+                keyboard: 'default',
+              },
+              {
+                label: 'EMAIL',
+                value: editEmployeeEmail,
+                set: setEditEmployeeEmail,
+                placeholder: 'Email address',
+                keyboard: 'email-address',
+              },
+              {
+                label: 'MOBILE NUMBER',
+                value: editEmployeeMobile,
+                set: (value: string) =>
+                  setEditEmployeeMobile(value.replace(/\D/g, '').slice(0, 10)),
+                placeholder: '10-digit mobile number',
+                keyboard: 'phone-pad',
+              },
+              {
+                label: 'DESIGNATION',
+                value: editEmployeeDesignation,
+                set: setEditEmployeeDesignation,
+                placeholder: 'Designation',
+                keyboard: 'default',
+              },
+            ]
+              .filter(
+                field =>
+                  field.label !== 'DESIGNATION' ||
+                  selectedClient?.role === 'employee',
+              )
+              .map(field => (
+                <View key={field.label} style={{ marginBottom: 12 }}>
+                  <Text
+                    style={{
+                      color: theme.muted,
+                      fontSize: 11,
+                      fontWeight: '800',
+                      marginBottom: 6,
+                    }}
+                  >
+                    {field.label}
+                  </Text>
+                  <TextInput
+                    value={field.value}
+                    onChangeText={field.set}
+                    placeholder={field.placeholder}
+                    placeholderTextColor={theme.muted}
+                    keyboardType={field.keyboard as any}
+                    autoCapitalize={
+                      field.keyboard === 'email-address' ? 'none' : 'sentences'
+                    }
+                    editable={!savingEmployee}
+                    style={{
+                      color: theme.ink,
+                      backgroundColor: theme.background,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      borderRadius: 10,
+                      paddingHorizontal: 12,
+                      paddingVertical: 11,
+                    }}
+                  />
+                </View>
+              ))}
+
+            {/* OPTIONAL PASSWORD UPDATE */}
+            <View style={{ marginBottom: 12 }}>
+              <Text
+                style={{
+                  color: theme.muted,
+                  fontSize: 11,
+                  fontWeight: '800',
+                  marginBottom: 6,
+                }}
+              >
+                NEW PASSWORD (OPTIONAL)
+              </Text>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  borderRadius: 10,
+                  paddingRight: 12,
+                  backgroundColor: theme.background,
+                }}
+              >
+                <TextInput
+                  value={editEmployeePassword}
+                  onChangeText={setEditEmployeePassword}
+                  placeholder="Enter a new password"
+                  placeholderTextColor={theme.muted}
+                  secureTextEntry={!showEditPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="new-password"
+                  editable={!savingEmployee}
+                  style={{
+                    flex: 1,
+                    color: theme.ink,
+                    paddingHorizontal: 12,
+                    paddingVertical: 11,
+                  }}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowEditPassword(previous => !previous)}
+                  disabled={savingEmployee}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={{
+                      color: theme.primary,
+                      fontWeight: '800',
+                      paddingVertical: 8,
+                    }}
+                  >
+                    {showEditPassword ? 'Hide' : 'Show'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={{ color: theme.muted, fontSize: 12, marginTop: 5 }}>
+                Leave blank to keep the current password.
+              </Text>
+            </View>
+
+            {selectedClient?.role === 'client' && (
+              <View style={{ marginBottom: 14, maxHeight: 150 }}>
+                <Text
+                  style={{
+                    color: theme.muted,
+                    fontSize: 11,
+                    fontWeight: '800',
+                    marginBottom: 8,
+                  }}
+                >
+                  ASSIGNED EMPLOYEES
+                </Text>
+                <ScrollView nestedScrollEnabled>
+                  {employees.map(employee => {
+                    const checked = editAssignedEmployees.includes(
+                      employee._id,
+                    );
+                    return (
+                      <TouchableOpacity
+                        key={employee._id}
+                        onPress={() =>
+                          setEditAssignedEmployees(previous =>
+                            checked
+                              ? previous.filter(id => id !== employee._id)
+                              : [...previous, employee._id],
+                          )
+                        }
+                        disabled={savingEmployee}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          paddingVertical: 9,
+                          borderBottomWidth: 1,
+                          borderBottomColor: theme.divider,
+                        }}
+                      >
+                        <View style={{ flex: 1, paddingRight: 8 }}>
+                          <Text style={{ color: theme.ink, fontWeight: '700' }}>
+                            {employee.userName}
+                          </Text>
+                          <Text style={{ color: theme.muted, fontSize: 12 }}>
+                            {employee.designation || 'Employee'} ·{' '}
+                            {employee.email}
+                          </Text>
+                        </View>
+                        <Text
+                          style={{
+                            color: checked ? theme.primary : theme.muted,
+                            fontWeight: '800',
+                          }}
+                        >
+                          {checked ? '✓' : '○'}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (!savingEmployee) {
+                    setEditEmployeeVisible(false);
+                    setEditEmployeePassword('');
+                    setShowEditPassword(false);
+                  }
+                }}
+                disabled={savingEmployee}
+                style={{
+                  flex: 1,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  borderRadius: 10,
+                  paddingVertical: 13,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ color: theme.ink, fontWeight: '700' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={updateSelectedEmployee}
+                disabled={savingEmployee}
+                style={{
+                  flex: 1,
+                  backgroundColor: theme.primary,
+                  borderRadius: 10,
+                  paddingVertical: 13,
+                  alignItems: 'center',
+                }}
+              >
+                {savingEmployee ? (
+                  <ActivityIndicator color={theme.everWhite} />
+                ) : (
+                  <Text style={{ color: theme.everWhite, fontWeight: '800' }}>
+                    Save Changes
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* EMPLOYEE ATTENDANCE HISTORY */}
+
+      {/* EMPLOYEE ATTENDANCE HISTORY MODAL */}
+      <Modal
+        visible={attendanceVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        statusBarTranslucent={false}
+        onRequestClose={() => {
+          setAttendanceVisible(false);
+        }}
+      >
+        <SafeAreaView
+          style={{
+            flex: 1,
+            backgroundColor: theme.background,
+          }}
+          edges={['top', 'left', 'right']}
+        >
+          <View style={{ flex: 1, backgroundColor: theme.background }}>
+            {/* HEADER */}
+            <View
+              style={{
+                minHeight: 76,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: theme.border,
+              }}
+            >
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text
+                  style={{
+                    color: theme.ink,
+                    fontSize: 19,
+                    fontWeight: '800',
+                  }}
+                >
+                  Attendance History
+                </Text>
+
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    color: theme.muted,
+                    fontSize: 12,
+                    marginTop: 4,
+                  }}
+                >
+                  {selectedClient?.userName || 'Employee'}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setAttendanceVisible(false)}
+                activeOpacity={0.6}
+                disabled={false}
+                accessibilityRole="button"
+                accessibilityLabel="Close attendance history"
+                style={{
+                  width: 76,
+                  height: 44,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: theme.primarySoft,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  elevation: 3,
+                }}
+              >
+                <Text
+                  style={{
+                    color: theme.primary,
+                    fontSize: 14,
+                    fontWeight: '800',
+                  }}
+                >
+                  Close
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* ATTENDANCE HISTORY CONTENT */}
+            <View style={{ flex: 1 }}>
+              {selectedClient ? (
+                <AttendanceHistory
+                  key={selectedClient._id || selectedClient.id}
+                  employeeId={selectedClient._id || selectedClient.id}
+                  employeeName={selectedClient.userName}
+                />
+              ) : (
+                <View
+                  style={{
+                    flex: 1,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Text style={{ color: theme.muted }}>
+                    No employee selected.
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </SafeAreaView>
+      </Modal>
+
       <Modal
         visible={showUploadModal}
         transparent
         animationType="slide"
+        statusBarTranslucent
         onRequestClose={() => {
           if (!uploadingDocuments) {
             setShowUploadModal(false);
           }
         }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.uploadModal}>
+        <View
+          style={[
+            styles.modalOverlay,
+            {
+              backgroundColor: 'rgba(0,0,0,0.55)',
+              justifyContent: 'flex-end',
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.uploadModal,
+              {
+                backgroundColor: theme.background,
+                borderColor: theme.border,
+                borderWidth: 1,
+                maxHeight: '92%',
+              },
+            ]}
+          >
             <ScrollView
+              style={{ flexGrow: 0 }}
+              contentContainerStyle={{ paddingBottom: 24 }}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}
             >
-              {/* Header */}
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Upload Documents</Text>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={[styles.modalTitle, { color: theme.ink }]}>
+                    Upload Documents
+                  </Text>
+
+                  <Text style={[styles.modalSubtitle, { color: theme.muted }]}>
+                    Assign documents directly to this employee.
+                  </Text>
+                </View>
 
                 <TouchableOpacity
                   disabled={uploadingDocuments}
                   onPress={() => setShowUploadModal(false)}
-                  style={styles.closeButton}
+                  activeOpacity={0.7}
+                  style={[
+                    styles.closeButton,
+                    {
+                      backgroundColor: theme.primarySoft,
+                      borderColor: theme.border,
+                    },
+                  ]}
                 >
-                  <Text style={styles.closeText}>×</Text>
+                  <Text style={[styles.closeText, { color: theme.ink }]}>
+                    ×
+                  </Text>
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.modalSubtitle}>
-                Assign documents directly to this employee.
-              </Text>
+              <View
+                style={{
+                  backgroundColor: theme.primarySoft,
+                  borderColor: theme.border,
+                  borderWidth: 1,
+                  borderRadius: 14,
+                  padding: 15,
+                  marginBottom: 20,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: '800',
+                    letterSpacing: 0.8,
+                    color: theme.primary,
+                    marginBottom: 6,
+                  }}
+                >
+                  ASSIGNED EMPLOYEE
+                </Text>
 
-              {/* Selected employee */}
-              <View style={styles.employeeCard}>
-                <Text style={styles.employeeLabel}>ASSIGNED EMPLOYEE</Text>
-
-                <Text style={styles.employeeName}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    fontWeight: '800',
+                    color: theme.ink,
+                  }}
+                >
                   {selectedClient?.userName || 'Unknown employee'}
                 </Text>
 
-                <Text style={styles.employeeId}>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: theme.muted,
+                    marginTop: 4,
+                  }}
+                >
                   ID:{' '}
                   {selectedClient?._id || selectedClient?.id || 'Unavailable'}
                 </Text>
               </View>
 
-              {/* Document title */}
-              <Text style={styles.fieldLabel}>DOCUMENT TITLE</Text>
+              <Text style={[styles.fieldLabel, { color: theme.text }]}>
+                DOCUMENT TITLE
+              </Text>
 
               <TextInput
                 value={documentTitle}
                 onChangeText={setDocumentTitle}
                 placeholder="e.g. Employment Documents"
-                placeholderTextColor="#A1A1AA"
+                placeholderTextColor={theme.muted}
                 editable={!uploadingDocuments}
-                style={styles.titleInput}
+                style={[
+                  styles.titleInput,
+                  {
+                    backgroundColor: theme.background,
+                    borderColor: theme.border,
+                    color: theme.ink,
+                    borderWidth: 1,
+                  },
+                ]}
               />
 
-              {/* File picker */}
               <TouchableOpacity
                 onPress={pickDocuments}
                 disabled={uploadingDocuments}
                 activeOpacity={0.8}
-                style={styles.filePicker}
+                style={{
+                  borderWidth: 1,
+                  borderStyle: 'dashed',
+                  borderColor: theme.primary,
+                  backgroundColor: theme.primarySoft,
+                  borderRadius: 15,
+                  paddingVertical: 23,
+                  paddingHorizontal: 16,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 16,
+                }}
               >
-                <Text style={styles.filePickerIcon}>📎</Text>
-                <Text style={styles.filePickerTitle}>Select Files</Text>
-                <Text style={styles.filePickerSubtitle}>
+                <Text style={{ fontSize: 26, marginBottom: 8 }}>📎</Text>
+
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: '800',
+                    color: theme.primary,
+                  }}
+                >
+                  Select Files
+                </Text>
+
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: theme.muted,
+                    marginTop: 5,
+                    textAlign: 'center',
+                  }}
+                >
                   Choose multiple documents
                 </Text>
               </TouchableOpacity>
 
-              {/* Selected files */}
               {documentFiles.map((file, index) => (
-                <View key={`${file.uri}-${index}`} style={styles.fileItem}>
-                  <Text style={styles.fileIcon}>📄</Text>
+                <View
+                  key={`${file.uri}-${index}`}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: 12,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    borderRadius: 12,
+                    backgroundColor: theme.background,
+                    marginBottom: 9,
+                  }}
+                >
+                  <Text style={{ fontSize: 22, marginRight: 11 }}>📄</Text>
 
-                  <View style={styles.fileInfo}>
-                    <Text style={styles.fileName} numberOfLines={2}>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      numberOfLines={2}
+                      style={{
+                        fontSize: 13,
+                        fontWeight: '700',
+                        color: theme.ink,
+                      }}
+                    >
                       {file.name || 'Unnamed document'}
                     </Text>
 
                     {typeof file.size === 'number' && (
-                      <Text style={styles.fileSize}>
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          color: theme.muted,
+                          marginTop: 4,
+                        }}
+                      >
                         {(file.size / (1024 * 1024)).toFixed(2)} MB
                       </Text>
                     )}
@@ -2510,50 +3509,108 @@ const ClientPage = () => {
                   <TouchableOpacity
                     disabled={uploadingDocuments}
                     onPress={() => removeDocument(file.uri)}
-                    style={styles.removeButton}
+                    activeOpacity={0.7}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: 10,
+                      backgroundColor: theme.primarySoft,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginLeft: 8,
+                    }}
                   >
-                    <Text style={styles.removeText}>×</Text>
+                    <Text
+                      style={{
+                        fontSize: 21,
+                        color: theme.primary,
+                      }}
+                    >
+                      ×
+                    </Text>
                   </TouchableOpacity>
                 </View>
               ))}
 
-              <Text style={styles.fileCount}>
+              <Text
+                style={{
+                  fontSize: 11,
+                  color: theme.muted,
+                  marginBottom: 17,
+                  marginTop: 3,
+                }}
+              >
                 {documentFiles.length} file(s) selected · Maximum 10 files
               </Text>
 
-              {/* Upload button */}
               <TouchableOpacity
                 onPress={uploadDocuments}
                 disabled={uploadingDocuments}
                 activeOpacity={0.8}
-                style={[
-                  styles.uploadButton,
-                  uploadingDocuments && styles.uploadButtonDisabled,
-                ]}
+                style={{
+                  minHeight: 52,
+                  borderRadius: 14,
+                  backgroundColor: theme.primary,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  flexDirection: 'row',
+                  opacity: uploadingDocuments ? 0.7 : 1,
+                }}
               >
                 {uploadingDocuments ? (
                   <>
-                    <ActivityIndicator color="#FFFFFF" size="small" />
-                    <Text style={styles.uploadButtonText}>Uploading...</Text>
+                    <ActivityIndicator color={theme.everWhite} size="small" />
+
+                    <Text
+                      style={{
+                        color: theme.everWhite,
+                        fontSize: 14,
+                        fontWeight: '800',
+                        marginLeft: 9,
+                      }}
+                    >
+                      Uploading...
+                    </Text>
                   </>
                 ) : (
-                  <Text style={styles.uploadButtonText}>Upload Documents</Text>
+                  <Text
+                    style={{
+                      color: theme.everWhite,
+                      fontSize: 14,
+                      fontWeight: '800',
+                    }}
+                  >
+                    Upload Documents
+                  </Text>
                 )}
               </TouchableOpacity>
 
-              {/* Cancel */}
               <TouchableOpacity
                 disabled={uploadingDocuments}
                 onPress={() => setShowUploadModal(false)}
-                style={styles.cancelButton}
+                activeOpacity={0.7}
+                style={{
+                  height: 46,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginTop: 5,
+                }}
               >
-                <Text style={styles.cancelText}>Cancel</Text>
+                <Text
+                  style={{
+                    color: theme.muted,
+                    fontSize: 13,
+                    fontWeight: '700',
+                  }}
+                >
+                  Cancel
+                </Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 };
 

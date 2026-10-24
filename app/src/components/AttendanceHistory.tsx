@@ -86,7 +86,16 @@ const EMPTY_SUMMARY: AttendanceSummary = {
   attendancePercentage: 0,
 };
 
-const AttendanceHistory = () => {
+interface AttendanceHistoryProps {
+  /** When supplied, show this employee's history (admin view). */
+  employeeId?: string;
+  employeeName?: string;
+}
+
+const AttendanceHistory = ({
+  employeeId: selectedEmployeeId,
+  employeeName,
+}: AttendanceHistoryProps) => {
   const { isDarkMode, theme } = useTheme();
 
   const currentDate = new Date();
@@ -152,7 +161,9 @@ const AttendanceHistory = () => {
       try {
         const token = await getToken();
 
-        let id = employeeId;
+        // Use the selected employee ID when the admin opens this component.
+        // Otherwise, preserve the existing logged-in employee flow.
+        let id = selectedEmployeeId || employeeId;
 
         // Resolve the logged-in employee once when necessary.
         if (!id) {
@@ -200,7 +211,7 @@ const AttendanceHistory = () => {
         setRefreshing(false);
       }
     },
-    [employeeId, month, year],
+    [employeeId, selectedEmployeeId, employeeName, month, year],
   );
 
   useEffect(() => {
@@ -364,7 +375,9 @@ const AttendanceHistory = () => {
         <View style={styles.headingTextContainer}>
           <Text style={styles.pageTitle}>Attendance</Text>
           <Text style={styles.pageSubtitle}>
-            Your attendance overview and history
+            {employeeName
+              ? `${employeeName}'s attendance overview and history`
+              : 'Your attendance overview and history'}
           </Text>
         </View>
       </View>
