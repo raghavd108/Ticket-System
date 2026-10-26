@@ -13,6 +13,7 @@ const complaintInclude = {
       id: true,
       userName: true,
       email: true,
+      mobileNumber: true,
     },
   },
   organisation: {
@@ -20,6 +21,15 @@ const complaintInclude = {
       id: true,
       name: true,
       orgType: true,
+    },
+  },
+  assignedEmployee: {
+    select: {
+      id: true,
+      userName: true,
+      email: true,
+      mobileNumber: true,
+      designation: true,
     },
   },
   images: {
@@ -42,7 +52,24 @@ function getOrganisationId(user) {
   return id ? String(id) : null;
 }
 
-// Get clients assigned to employees in this organisation.
+function normalizeStatus(status) {
+  return status === "in-progress" ? "in_progress" : status;
+}
+
+function displayStatus(status) {
+  return status === "in_progress" ? "in-progress" : status;
+}
+
+function isValidStatus(status) {
+  return ["pending", "in-progress", "in_progress", "resolved"].includes(status);
+}
+
+function getUserId(user) {
+  const id = user?.id ?? user?._id;
+  return id ? String(id) : null;
+}
+
+// Clients assigned to employees belonging to an organisation.
 async function getAssignedClientIds(organisationId) {
   if (!organisationId) return [];
 
@@ -64,12 +91,13 @@ async function getAssignedClientIds(organisationId) {
   return [...new Set(assignments.map((item) => item.clientId))];
 }
 
-// Get clients assigned to a particular employee.
+// Clients assigned to a particular employee.
 async function getEmployeeClientIds(employeeId, organisationId) {
   const assignments = await prisma.userAssignment.findMany({
     where: {
       employeeId,
       employee: {
+        id: employeeId,
         role: "employee",
         ...(organisationId ? { organisationId } : {}),
       },
@@ -85,16 +113,35 @@ async function getEmployeeClientIds(employeeId, organisationId) {
   return [...new Set(assignments.map((item) => item.clientId))];
 }
 
-// Format a complaint and resolve all signed image URLs.
+// Check whether an employee is assigned to the ticket's client.
+async function isEmployeeAssignedToClient(employeeId, clientId) {
+  const assignment = await prisma.userAssignment.findUnique({
+    where: {
+      clientId_employeeId: {
+        clientId,
+        employeeId,
+      },
+    },
+    select: {
+      clientId: true,
+    },
+  });
+
+  return Boolean(assignment);
+}
+
+// Convert Prisma complaint records into the existing API response format.
 async function formatComplaint(complaint) {
   if (!complaint) return null;
 
   const {
     userId,
     organisationId,
+    assignedEmployeeId,
     images,
     user,
     organisation,
+    assignedEmployee,
     status,
     ...rest
   } = complaint;
@@ -110,7 +157,7 @@ async function formatComplaint(complaint) {
   return {
     ...rest,
     _id: complaint.id,
-    status: status === "in_progress" ? "in-progress" : status,
+    status: displayStatus(status),
 
     user: user
       ? {
@@ -126,16 +173,17 @@ async function formatComplaint(complaint) {
         }
       : organisationId,
 
+    assignedEmployeeId: assignedEmployeeId || null,
+
+    assignedEmployee: assignedEmployee
+      ? {
+          ...assignedEmployee,
+          _id: assignedEmployee.id,
+        }
+      : null,
+
     image: formattedImages,
   };
-}
-
-function normalizeStatus(status) {
-  return status === "in-progress" ? "in_progress" : status;
-}
-
-function isValidStatus(status) {
-  return ["pending", "in-progress", "in_progress", "resolved"].includes(status);
 }
 
 // =====================================================
@@ -147,7 +195,12 @@ async function complain(req, res) {
   try {
     const { module, problem } = req.body;
 
-    if (!module || !problem) {
+    if (
+      typeof module !== "string" ||
+      !module.trim() ||
+      typeof problem !== "string" ||
+      !problem.trim()
+    ) {
       return res.status(400).json({
         message: "Module and problem are required",
       });
@@ -159,16 +212,16 @@ async function complain(req, res) {
       });
     }
 
-    const userId = req.user.id;
+    const userId = getUserId(req.user);
     const organisationId = getOrganisationId(req.user);
 
-    if (!organisationId) {
+    if (!userId || !organisationId) {
       return res.status(400).json({
-        message: "Organisation not found",
+        message: "User or organisation not found",
       });
     }
 
-    // Only clients belonging to an organisation can create tickets.
+    // Only clients can create complaints.
     const user = await prisma.user.findFirst({
       where: {
         id: userId,
@@ -188,22 +241,31 @@ async function complain(req, res) {
       });
     }
 
-    // Upload images and save their file names.
+    // Upload images and store file names, not permanent public URLs.
     const uploadedImages = [];
 
     for (const file of req.files) {
+      if (!file.buffer || !file.originalname) {
+        return res.status(400).json({
+          message: "Invalid complaint image",
+        });
+      }
+
       const result = await uploadImage(file.buffer, file.originalname);
+
+      if (!result?.fileName) {
+        throw new Error("Image upload did not return a file name");
+      }
 
       uploadedImages.push({
         fileName: result.fileName,
       });
     }
 
-    // Create the complaint in MySQL through Prisma.
     const complaint = await prisma.complaint.create({
       data: {
-        module,
-        problem,
+        module: module.trim(),
+        problem: problem.trim(),
         userId,
         organisationId,
         status: "pending",
@@ -254,7 +316,6 @@ async function complain(req, res) {
         .map((assignment) => assignment.employee)
         .filter(Boolean);
 
-      // Avoid notifying the same recipient more than once.
       const recipients = [
         ...new Map(
           [...admins, ...assignedEmployees].map((recipient) => [
@@ -307,7 +368,7 @@ async function complain(req, res) {
     console.error("Complaint creation error:", error);
 
     return res.status(500).json({
-      message: "Server error",
+      message: "Server error while creating complaint",
     });
   }
 }
@@ -319,8 +380,15 @@ async function complain(req, res) {
 
 async function getComplain(req, res) {
   try {
-    const { id: userId, role } = req.user;
+    const userId = getUserId(req.user);
+    const role = req.user?.role;
     const organisationId = getOrganisationId(req.user);
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Authenticated user not found",
+      });
+    }
 
     let where;
 
@@ -333,8 +401,6 @@ async function getComplain(req, res) {
 
       const assignedClientIds = await getAssignedClientIds(organisationId);
 
-      // Admins see their organisation's tickets and tickets
-      // belonging to clients assigned to their employees.
       where = {
         OR: [
           {
@@ -354,17 +420,23 @@ async function getComplain(req, res) {
     } else if (role === "employee") {
       const clientIds = await getEmployeeClientIds(userId, organisationId);
 
-      if (clientIds.length === 0) {
-        return res.status(200).json({
-          complains: [],
-        });
-      }
-
-      // Assigned clients may belong to another organisation.
+      // Employees can see tickets for their assigned clients and
+      // tickets explicitly assigned to them using assignedEmployeeId.
       where = {
-        userId: {
-          in: clientIds,
-        },
+        OR: [
+          {
+            assignedEmployeeId: userId,
+          },
+          ...(clientIds.length
+            ? [
+                {
+                  userId: {
+                    in: clientIds,
+                  },
+                },
+              ]
+            : []),
+        ],
       };
     } else if (role === "client") {
       where = {
@@ -385,9 +457,8 @@ async function getComplain(req, res) {
       },
     });
 
-    // Resolve image URLs for every complaint before responding.
     const formattedComplaints = await Promise.all(
-      complaints.map((complaint) => formatComplaint(complaint)),
+      complaints.map(formatComplaint),
     );
 
     return res.status(200).json({
@@ -412,6 +483,12 @@ async function updateComplaintStatus(req, res) {
     const { id } = req.params;
     const { status } = req.body;
 
+    if (!id) {
+      return res.status(400).json({
+        message: "Complaint ID is required",
+      });
+    }
+
     if (!status) {
       return res.status(400).json({
         message: "Status is required",
@@ -423,6 +500,10 @@ async function updateComplaintStatus(req, res) {
         message: "Invalid complaint status",
       });
     }
+
+    const userId = getUserId(req.user);
+    const role = req.user?.role;
+    const organisationId = getOrganisationId(req.user);
 
     const complaint = await prisma.complaint.findUnique({
       where: {
@@ -447,35 +528,57 @@ async function updateComplaintStatus(req, res) {
       });
     }
 
-    const organisationId = getOrganisationId(req.user);
+    if (role === "employee") {
+      const directlyAssigned = complaint.assignedEmployeeId === userId;
 
-    if (req.user.role === "employee") {
-      // Employees can update tickets only for assigned clients.
-      const assignment = await prisma.userAssignment.findUnique({
-        where: {
-          clientId_employeeId: {
-            clientId: complaint.userId,
-            employeeId: req.user.id,
-          },
-        },
-      });
+      const assignedClient = await isEmployeeAssignedToClient(
+        userId,
+        complaint.userId,
+      );
 
-      if (!assignment) {
+      if (!directlyAssigned && !assignedClient) {
         return res.status(403).json({
           message: "You are not authorized to update this complaint",
         });
       }
-    } else if (req.user.role === "admin") {
+    } else if (role === "admin") {
+      if (!organisationId) {
+        return res.status(403).json({
+          message: "Your account is not linked to an organisation",
+        });
+      }
+
       const assignedClientIds = await getAssignedClientIds(organisationId);
 
       const isOwnOrganisationComplaint =
-        Boolean(organisationId) && complaint.organisationId === organisationId;
+        complaint.organisationId === organisationId;
 
       const isAssignedClientComplaint = assignedClientIds.includes(
         complaint.userId,
       );
 
-      if (!isOwnOrganisationComplaint && !isAssignedClientComplaint) {
+      // Also allow the admin's organisation to manage tickets
+      // explicitly assigned to its employees.
+      const isAssignedToOrganisationEmployee = complaint.assignedEmployeeId
+        ? Boolean(
+            await prisma.user.findFirst({
+              where: {
+                id: complaint.assignedEmployeeId,
+                role: "employee",
+                organisationId,
+              },
+              select: {
+                id: true,
+              },
+            }),
+          )
+        : false;
+
+      if (
+        !isOwnOrganisationComplaint &&
+        !isAssignedClientComplaint &&
+        !isAssignedToOrganisationEmployee
+      ) {
         return res.status(403).json({
           message: "You are not authorized to update this complaint",
         });
@@ -496,13 +599,15 @@ async function updateComplaintStatus(req, res) {
       include: complaintInclude,
     });
 
-    // Notify the client about the ticket status change.
+    // Notify the client about the status change.
     try {
       const client = complaint.user;
 
       if (client) {
+        const normalizedDisplayStatus = displayStatus(normalizeStatus(status));
+
         const title = "Ticket Status Updated";
-        const body = `Your ticket status is now ${status}`;
+        const body = `Your ticket status is now ${normalizedDisplayStatus}`;
 
         await prisma.notification.create({
           data: {
@@ -536,7 +641,149 @@ async function updateComplaintStatus(req, res) {
     console.error("Status update error:", error);
 
     return res.status(500).json({
-      message: "Server error",
+      message: "Server error while updating complaint status",
+    });
+  }
+}
+
+// =====================================================
+// ASSIGN COMPLAINT TO EMPLOYEE
+// PATCH /complain/:id/assign
+// Admin only
+// =====================================================
+
+async function assignComplaint(req, res) {
+  try {
+    const { id } = req.params;
+    const { employeeId } = req.body;
+
+    const adminId = getUserId(req.user);
+    const organisationId = getOrganisationId(req.user);
+
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({
+        message: "Only admins can assign complaints",
+      });
+    }
+
+    if (!adminId || !organisationId) {
+      return res.status(400).json({
+        message: "Admin or organisation not found",
+      });
+    }
+
+    if (!id || !employeeId || typeof employeeId !== "string") {
+      return res.status(400).json({
+        message: "Complaint ID and employeeId are required",
+      });
+    }
+
+    const [complaint, employee] = await Promise.all([
+      prisma.complaint.findUnique({
+        where: {
+          id,
+        },
+        select: {
+          id: true,
+          userId: true,
+          organisationId: true,
+          assignedEmployeeId: true,
+        },
+      }),
+
+      prisma.user.findFirst({
+        where: {
+          id: employeeId,
+          role: "employee",
+          organisationId,
+        },
+        select: {
+          id: true,
+          userName: true,
+          role: true,
+          fcmToken: true,
+        },
+      }),
+    ]);
+
+    if (!complaint) {
+      return res.status(404).json({
+        message: "Complaint not found",
+      });
+    }
+
+    if (!employee) {
+      return res.status(404).json({
+        message: "Employee not found in your organisation",
+      });
+    }
+
+    // The admin must be authorized to manage the ticket.
+    const assignedClientIds = await getAssignedClientIds(organisationId);
+
+    const isOwnOrganisationComplaint =
+      complaint.organisationId === organisationId;
+
+    const isAssignedClientComplaint = assignedClientIds.includes(
+      complaint.userId,
+    );
+
+    if (!isOwnOrganisationComplaint && !isAssignedClientComplaint) {
+      return res.status(403).json({
+        message: "You are not authorized to assign this complaint",
+      });
+    }
+
+    const updatedComplaint = await prisma.complaint.update({
+      where: {
+        id,
+      },
+      data: {
+        assignedEmployeeId: employee.id,
+      },
+      include: complaintInclude,
+    });
+
+    // Notify the newly assigned employee.
+    try {
+      const title = "Ticket Assigned to You";
+      const body = `A ticket has been assigned to you: ${updatedComplaint.module}`;
+
+      await prisma.notification.create({
+        data: {
+          userId: employee.id,
+          title,
+          body,
+          type: "NEW_TICKET",
+          complaintId: complaint.id,
+        },
+      });
+
+      if (employee.fcmToken) {
+        await sendNotification({
+          fcmToken: employee.fcmToken,
+          title,
+          body,
+          type: "NEW_TICKET",
+          targetRole: "employee",
+        });
+      }
+    } catch (notificationError) {
+      console.error(
+        "Assignment notification error:",
+        notificationError.message,
+      );
+    }
+
+    return res.status(200).json({
+      message: "Complaint assigned successfully",
+      complaint: await formatComplaint(updatedComplaint),
+    });
+  } catch (error) {
+    console.error("Assign complaint error:", error);
+
+    return res.status(500).json({
+      message: "Server error while assigning complaint",
     });
   }
 }
@@ -550,14 +797,15 @@ async function searchComplaint(req, res) {
   try {
     const { q } = req.query;
 
-    if (!q || !q.trim()) {
+    if (typeof q !== "string" || !q.trim()) {
       return res.status(400).json({
         message: "Search query is required",
       });
     }
 
     const searchText = q.trim();
-    const { id: userId, role } = req.user;
+    const userId = getUserId(req.user);
+    const role = req.user?.role;
     const organisationId = getOrganisationId(req.user);
 
     const searchCondition = {
@@ -575,7 +823,7 @@ async function searchComplaint(req, res) {
       ],
     };
 
-    let where;
+    let accessCondition;
 
     if (role === "admin") {
       if (!organisationId) {
@@ -586,48 +834,53 @@ async function searchComplaint(req, res) {
 
       const assignedClientIds = await getAssignedClientIds(organisationId);
 
-      where = {
-        AND: [
+      accessCondition = {
+        OR: [
           {
-            OR: [
-              {
+            organisationId,
+          },
+          ...(assignedClientIds.length
+            ? [
+                {
+                  userId: {
+                    in: assignedClientIds,
+                  },
+                },
+              ]
+            : []),
+          {
+            assignedEmployee: {
+              is: {
+                role: "employee",
                 organisationId,
               },
-              ...(assignedClientIds.length
-                ? [
-                    {
-                      userId: {
-                        in: assignedClientIds,
-                      },
-                    },
-                  ]
-                : []),
-            ],
+            },
           },
-          searchCondition,
         ],
       };
     } else if (role === "employee") {
       const clientIds = await getEmployeeClientIds(userId, organisationId);
 
-      if (clientIds.length === 0) {
-        return res.status(200).json({
-          message: "Complaint fetched successfully",
-          complaint: [],
-        });
-      }
-
-      where = {
-        userId: {
-          in: clientIds,
-        },
-        ...searchCondition,
+      accessCondition = {
+        OR: [
+          {
+            assignedEmployeeId: userId,
+          },
+          ...(clientIds.length
+            ? [
+                {
+                  userId: {
+                    in: clientIds,
+                  },
+                },
+              ]
+            : []),
+        ],
       };
     } else if (role === "client") {
-      where = {
+      accessCondition = {
         userId,
         organisationId,
-        ...searchCondition,
       };
     } else {
       return res.status(403).json({
@@ -636,7 +889,9 @@ async function searchComplaint(req, res) {
     }
 
     const complaints = await prisma.complaint.findMany({
-      where,
+      where: {
+        AND: [accessCondition, searchCondition],
+      },
       include: complaintInclude,
       orderBy: {
         createdAt: "desc",
@@ -644,7 +899,7 @@ async function searchComplaint(req, res) {
     });
 
     const formattedComplaints = await Promise.all(
-      complaints.map((complaint) => formatComplaint(complaint)),
+      complaints.map(formatComplaint),
     );
 
     return res.status(200).json({
@@ -668,5 +923,6 @@ module.exports = {
   complain,
   getComplain,
   updateComplaintStatus,
+  assignComplaint,
   searchComplaint,
 };

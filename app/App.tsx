@@ -12,19 +12,34 @@ import {
 
 const App = () => {
   useEffect(() => {
+    let isMounted = true;
+
     const initializeNotifications = async () => {
-      await requestNotificationPermission();
-      await createNotificationChannel();
+      try {
+        // Create Android notification channels first.
+        await createNotificationChannel();
+
+        if (!isMounted) {
+          return;
+        }
+
+        // Request notification permission.
+        await requestNotificationPermission();
+
+        console.log('Notification initialization completed');
+      } catch (error) {
+        console.log('NOTIFICATION INITIALIZATION ERROR:', error);
+      }
     };
 
     initializeNotifications();
 
+    // Register foreground notification listener once.
     const unsubscribe = setupForegroundNotification();
 
     return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
+      isMounted = false;
+      unsubscribe?.();
     };
   }, []);
 

@@ -313,15 +313,41 @@ async function login(req, res) {
   try {
     const { userName, password } = req.body;
 
-    if (!userName || !password) {
+    if (
+      userName === undefined ||
+      userName === null ||
+      !String(userName).trim() ||
+      typeof password !== "string" ||
+      !password
+    ) {
       return res.status(400).json({
-        message: "Username and password are required",
+        message: "Username, email, or mobile number and password are required",
       });
     }
 
+    const loginId = String(userName).trim();
+
+    // Find the user using username, email, or mobile number.
+    // `mode: "insensitive"` is not supported by your current Prisma query.
     const user = await prisma.user.findFirst({
       where: {
-        userName: String(userName).trim(),
+        OR: [
+          {
+            userName: {
+              equals: loginId,
+            },
+          },
+          {
+            email: {
+              equals: loginId,
+            },
+          },
+          {
+            mobileNumber: {
+              equals: loginId,
+            },
+          },
+        ],
       },
       include: {
         organisation: {
@@ -335,18 +361,20 @@ async function login(req, res) {
 
     if (!user) {
       return res.status(401).json({
-        message: "Invalid username or password",
+        message: "Invalid username/email/mobile number or password",
       });
     }
 
+    // Verify the password
     const passwordCorrect = await bcrypt.compare(password, user.password);
 
     if (!passwordCorrect) {
       return res.status(401).json({
-        message: "Invalid username or password",
+        message: "Invalid username/email/mobile number or password",
       });
     }
 
+    // Validate JWT configuration
     if (!process.env.JWT_SECRET) {
       console.error("JWT_SECRET is not configured");
 
@@ -355,6 +383,7 @@ async function login(req, res) {
       });
     }
 
+    // Generate JWT
     const token = jwt.sign(
       {
         id: user.id,
@@ -370,6 +399,7 @@ async function login(req, res) {
       },
     );
 
+    // Set authentication cookie
     res.cookie("token", token);
 
     return res.status(200).json({

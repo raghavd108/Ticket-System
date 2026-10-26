@@ -27,7 +27,6 @@ enum AttendanceStatus {
   holiday
 }
 
-
 enum NotificationType {
   NEW_TICKET
   STATUS_UPDATE
@@ -38,6 +37,11 @@ enum LeaveStatus {
   pending
   approved
   rejected
+}
+
+enum CalendarDayType {
+  HOLIDAY
+  WORKING_DAY
 }
 
 model Organisation {
@@ -75,11 +79,12 @@ model User {
   assignedEmployees UserAssignment[] @relation("ClientAssignments")
   assignedToClients UserAssignment[] @relation("EmployeeAssignments")
 
-  complaints    Complaint[]
-  documents     Document[]
-  attendance    Attendance[]
-  notifications Notification[]
-  leaves        Leave[]
+  complaints         Complaint[]
+  assignedComplaints Complaint[]    @relation("ComplaintAssignedEmployee")
+  documents          Document[]
+  attendance         Attendance[]
+  notifications      Notification[]
+  leaves             Leave[]
 
   @@index([organisationId])
   @@index([email])
@@ -99,22 +104,27 @@ model UserAssignment {
 }
 
 model Complaint {
-  id             String          @id @default(cuid())
-  module         String
-  problem        String          @db.Text
-  userId         String
-  organisationId String
-  status         ComplaintStatus @default(pending)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id                 String          @id @default(cuid())
+  module             String
+  problem            String          @db.Text
+  userId             String
+  organisationId     String
+  assignedEmployeeId String?         @db.VarChar(191)
+  status             ComplaintStatus @default(pending)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
 
-  user          User             @relation(fields: [userId], references: [id], onDelete: Restrict)
-  organisation  Organisation     @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+
+  assignedEmployee User? @relation("ComplaintAssignedEmployee", fields: [assignedEmployeeId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
   images        ComplaintImage[]
   notifications Notification[]
 
   @@index([userId])
   @@index([organisationId, status])
+  @@index([assignedEmployeeId])
 }
 
 model ComplaintImage {
@@ -151,8 +161,6 @@ model DocumentFile {
 
   @@index([documentId])
 }
-
-
 
 model Attendance {
   id         String           @id @default(cuid())
@@ -204,11 +212,6 @@ model Leave {
 
   @@index([employeeId])
   @@index([status])
-}
-
-enum CalendarDayType {
-  HOLIDAY
-  WORKING_DAY
 }
 
 model CompanyCalendarDay {

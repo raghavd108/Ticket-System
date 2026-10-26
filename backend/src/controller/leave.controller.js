@@ -1,6 +1,6 @@
 const prisma = require("../config/prisma.js");
-
 const { DateTime } = require("luxon");
+const { sendNotification } = require("../services/fcmService.js");
 
 const {
   TIMEZONE,
@@ -22,10 +22,7 @@ function getOrganisationId(user) {
 
 function isValidDateString(value) {
   if (typeof value !== "string") return false;
-
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return false;
-  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
 
   const date = new Date(`${value}T00:00:00.000Z`);
 
@@ -76,6 +73,63 @@ const employeeSelect = {
     },
   },
 };
+
+// =====================================================
+// LEAVE NOTIFICATION HELPER
+// =====================================================
+
+// Notifications are stored in MySQL first.
+// Push failures must not undo a leave operation.
+async function notifyUser({
+  userId,
+  fcmToken,
+  title,
+  body,
+  pushType,
+  targetRole,
+  leaveId,
+}) {
+  try {
+    await prisma.notification.create({
+      data: {
+        userId,
+        title,
+        body: `${body} (Leave ID: ${leaveId})`,
+        type: "CUSTOM",
+        read: false,
+      },
+    });
+  } catch (error) {
+    console.error("Leave notification database error:", error);
+  }
+
+  if (!fcmToken) {
+    console.log(`No FCM token for leave notification recipient ${userId}`);
+    return;
+  }
+
+  try {
+    await sendNotification({
+      fcmToken,
+      title,
+      body,
+      type: pushType,
+      targetRole,
+    });
+  } catch (error) {
+    console.error("Leave push notification failed:", {
+      userId,
+      code: error.code,
+      message: error.message,
+    });
+  }
+}
+
+function formatDate(date) {
+  return DateTime.fromJSDate(new Date(date), {
+    zone: "utc",
+  }).toISODate();
+}
 
 // =====================================================
 // APPLY FOR LEAVE
@@ -143,7 +197,7 @@ exports.applyLeave = async (req, res) => {
     const start = new Date(`${startDate}T00:00:00.000Z`);
     const end = new Date(`${endDate}T00:00:00.000Z`);
 
-    // Reject overlapping pending or approved leave requests.
+    // Reject overlapping pending or approved requests.
     const overlappingLeave = await prisma.leave.findFirst({
       where: {
         employeeId: employee.id,
@@ -181,6 +235,45 @@ exports.applyLeave = async (req, res) => {
         },
       },
     });
+
+    // Find admins belonging to the employee's organisation.
+    const admins = employee.organisationId
+      ? await prisma.user.findMany({
+          where: {
+            role: "admin",
+            organisationId: employee.organisationId,
+          },
+          select: {
+            id: true,
+            fcmToken: true,
+          },
+        })
+      : [];
+
+    if (admins.length === 0) {
+      console.warn(`No admins found for leave request ${leave.id}`);
+    }
+
+    const title = "New Leave Request";
+    const body =
+      `${employee.userName || "An employee"} has requested ` +
+      `${leave.leaveType} leave from ${startDate} to ${endDate}.`;
+
+    // Await notification attempts, but notification failures do not
+    // undo the successfully created leave request.
+    await Promise.allSettled(
+      admins.map((admin) =>
+        notifyUser({
+          userId: admin.id,
+          fcmToken: admin.fcmToken,
+          title,
+          body,
+          pushType: "LEAVE_REQUEST",
+          targetRole: "admin",
+          leaveId: leave.id,
+        }),
+      ),
+    );
 
     return res.status(201).json({
       success: true,
@@ -326,7 +419,7 @@ exports.updateLeaveStatus = async (req, res) => {
       });
     }
 
-    // Verify that the leave belongs to an employee in this organisation.
+    // Verify that the request belongs to an employee in this organisation.
     const leave = await prisma.leave.findFirst({
       where: {
         id: leaveId,
@@ -361,7 +454,9 @@ exports.updateLeaveStatus = async (req, res) => {
       .setZone(TIMEZONE)
       .startOf("day");
 
-    const endDay = DateTime.fromJSDate(new Date(leave.endDate), { zone: "utc" })
+    const endDay = DateTime.fromJSDate(new Date(leave.endDate), {
+      zone: "utc",
+    })
       .setZone(TIMEZONE)
       .startOf("day");
 
@@ -394,7 +489,7 @@ exports.updateLeaveStatus = async (req, res) => {
     const attendanceDates = [];
 
     // Include working days only.
-    // A company calendar override takes precedence over regular holidays.
+    // Company calendar overrides take precedence over regular holidays.
     for (
       let day = startDay;
       day.toMillis() <= endDay.toMillis();
@@ -413,7 +508,7 @@ exports.updateLeaveStatus = async (req, res) => {
       }
     }
 
-    // Update the leave and create attendance records in one transaction.
+    // Update leave and create attendance records in one transaction.
     // Existing attendance records are never overwritten.
     const updatedLeave = await prisma.$transaction(async (tx) => {
       const result = await tx.leave.updateMany({
@@ -465,12 +560,48 @@ exports.updateLeaveStatus = async (req, res) => {
       });
     });
 
+    // Notify the employee only after the transaction succeeds.
+    const employeeRecipient = await prisma.user.findUnique({
+      where: {
+        id: leave.employeeId,
+      },
+      select: {
+        id: true,
+        fcmToken: true,
+      },
+    });
+
+    const approved = status === "approved";
+
+    const title = approved
+      ? "Leave Request Approved"
+      : "Leave Request Rejected";
+
+    const body = approved
+      ? `Your ${leave.leaveType} leave from ${formatDate(
+          leave.startDate,
+        )} to ${formatDate(leave.endDate)} has been approved.`
+      : `Your ${leave.leaveType} leave from ${formatDate(
+          leave.startDate,
+        )} to ${formatDate(leave.endDate)} has been rejected.`;
+
+    if (employeeRecipient) {
+      await notifyUser({
+        userId: employeeRecipient.id,
+        fcmToken: employeeRecipient.fcmToken,
+        title,
+        body,
+        pushType: approved ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
+        targetRole: "employee",
+        leaveId: leave.id,
+      });
+    }
+
     return res.status(200).json({
       success: true,
-      message:
-        status === "approved"
-          ? "Leave approved and attendance updated successfully."
-          : "Leave request rejected successfully.",
+      message: approved
+        ? "Leave approved and attendance updated successfully."
+        : "Leave request rejected successfully.",
       leave: formatLeave(updatedLeave),
     });
   } catch (error) {

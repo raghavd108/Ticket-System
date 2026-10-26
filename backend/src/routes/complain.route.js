@@ -36,5 +36,10 @@ Router.get(
   authMiddleware.verifyToken,
   complainController.searchComplaint,
 );
+Router.patch(
+  "/:id/assign",
+  authMiddleware.verifyToken,
+  complainController.assignComplaint,
+);
 
 module.exports = Router;

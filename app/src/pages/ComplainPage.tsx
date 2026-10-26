@@ -27,6 +27,7 @@ interface User {
   id: string;
   userName: string;
   email: string;
+  mobileNumber?: string | null;
   role: string;
   organisation: {
     _id: string;
@@ -45,6 +46,15 @@ interface Complaint {
   }[];
 
   status: string;
+  assignedEmployeeId?: string | null;
+  assignedEmployee?: {
+    _id?: string;
+    id?: string;
+    userName: string;
+    email?: string;
+    mobileNumber?: string | null;
+    designation?: string | null;
+  } | null;
 
   organisation: {
     _id: string;
@@ -60,6 +70,30 @@ interface Complaint {
     email: string;
   };
 }
+
+const normalizeComplaintStatus = (status: unknown): string => {
+  if (typeof status !== 'string') return 'pending';
+  return status === 'in_progress' ? 'in-progress' : status;
+};
+
+const normalizeComplaint = (complaint: any): Complaint => ({
+  ...complaint,
+  _id: String(complaint?._id ?? complaint?.id ?? ''),
+  status: normalizeComplaintStatus(complaint?.status),
+  image: Array.isArray(complaint?.image)
+    ? complaint.image
+    : Array.isArray(complaint?.images)
+    ? complaint.images.map((image: any) => ({ ...image, url: image.url ?? '' }))
+    : [],
+  assignedEmployee: complaint?.assignedEmployee
+    ? {
+        ...complaint.assignedEmployee,
+        _id: String(
+          complaint.assignedEmployee._id ?? complaint.assignedEmployee.id ?? '',
+        ),
+      }
+    : null,
+});
 
 const ComplainPage = () => {
   const navigation = useNavigation<any>();
@@ -83,6 +117,17 @@ const ComplainPage = () => {
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(
     null,
   );
+  const [employees, setEmployees] = useState<
+    Array<{
+      id: string;
+      userName: string;
+      email?: string;
+      designation?: string | null;
+    }>
+  >([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [assigningTicket, setAssigningTicket] = useState(false);
 
   const {
     softwareFilter,
@@ -106,6 +151,9 @@ const ComplainPage = () => {
   useEffect(() => {
     if (user?.role?.toLowerCase() === 'client' && user?.organisation) {
       setorganisationFilter(user.organisation?.name);
+    }
+    if (user?.role?.toLowerCase() === 'admin') {
+      getEmployees();
     }
   }, [user]);
 
@@ -142,6 +190,114 @@ const ComplainPage = () => {
     }
   };
 
+  // Fetch employees available to the admin for ticket assignment.
+  const getEmployees = async () => {
+    try {
+      setLoadingEmployees(true);
+      const token = await AsyncStorage.getItem('token');
+      if (!token) return;
+
+      const response = await axios.get(`${Config.API_URL}/api/auth/getUser`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const payload = response.data;
+      const rawUsers = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.users)
+        ? payload.users
+        : Array.isArray(payload?.user)
+        ? payload.user
+        : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+
+      const adminOrgId = String(
+        user?.organisation?._id ?? (user as any)?.organisationId ?? '',
+      );
+      const employeeList = rawUsers
+        .filter(
+          (item: any) => String(item?.role ?? '').toLowerCase() === 'employee',
+        )
+        .filter((item: any) => {
+          const orgId = String(
+            item?.organisationId ??
+              item?.organisation?._id ??
+              item?.organisation?.id ??
+              '',
+          );
+          return !adminOrgId || !orgId || orgId === adminOrgId;
+        })
+        .map((item: any) => ({
+          id: String(item?.id ?? item?._id ?? ''),
+          userName: String(item?.userName ?? item?.name ?? 'Unnamed employee'),
+          email: item?.email,
+          designation: item?.designation,
+        }))
+        .filter((item: any) => item.id);
+
+      setEmployees(employeeList);
+    } catch (error) {
+      console.log('GET EMPLOYEES ERROR:', error);
+      setEmployees([]);
+    } finally {
+      setLoadingEmployees(false);
+    }
+  };
+
+  const assignTicket = async () => {
+    if (!selectedComplaint?._id) return;
+    if (!selectedEmployeeId) {
+      Alert.alert(
+        'Select employee',
+        'Please select an employee to assign this ticket.',
+      );
+      return;
+    }
+
+    try {
+      setAssigningTicket(true);
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        Alert.alert('Session expired', 'Please log in again.');
+        return;
+      }
+
+      const response = await axios.patch(
+        `${Config.API_URL}/api/complain/${selectedComplaint._id}/assign`,
+        { employeeId: selectedEmployeeId },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      const updated = response.data?.complaint;
+      if (updated) {
+        const normalized = normalizeComplaint(updated);
+        setComplaints(prev =>
+          prev.map(item =>
+            item._id === normalized._id ? { ...item, ...normalized } : item,
+          ),
+        );
+        setSelectedComplaint(normalized);
+      } else {
+        await getComplaints();
+      }
+
+      Alert.alert(
+        'Ticket assigned',
+        'The ticket has been assigned successfully.',
+      );
+    } catch (error: any) {
+      console.log('ASSIGN TICKET ERROR:', error?.response?.data ?? error);
+      Alert.alert(
+        'Assignment failed',
+        error?.response?.data?.message ??
+          'Unable to assign this ticket. Check that the assignment route is registered in your backend.',
+      );
+    } finally {
+      setAssigningTicket(false);
+    }
+  };
+
   /* 
      COMPLAINTS
    */
@@ -159,7 +315,14 @@ const ComplainPage = () => {
         },
       );
 
-      setComplaints(response.data.complains);
+      const responseComplaints =
+        response.data?.complains ?? response.data?.complaint ?? [];
+      setComplaints(
+        Array.isArray(responseComplaints)
+          ? responseComplaints.map(normalizeComplaint)
+          : [],
+      );
+      setMessage('');
     } catch (error) {
       console.log('GET COMPLAINTS ERROR:', error);
       setMessage('Unable to fetch complaints');
@@ -173,11 +336,12 @@ const ComplainPage = () => {
   const updateStatus = async (complaintId: string, status: string) => {
     try {
       const token = await AsyncStorage.getItem('token');
+      const normalizedStatus = normalizeComplaintStatus(status);
 
       await axios.patch(
         `${Config.API_URL}/api/complain/update-status/${complaintId}`,
         {
-          status,
+          status: normalizedStatus,
         },
         {
           headers: {
@@ -191,7 +355,7 @@ const ComplainPage = () => {
           complaint._id === complaintId
             ? {
                 ...complaint,
-                status,
+                status: normalizedStatus,
               }
             : complaint,
         ),
@@ -201,7 +365,7 @@ const ComplainPage = () => {
         prev && prev._id === complaintId
           ? {
               ...prev,
-              status,
+              status: normalizedStatus,
             }
           : prev,
       );
@@ -229,6 +393,9 @@ const ComplainPage = () => {
 
   const openComplaintDetails = (complaint: Complaint) => {
     setSelectedComplaint(complaint);
+    setSelectedEmployeeId(
+      complaint.assignedEmployeeId ?? complaint.assignedEmployee?._id ?? '',
+    );
   };
 
   const closeComplaintDetails = () => {
@@ -283,7 +450,7 @@ const ComplainPage = () => {
    */
 
   const getStatusLabel = (status: string) => {
-    switch (status?.toLowerCase()) {
+    switch (normalizeComplaintStatus(status)?.toLowerCase()) {
       case 'pending':
         return 'Pending';
 
@@ -299,7 +466,7 @@ const ComplainPage = () => {
   };
 
   const getStatusStyle = (status: string) => {
-    switch (status?.toLowerCase()) {
+    switch (normalizeComplaintStatus(status)?.toLowerCase()) {
       case 'pending':
         return styles.statusPending;
 
@@ -315,7 +482,7 @@ const ComplainPage = () => {
   };
 
   const getStatusDotStyle = (status: string) => {
-    switch (status?.toLowerCase()) {
+    switch (normalizeComplaintStatus(status)?.toLowerCase()) {
       case 'pending':
         return styles.statusDotPending;
 
@@ -412,7 +579,8 @@ const ComplainPage = () => {
   ).length;
 
   const progressTickets = displayComplain.filter(
-    item => item.status?.toLowerCase() === 'in-progress',
+    item =>
+      normalizeComplaintStatus(item.status)?.toLowerCase() === 'in-progress',
   ).length;
 
   const resolvedTickets = displayComplain.filter(
@@ -884,10 +1052,13 @@ const ComplainPage = () => {
                     </View>
 
                     <Text style={styles.statusDescription}>
-                      {selectedComplaint.status?.toLowerCase() === 'pending'
+                      {normalizeComplaintStatus(
+                        selectedComplaint.status,
+                      )?.toLowerCase() === 'pending'
                         ? 'Your request is waiting for support.'
-                        : selectedComplaint.status?.toLowerCase() ===
-                          'in-progress'
+                        : normalizeComplaintStatus(
+                            selectedComplaint.status,
+                          )?.toLowerCase() === 'in-progress'
                         ? 'Our support team is working on it.'
                         : 'This ticket has been completed.'}
                     </Text>
@@ -920,7 +1091,9 @@ const ComplainPage = () => {
 
                   <View style={styles.statusPickerWrapper}>
                     <Picker
-                      selectedValue={selectedComplaint.status}
+                      selectedValue={normalizeComplaintStatus(
+                        selectedComplaint.status,
+                      )}
                       onValueChange={value =>
                         updateStatus(selectedComplaint._id, value)
                       }
@@ -985,14 +1158,18 @@ const ComplainPage = () => {
                       <View
                         style={[
                           styles.timelineCircle,
-                          selectedComplaint.status === 'in-progress' ||
-                          selectedComplaint.status === 'resolved'
+                          normalizeComplaintStatus(selectedComplaint.status) ===
+                            'in-progress' ||
+                          normalizeComplaintStatus(selectedComplaint.status) ===
+                            'resolved'
                             ? styles.timelineCircleActive
                             : styles.timelineCircleInactive,
                         ]}
                       >
-                        {(selectedComplaint.status === 'in-progress' ||
-                          selectedComplaint.status === 'resolved') && (
+                        {(normalizeComplaintStatus(selectedComplaint.status) ===
+                          'in-progress' ||
+                          normalizeComplaintStatus(selectedComplaint.status) ===
+                            'resolved') && (
                           <Text style={styles.timelineCheck}>✓</Text>
                         )}
                       </View>
@@ -1014,12 +1191,14 @@ const ComplainPage = () => {
                       <View
                         style={[
                           styles.timelineCircle,
-                          selectedComplaint.status === 'resolved'
+                          normalizeComplaintStatus(selectedComplaint.status) ===
+                          'resolved'
                             ? styles.timelineCircleCompleted
                             : styles.timelineCircleInactive,
                         ]}
                       >
-                        {selectedComplaint.status === 'resolved' && (
+                        {normalizeComplaintStatus(selectedComplaint.status) ===
+                          'resolved' && (
                           <Text style={styles.timelineCheck}>✓</Text>
                         )}
                       </View>
@@ -1032,6 +1211,124 @@ const ComplainPage = () => {
                         </Text>
                       </View>
                     </View>
+                  </View>
+                </View>
+              )}
+
+              {/* ADMIN TICKET ASSIGNMENT */}
+
+              {selectedComplaint && isAdmin && (
+                <View style={styles.statusControlSection}>
+                  <View style={styles.sectionTitleRow}>
+                    <Text style={styles.detailsSectionTitle}>
+                      Assign Ticket
+                    </Text>
+                    <Text style={styles.adminOnlyLabel}>ADMIN</Text>
+                  </View>
+                  <Text style={styles.detailsSectionSubtitle}>
+                    Choose an employee responsible for this ticket.
+                  </Text>
+                  {loadingEmployees ? (
+                    <ActivityIndicator
+                      color={theme.primary}
+                      style={{ marginVertical: 14 }}
+                    />
+                  ) : employees.length > 0 ? (
+                    <>
+                      <View style={styles.statusPickerWrapper}>
+                        <Picker
+                          selectedValue={selectedEmployeeId}
+                          onValueChange={(value: string) =>
+                            setSelectedEmployeeId(value)
+                          }
+                          style={styles.detailsPicker}
+                          mode="dropdown"
+                        >
+                          <Picker.Item label="Select an employee..." value="" />
+                          {employees.map(employee => (
+                            <Picker.Item
+                              key={employee.id}
+                              label={`${employee.userName}${
+                                employee.designation
+                                  ? ` — ${employee.designation}`
+                                  : ''
+                              }`}
+                              value={employee.id}
+                            />
+                          ))}
+                        </Picker>
+                      </View>
+                      <TouchableOpacity
+                        style={[
+                          styles.detailsDoneButton,
+                          { marginTop: 10, opacity: assigningTicket ? 0.6 : 1 },
+                        ]}
+                        activeOpacity={0.85}
+                        disabled={assigningTicket}
+                        onPress={assignTicket}
+                      >
+                        {assigningTicket ? (
+                          <ActivityIndicator color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.detailsDoneText}>
+                            {selectedComplaint.assignedEmployeeId ||
+                            selectedComplaint.assignedEmployee
+                              ? 'Reassign Ticket'
+                              : 'Assign Ticket'}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <View style={styles.problemDetailCard}>
+                      <Text style={styles.problemDetailText}>
+                        No employees were returned by /api/auth/getUser. Check
+                        that this endpoint returns users to admins.
+                      </Text>
+                      <TouchableOpacity
+                        onPress={getEmployees}
+                        style={{ marginTop: 10 }}
+                      >
+                        <Text
+                          style={{ color: theme.primary, fontWeight: '600' }}
+                        >
+                          Try again
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {/* ASSIGNED EMPLOYEE */}
+
+              {selectedComplaint && (isAdmin || isEmployee) && (
+                <View style={styles.detailSection}>
+                  <View style={styles.sectionHeadingRow}>
+                    <View>
+                      <Text style={styles.detailsSectionTitle}>
+                        Assigned Employee
+                      </Text>
+                      <Text style={styles.detailsSectionSubtitle}>
+                        Current ticket owner
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.problemDetailCard}>
+                    <Text style={styles.problemDetailText}>
+                      {selectedComplaint.assignedEmployee?.userName ||
+                        'Not assigned'}
+                    </Text>
+                    {!!selectedComplaint.assignedEmployee?.designation && (
+                      <Text style={styles.detailsSectionSubtitle}>
+                        {selectedComplaint.assignedEmployee.designation}
+                      </Text>
+                    )}
+                    {!!selectedComplaint.assignedEmployee?.email && (
+                      <Text style={styles.detailsSectionSubtitle}>
+                        {selectedComplaint.assignedEmployee.email}
+                      </Text>
+                    )}
                   </View>
                 </View>
               )}
