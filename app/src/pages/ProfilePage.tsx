@@ -15,6 +15,7 @@ import {
   Image,
   Linking,
   Platform,
+  SafeAreaView,
 } from 'react-native';
 
 import createStyles from '../style/profilePage';
@@ -26,7 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import LeaveRequest from '../components/leaveRequest';
 import LeaveManagement from '../components/LeaveManagement';
-import { Config } from 'react-native-config';
+import Config from 'react-native-config';
 
 interface Organisation {
   _id: string;
@@ -411,252 +412,273 @@ const ProfilePage = () => {
 
   return (
     <>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <View>
-          {/* PROFILE HEADER */}
-          <View style={styles.profileHeader}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {user.userName ? user.userName.charAt(0).toUpperCase() : 'U'}
-              </Text>
-            </View>
-
-            <View style={styles.profileHeaderInfo}>
-              <Text style={styles.profileName} numberOfLines={1}>
-                {user.userName}
-              </Text>
-
-              <Text style={styles.profileEmail} numberOfLines={1}>
-                {user.email}
-              </Text>
-
-              <View style={styles.roleBadge}>
-                <Text style={styles.roleText}>{user.role}</Text>
+      <SafeAreaView style={[styles.container, { flex: 1 }]}>
+        <ScrollView
+          style={styles.container}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          <View>
+            {/* PROFILE HEADER */}
+            <View style={styles.profileHeader}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {user.userName ? user.userName.charAt(0).toUpperCase() : 'U'}
+                </Text>
               </View>
-            </View>
 
-            <TouchableOpacity
-              style={styles.settingItem}
-              activeOpacity={0.7}
-              onPress={openEditProfile}
-            >
-              <Text
-                style={[
-                  styles.settingIconText,
-                  { transform: [{ rotateY: '180deg' }] },
-                ]}
+              <View style={styles.profileHeaderInfo}>
+                <Text style={styles.profileName} numberOfLines={1}>
+                  {user.userName}
+                </Text>
+
+                <Text style={styles.profileEmail} numberOfLines={1}>
+                  {user.email}
+                </Text>
+
+                <View style={styles.roleBadge}>
+                  <Text style={styles.roleText}>{user.role}</Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                style={styles.settingItem}
+                activeOpacity={0.7}
+                onPress={openEditProfile}
               >
-                ✎
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* ACCOUNT INFORMATION */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Account Information</Text>
+                <Ionicons
+                  name="create-outline"
+                  size={21}
+                  color={theme.primary}
+                />
+              </TouchableOpacity>
             </View>
 
-            <View style={styles.infoCard}>
-              {/* ORGANISATION */}
-              <View style={styles.infoItem}>
-                <View style={styles.infoIcon}>
-                  <Text style={styles.infoIconText}>O</Text>
-                </View>
-
-                <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Organisation</Text>
-
-                  <Text style={styles.infoValue} numberOfLines={2}>
-                    {getOrganisationName(user.organisation)}
-                  </Text>
-                </View>
+            {/* ACCOUNT INFORMATION */}
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Account Information</Text>
               </View>
 
-              <View style={styles.divider} />
-
-              {isEmployee && (
-                <>
-                  {/* ATTENDANCE */}
-                  <TouchableOpacity
-                    style={styles.infoItem}
-                    activeOpacity={0.75}
-                    onPress={() => setEmployeeModal('attendance')}
-                  >
-                    <View style={styles.infoIcon}>
-                      <Text style={styles.infoIconText}>A</Text>
-                    </View>
-
-                    <View style={styles.infoContent}>
-                      <Text style={styles.infoLabel}>Attendance</Text>
-                      <Text style={styles.infoValue}>
-                        View attendance history
-                      </Text>
-                    </View>
-
-                    <Ionicons
-                      name="chevron-forward"
-                      size={18}
-                      color={theme.text}
-                    />
-                  </TouchableOpacity>
-
-                  <View style={styles.divider} />
-
-                  {/* DOCUMENTS */}
-                  <TouchableOpacity
-                    style={styles.infoItem}
-                    activeOpacity={0.75}
-                    onPress={() => setEmployeeModal('documents')}
-                  >
-                    <View style={styles.infoIcon}>
-                      <Text style={styles.infoIconText}>D</Text>
-                    </View>
-
-                    <View style={styles.infoContent}>
-                      <Text style={styles.infoLabel}>Documents</Text>
-                      <Text style={styles.infoValue}>
-                        {documents.length} documents
-                      </Text>
-                    </View>
-
-                    <Ionicons
-                      name="chevron-forward"
-                      size={18}
-                      color={theme.text}
-                    />
-                  </TouchableOpacity>
-
-                  <View style={styles.divider} />
-                </>
-              )}
-
-              {/* ROLE */}
-              <View style={styles.infoItem}>
-                <View style={styles.infoIcon}>
-                  <Text style={styles.infoIconText}>R</Text>
-                </View>
-
-                <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Account Role</Text>
-                  <Text style={styles.infoValue}>{user.role}</Text>
-                </View>
-              </View>
-
-              <View style={styles.divider} />
-
-              {/* DESIGNATION */}
-              {isEmployee && (
+              <View style={styles.infoCard}>
+                {/* ORGANISATION */}
                 <View style={styles.infoItem}>
                   <View style={styles.infoIcon}>
-                    <Text style={styles.infoIconText}>D</Text>
-                  </View>
-
-                  <View style={styles.infoContent}>
-                    <Text style={styles.infoLabel}>Designation</Text>
-                    <Text style={styles.infoValue}>
-                      {user.designation || 'Not assigned'}
-                    </Text>
-                  </View>
-                </View>
-              )}
-            </View>
-          </View>
-
-          {/* ACCOUNT SETTINGS */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account Settings</Text>
-
-            <View style={styles.settingsCard}>
-              <View
-                style={[styles.settingRow, { backgroundColor: theme.white }]}
-              >
-                <View>
-                  <Text style={[styles.settingTitle, { color: theme.text }]}>
-                    Dark Mode
-                  </Text>
-
-                  <Text style={[styles.settingSubtitle, { color: theme.text }]}>
-                    {isDarkMode ? 'Dark mode is on' : 'Dark mode is off'}
-                  </Text>
-                </View>
-
-                <Switch value={isDarkMode} onValueChange={toggleTheme} />
-              </View>
-              <View style={styles.divider} />
-              {/*Leave Request */}
-              {(isEmployee || isAdmin) && (
-                <TouchableOpacity
-                  style={styles.settingItem}
-                  activeOpacity={0.7}
-                  onPress={() => setLeaveRequestModalVisible(true)}
-                >
-                  <View style={styles.settingIcon}>
                     <Ionicons
-                      name="calendar-outline"
-                      size={22}
+                      name="business-outline"
+                      size={19}
                       color={theme.primary}
                     />
                   </View>
 
-                  <View style={styles.settingContent}>
-                    <Text style={styles.settingTitle}>
-                      {isAdmin ? 'Leave Management' : 'Leave Request'}
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Organisation</Text>
+
+                    <Text style={styles.infoValue} numberOfLines={2}>
+                      {getOrganisationName(user.organisation)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                {isEmployee && (
+                  <>
+                    {/* ATTENDANCE */}
+                    <TouchableOpacity
+                      style={styles.infoItem}
+                      activeOpacity={0.75}
+                      onPress={() => setEmployeeModal('attendance')}
+                    >
+                      <View style={styles.infoIcon}>
+                        <Ionicons
+                          name="time-outline"
+                          size={19}
+                          color={theme.primary}
+                        />
+                      </View>
+
+                      <View style={styles.infoContent}>
+                        <Text style={styles.infoLabel}>Attendance</Text>
+                        <Text style={styles.infoValue}>
+                          View attendance history
+                        </Text>
+                      </View>
+
+                      <Ionicons
+                        name="chevron-forward"
+                        size={18}
+                        color={theme.text}
+                      />
+                    </TouchableOpacity>
+
+                    <View style={styles.divider} />
+
+                    {/* DOCUMENTS */}
+                    <TouchableOpacity
+                      style={styles.infoItem}
+                      activeOpacity={0.75}
+                      onPress={() => setEmployeeModal('documents')}
+                    >
+                      <View style={styles.infoIcon}>
+                        <Ionicons
+                          name="folder-open-outline"
+                          size={19}
+                          color={theme.primary}
+                        />
+                      </View>
+
+                      <View style={styles.infoContent}>
+                        <Text style={styles.infoLabel}>Documents</Text>
+                        <Text style={styles.infoValue}>
+                          {documents.length} documents
+                        </Text>
+                      </View>
+
+                      <Ionicons
+                        name="chevron-forward"
+                        size={18}
+                        color={theme.text}
+                      />
+                    </TouchableOpacity>
+
+                    <View style={styles.divider} />
+                  </>
+                )}
+
+                {/* ROLE */}
+                <View style={styles.infoItem}>
+                  <View style={styles.infoIcon}>
+                    <Ionicons
+                      name="shield-checkmark-outline"
+                      size={19}
+                      color={theme.primary}
+                    />
+                  </View>
+
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Account Role</Text>
+                    <Text style={styles.infoValue}>{user.role}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.divider} />
+
+                {/* DESIGNATION */}
+                {isEmployee && (
+                  <View style={styles.infoItem}>
+                    <View style={styles.infoIcon}>
+                      <Ionicons
+                        name="briefcase-outline"
+                        size={19}
+                        color={theme.primary}
+                      />
+                    </View>
+
+                    <View style={styles.infoContent}>
+                      <Text style={styles.infoLabel}>Designation</Text>
+                      <Text style={styles.infoValue}>
+                        {user.designation || 'Not assigned'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {/* ACCOUNT SETTINGS */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Account Settings</Text>
+
+              <View style={styles.settingsCard}>
+                <View
+                  style={[styles.settingRow, { backgroundColor: theme.white }]}
+                >
+                  <View>
+                    <Text style={[styles.settingTitle, { color: theme.text }]}>
+                      Dark Mode
                     </Text>
 
+                    <Text
+                      style={[styles.settingSubtitle, { color: theme.text }]}
+                    >
+                      {isDarkMode ? 'Dark mode is on' : 'Dark mode is off'}
+                    </Text>
+                  </View>
+
+                  <Switch value={isDarkMode} onValueChange={toggleTheme} />
+                </View>
+                <View style={styles.divider} />
+                {/*Leave Request */}
+                {(isEmployee || isAdmin) && (
+                  <TouchableOpacity
+                    style={styles.settingItem}
+                    activeOpacity={0.7}
+                    onPress={() => setLeaveRequestModalVisible(true)}
+                  >
+                    <View style={styles.settingIcon}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={22}
+                        color={theme.primary}
+                      />
+                    </View>
+
+                    <View style={styles.settingContent}>
+                      <Text style={styles.settingTitle}>
+                        {isAdmin ? 'Leave Management' : 'Leave Request'}
+                      </Text>
+
+                      <Text style={styles.settingDescription}>
+                        {isAdmin
+                          ? 'Review, approve, or reject employee leave requests'
+                          : 'Submit a leave request and track its status'}
+                      </Text>
+                    </View>
+
+                    <Text style={styles.settingArrow}>›</Text>
+                  </TouchableOpacity>
+                )}
+
+                <View style={styles.divider} />
+
+                {/* CHANGE PASSWORD */}
+                <TouchableOpacity
+                  style={styles.settingItem}
+                  activeOpacity={0.7}
+                  onPress={() => setPasswordModalVisible(true)}
+                >
+                  <View style={styles.settingIcon}>
+                    <Text style={styles.settingIconText}>•••</Text>
+                  </View>
+
+                  <View style={styles.settingContent}>
+                    <Text style={styles.settingTitle}>Change Password</Text>
+
                     <Text style={styles.settingDescription}>
-                      {isAdmin
-                        ? 'Review, approve, or reject employee leave requests'
-                        : 'Submit a leave request and track its status'}
+                      Update your account password
                     </Text>
                   </View>
 
                   <Text style={styles.settingArrow}>›</Text>
                 </TouchableOpacity>
-              )}
-
-              <View style={styles.divider} />
-
-              {/* CHANGE PASSWORD */}
-              <TouchableOpacity
-                style={styles.settingItem}
-                activeOpacity={0.7}
-                onPress={() => setPasswordModalVisible(true)}
-              >
-                <View style={styles.settingIcon}>
-                  <Text style={styles.settingIconText}>•••</Text>
-                </View>
-
-                <View style={styles.settingContent}>
-                  <Text style={styles.settingTitle}>Change Password</Text>
-
-                  <Text style={styles.settingDescription}>
-                    Update your account password
-                  </Text>
-                </View>
-
-                <Text style={styles.settingArrow}>›</Text>
-              </TouchableOpacity>
+              </View>
             </View>
+
+            {/* LOGOUT */}
+            <TouchableOpacity
+              style={styles.logoutButton}
+              activeOpacity={0.75}
+              onPress={handleLogout}
+            >
+              <Text style={styles.logoutIcon}>↪</Text>
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.footerText}>Account settings</Text>
           </View>
-
-          {/* LOGOUT */}
-          <TouchableOpacity
-            style={styles.logoutButton}
-            activeOpacity={0.75}
-            onPress={handleLogout}
-          >
-            <Text style={styles.logoutIcon}>↪</Text>
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
-
-          <Text style={styles.footerText}>Account settings</Text>
-        </View>
-      </ScrollView>
+        </ScrollView>
+      </SafeAreaView>
 
       {/* EDIT PROFILE MODAL */}
       <Modal
@@ -667,12 +689,14 @@ const ProfilePage = () => {
       >
         <KeyboardAvoidingView
           style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
         >
           <View style={styles.modalContainer}>
             <ScrollView
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
             >
               <View style={styles.modalHeader}>
                 <View>
@@ -751,7 +775,8 @@ const ProfilePage = () => {
       >
         <KeyboardAvoidingView
           style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
         >
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  SafeAreaView,
   Text,
   TextInput,
   TouchableOpacity,
@@ -115,20 +116,12 @@ const SearchPage = () => {
   // =====================================================
 
   return (
-    <View style={styles.container}>
-      {/* ================================================= */}
-      {/* HEADER */}
-      {/* ================================================= */}
-
+    <SafeAreaView style={[styles.container, { flex: 1 }]}>
       <Text style={styles.heading}>Search Complaints</Text>
 
       <Text style={styles.subtitle}>
         Search complaints by organisation or module
       </Text>
-
-      {/* ================================================= */}
-      {/* SEARCH AREA */}
-      {/* ================================================= */}
 
       <View style={styles.searchContainer}>
         <TextInput
@@ -291,7 +284,7 @@ const SearchPage = () => {
           </View>
         )}
       />
-    </View>
+    </SafeAreaView>
   );
 };
 

@@ -41,7 +41,7 @@ const createStyles = (theme: any) => {
       flex: 1,
       backgroundColor: COLORS.background,
       paddingHorizontal: 18,
-      paddingTop: 35,
+      paddingTop: 50,
     },
 
     /* =====================================================

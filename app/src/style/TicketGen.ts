@@ -39,6 +39,7 @@ const createStyles = (theme: any) => {
 
     keyboardContainer: {
       flex: 1,
+      paddingTop: 10,
       backgroundColor: COLORS.background,
     },
 

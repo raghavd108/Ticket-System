@@ -43,15 +43,15 @@ const createStyles = (theme: any) => {
     },
 
     scrollContent: {
-      paddingBottom: 70,
+      paddingBottom: 18,
     },
 
     container: {
       width: '100%',
       maxWidth: 900,
       alignSelf: 'center',
-      paddingHorizontal: 18,
-      paddingTop: 22,
+      paddingHorizontal: 16,
+      paddingTop: 14,
     },
 
     // =========================================================
@@ -62,7 +62,7 @@ const createStyles = (theme: any) => {
       flexDirection: 'column',
       alignItems: 'stretch',
       justifyContent: 'flex-start',
-      marginBottom: 22,
+      marginBottom: 14,
     },
 
     headerContent: {
@@ -71,18 +71,18 @@ const createStyles = (theme: any) => {
     },
 
     eyebrow: {
-      fontSize: 10,
-      lineHeight: 14,
+      fontSize: 12,
+      lineHeight: 16,
       fontWeight: '900',
-      letterSpacing: 2.2,
+      letterSpacing: 1.1,
       color: COLORS.primary,
       marginBottom: 7,
       textTransform: 'uppercase',
     },
 
     title: {
-      fontSize: 34,
-      lineHeight: 39,
+      fontSize: 30,
+      lineHeight: 35,
       fontWeight: '900',
       color: COLORS.ink,
       letterSpacing: -1.2,
@@ -90,9 +90,9 @@ const createStyles = (theme: any) => {
     },
 
     subtitle: {
-      marginTop: 9,
-      fontSize: 13,
-      lineHeight: 19,
+      marginTop: 6,
+      fontSize: 12.5,
+      lineHeight: 18,
       color: COLORS.muted,
       fontWeight: '500',
       maxWidth: 500,
@@ -104,9 +104,10 @@ const createStyles = (theme: any) => {
 
     createButton: {
       flex: 1,
-      minHeight: 50,
+      minHeight: 46,
       paddingHorizontal: 12,
       borderRadius: 15,
+      gap: 6,
 
       backgroundColor: COLORS.primary,
 
@@ -151,13 +152,13 @@ const createStyles = (theme: any) => {
 
     statCard: {
       flex: 1,
-      minHeight: 104,
+      minHeight: 88,
 
-      borderRadius: 20,
+      borderRadius: 16,
       borderWidth: 1,
 
-      paddingHorizontal: 16,
-      paddingVertical: 15,
+      paddingHorizontal: 10,
+      paddingVertical: 10,
 
       flexDirection: 'row',
       alignItems: 'center',
@@ -185,23 +186,23 @@ const createStyles = (theme: any) => {
     },
 
     statIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: 15,
+      width: 36,
+      height: 36,
+      borderRadius: 11,
 
       backgroundColor: COLORS.white,
 
       alignItems: 'center',
       justifyContent: 'center',
 
-      marginRight: 12,
+      marginRight: 10,
 
       borderWidth: 1,
       borderColor: 'rgba(0,0,0,0.035)',
     },
 
     statIconText: {
-      color: COLORS.primary,
+      color: COLORS.ink,
       fontSize: 17,
       fontWeight: '900',
     },
@@ -233,7 +234,7 @@ const createStyles = (theme: any) => {
     // =========================================================
 
     searchBox: {
-      height: 56,
+      height: 48,
 
       backgroundColor: COLORS.white,
 
@@ -245,9 +246,9 @@ const createStyles = (theme: any) => {
       flexDirection: 'row',
       alignItems: 'center',
 
-      paddingHorizontal: 16,
+      paddingHorizontal: 13,
 
-      marginBottom: 25,
+      marginBottom: 13,
 
       shadowColor: COLORS.dark,
       shadowOffset: {
@@ -360,11 +361,11 @@ const createStyles = (theme: any) => {
       borderWidth: 1,
       borderColor: COLORS.border,
 
-      borderRadius: 20,
+      borderRadius: 16,
 
-      padding: 14,
+      padding: 10,
 
-      marginBottom: 11,
+      marginBottom: 8,
 
       flexDirection: 'row',
       alignItems: 'center',
@@ -391,17 +392,17 @@ const createStyles = (theme: any) => {
     // =========================================================
 
     avatar: {
-      width: 52,
-      height: 52,
+      width: 44,
+      height: 44,
 
-      borderRadius: 17,
+      borderRadius: 14,
 
       backgroundColor: COLORS.primary,
 
       alignItems: 'center',
       justifyContent: 'center',
 
-      marginRight: 12,
+      marginRight: 10,
 
       shadowColor: COLORS.primary,
       shadowOffset: {
@@ -537,9 +538,9 @@ const createStyles = (theme: any) => {
     },
 
     actionButton: {
-      height: 38,
+      height: 34,
 
-      paddingHorizontal: 14,
+      paddingHorizontal: 12,
 
       borderRadius: 12,
 
@@ -559,10 +560,10 @@ const createStyles = (theme: any) => {
     },
 
     moreButton: {
-      width: 38,
-      height: 38,
+      width: 34,
+      height: 34,
 
-      marginLeft: 7,
+      marginLeft: 5,
 
       borderRadius: 12,
 
@@ -582,6 +583,67 @@ const createStyles = (theme: any) => {
       fontWeight: '800',
     },
 
+    // Screenshot-inspired filter tabs and stat icon variants.
+    employeeCreateButton: {
+      backgroundColor: COLORS.dark,
+      shadowColor: COLORS.dark,
+    },
+
+    statIconPrimary: {
+      backgroundColor: COLORS.primary,
+    },
+
+    statIconGreen: {
+      backgroundColor: COLORS.green,
+    },
+
+    statIconTextGreen: {
+      color: COLORS.everWhite,
+      fontSize: 17,
+      fontWeight: '900',
+    },
+
+    filterTabs: {
+      flexDirection: 'row',
+      padding: 3,
+      borderRadius: 14,
+      backgroundColor: COLORS.white,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      marginTop: 4,
+      marginBottom: 16,
+      flex: 1,
+    },
+
+    filterTab: {
+      flex: 1,
+      minHeight: 34,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 14,
+      paddingHorizontal: 4,
+    },
+
+    filterTabSelected: {
+      backgroundColor: COLORS.primary,
+      shadowColor: COLORS.primary,
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.16,
+      shadowRadius: 6,
+      elevation: 2,
+    },
+
+    filterTabText: {
+      color: COLORS.text,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+
+    filterTabTextSelected: {
+      color: COLORS.everWhite,
+      fontWeight: '800',
+    },
+
     // =========================================================
     // LOADING
     // =========================================================
@@ -594,7 +656,7 @@ const createStyles = (theme: any) => {
       borderWidth: 1,
       borderColor: COLORS.border,
 
-      paddingVertical: 50,
+      paddingVertical: 34,
 
       alignItems: 'center',
 
@@ -629,7 +691,7 @@ const createStyles = (theme: any) => {
       borderColor: COLORS.border,
 
       paddingHorizontal: 25,
-      paddingVertical: 48,
+      paddingVertical: 34,
 
       alignItems: 'center',
 
@@ -716,8 +778,8 @@ const createStyles = (theme: any) => {
     footerText: {
       textAlign: 'center',
 
-      marginTop: 28,
-      marginBottom: 10,
+      marginTop: 18,
+      marginBottom: 8,
 
       fontSize: 9,
       color: COLORS.light,
@@ -737,10 +799,6 @@ const createStyles = (theme: any) => {
     },
 
     clientCreateButton: {
-      flex: 1,
-    },
-
-    employeeCreateButton: {
       flex: 1,
     },
 
@@ -766,12 +824,12 @@ const createStyles = (theme: any) => {
     modalContainer: {
       backgroundColor: COLORS.background,
 
-      borderTopLeftRadius: 30,
-      borderTopRightRadius: 30,
+      borderTopLeftRadius: 24,
+      borderTopRightRadius: 24,
 
-      paddingHorizontal: 21,
-      paddingTop: 23,
-      paddingBottom: 18,
+      paddingHorizontal: 18,
+      paddingTop: 16,
+      paddingBottom: 12,
 
       maxHeight: '93%',
 
@@ -791,7 +849,7 @@ const createStyles = (theme: any) => {
       justifyContent: 'space-between',
       alignItems: 'flex-start',
 
-      marginBottom: 22,
+      marginBottom: 14,
     },
 
     modalHeaderContent: {
@@ -820,8 +878,8 @@ const createStyles = (theme: any) => {
     },
 
     modalTitle: {
-      fontSize: 25,
-      lineHeight: 30,
+      fontSize: 22,
+      lineHeight: 27,
 
       fontWeight: '900',
 
@@ -831,9 +889,9 @@ const createStyles = (theme: any) => {
     },
 
     modalSubtitle: {
-      marginTop: 5,
+      marginTop: 4,
 
-      fontSize: 10.5,
+      fontSize: 11,
       lineHeight: 16,
 
       color: COLORS.muted,
@@ -875,15 +933,15 @@ const createStyles = (theme: any) => {
     },
 
     modalScrollContent: {
-      paddingBottom: 12,
+      paddingBottom: 8,
     },
 
     clientModalCard: {
       width: '100%',
       maxWidth: 430,
       backgroundColor: '#FFFFFF',
-      borderRadius: 24,
-      padding: 22,
+      borderRadius: 20,
+      padding: 18,
       shadowColor: '#000',
       shadowOffset: {
         width: 0,
@@ -955,7 +1013,7 @@ const createStyles = (theme: any) => {
     },
 
     detailsSection: {
-      gap: 18,
+      gap: 13,
     },
 
     detailRow: {
@@ -964,9 +1022,9 @@ const createStyles = (theme: any) => {
     },
 
     detailIcon: {
-      width: 40,
-      height: 40,
-      borderRadius: 12,
+      width: 36,
+      height: 36,
+      borderRadius: 11,
       backgroundColor: '#F7F6F3',
       alignItems: 'center',
       justifyContent: 'center',
@@ -1051,7 +1109,7 @@ const createStyles = (theme: any) => {
     // =========================================================
 
     field: {
-      marginBottom: 16,
+      marginBottom: 12,
     },
 
     label: {
@@ -1067,14 +1125,14 @@ const createStyles = (theme: any) => {
     },
 
     input: {
-      height: 52,
+      height: 48,
 
       borderWidth: 1,
       borderColor: COLORS.border,
 
-      borderRadius: 14,
+      borderRadius: 12,
 
-      paddingHorizontal: 14,
+      paddingHorizontal: 13,
 
       fontSize: 13,
 
@@ -1277,8 +1335,8 @@ const createStyles = (theme: any) => {
       maxHeight: '85%',
       alignSelf: 'center',
       backgroundColor: '#FFFFFF',
-      borderRadius: 24,
-      padding: 22,
+      borderRadius: 20,
+      padding: 18,
       shadowColor: '#000000',
       shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.15,

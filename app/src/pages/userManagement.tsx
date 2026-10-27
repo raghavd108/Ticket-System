@@ -15,7 +15,7 @@ import {
 import { useTheme } from '../context/ThemeContext';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Config } from 'react-native-config';
+import Config from 'react-native-config';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   pick,
@@ -24,6 +24,7 @@ import {
 } from '@react-native-documents/picker';
 import createstyles from '../style/clientManager';
 import AttendanceHistory from '../components/AttendanceHistory';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 interface AssignedEmployee {
   _id: string;
@@ -31,11 +32,13 @@ interface AssignedEmployee {
   email: string;
   designation?: string;
   mobileNumber?: string;
-  organisation?: {
-    _id: string;
-    orgType: string;
-    name: string;
-  };
+  organisation?:
+    | string
+    | {
+        _id: string;
+        orgType?: string;
+        name?: string;
+      };
 }
 
 interface User {
@@ -77,7 +80,9 @@ const ClientPage = () => {
   const [password, setPassword] = useState('');
   const [designation, setDesignation] = useState('');
   const [documentTitle, setDocumentTitle] = useState('');
-
+  const [activeFilter, setActiveFilter] = useState<
+    'all' | 'client' | 'employee'
+  >('all');
   const [uploadingDocuments, setUploadingDocuments] = useState(false);
 
   // DATA
@@ -89,6 +94,7 @@ const ClientPage = () => {
   const [assignedEmployee, setAssignedEmployee] = useState<string[]>([]);
   const [showEmployeeList, setShowEmployeeList] = useState(false);
   const [selectedClient, setSelectedClient] = useState<User | null>(null);
+  const [detailsVisible, setDetailsVisible] = useState(false);
 
   // Selected employee attendance and admin editing
   const [attendanceVisible, setAttendanceVisible] = useState(false);
@@ -179,16 +185,25 @@ const ClientPage = () => {
                     item.organisation._id || item.organisation.id || '',
                   ),
                 }
-              : item.organisation,
-          assignedEmployee: (
-            item.assignedEmployee ||
-            item.assignedEmployees ||
-            []
+              : item.organisation
+              ? { _id: String(item.organisation), name: '' }
+              : { _id: '', name: '' },
+          assignedEmployee: (Array.isArray(item.assignedEmployee)
+            ? item.assignedEmployee
+            : Array.isArray(item.assignedEmployees)
+            ? item.assignedEmployees
+            : []
           ).map((entry: any) => {
-            const employee = entry.employee || entry;
-            return typeof employee === 'string'
-              ? { _id: employee, userName: 'Employee', email: '' }
-              : { ...employee, _id: String(employee._id || employee.id || '') };
+            const employee = entry?.employee || entry;
+            if (typeof employee === 'string') {
+              return { _id: employee, userName: 'Employee', email: '' };
+            }
+            return {
+              ...employee,
+              _id: String(employee?._id || employee?.id || ''),
+              userName: employee?.userName || 'Employee',
+              email: employee?.email || '',
+            };
           }),
         })),
       );
@@ -274,7 +289,9 @@ const ClientPage = () => {
                     item.organisation._id || item.organisation.id || '',
                   ),
                 }
-              : item.organisation,
+              : item.organisation
+              ? { _id: String(item.organisation), name: '' }
+              : { _id: '', name: '' },
         })),
       );
     } catch (error: any) {
@@ -293,13 +310,12 @@ const ClientPage = () => {
   // FIND SPINFOCOM ORGANISATION
 
   const getSpinfocomOrganisation = () => {
-    const spinfocomOrganisation = organisations.find(
+    return organisations.find(
       item =>
-        item.name?.trim().toLowerCase() ===
-        DEFAULT_EMPLOYEE_ORGANISATION.toLowerCase(),
+        String(item.name || '')
+          .trim()
+          .toLowerCase() === DEFAULT_EMPLOYEE_ORGANISATION.toLowerCase(),
     );
-
-    return spinfocomOrganisation;
   };
 
   // GET ADMIN ID
@@ -349,18 +365,26 @@ const ClientPage = () => {
   };
 
   const getEmployeesForSelectedOrganisation = () => {
+    // Client users are assigned SP Infocom employees, regardless of the
+    // client's own organisation. Keep this existing business rule.
     if (!organisation) {
       return [];
     }
 
     const spinfocomOrganisation = getSpinfocomOrganisation();
+    const spinfocomId = String(spinfocomOrganisation?._id || '');
 
-    if (!spinfocomOrganisation?._id) {
+    if (!spinfocomId) {
       return [];
     }
 
     return employees.filter(employee => {
-      return employee.organisation?._id === spinfocomOrganisation._id;
+      const employeeOrganisationId =
+        typeof employee.organisation === 'object'
+          ? employee.organisation?._id
+          : employee.organisation;
+
+      return String(employeeOrganisationId || '') === spinfocomId;
     });
   };
 
@@ -535,8 +559,19 @@ const ClientPage = () => {
     const cleanName = newOrganisationName.trim();
     const cleanOrgType = newOrganisationType.trim();
 
+    if (!cleanOrgType) {
+      Alert.alert(
+        'Organisation Type Required',
+        'Please enter the organisation type.',
+      );
+      return;
+    }
+
     if (!cleanName) {
-      Alert.alert('Organisation Required', 'Please enter organisation type.');
+      Alert.alert(
+        'Organisation Name Required',
+        'Please enter the organisation name.',
+      );
       return;
     }
 
@@ -563,7 +598,7 @@ const ClientPage = () => {
       const res = await axios.post(
         `${Config.API_URL}/api/org/add-org/${adminId}`,
         {
-          orgType: newOrganisationType,
+          orgType: cleanOrgType,
           name: cleanName,
         },
         {
@@ -651,26 +686,33 @@ const ClientPage = () => {
   const filteredClients = useMemo(() => {
     const value = search.trim().toLowerCase();
 
-    if (!value) {
-      return client;
-    }
-
     return client.filter(item => {
-      return (
+      const matchesRole = activeFilter === 'all' || item.role === activeFilter;
+
+      const matchesSearch =
+        !value ||
         item.userName?.toLowerCase().includes(value) ||
         item.email?.toLowerCase().includes(value) ||
         item.organisation?.name?.toLowerCase().includes(value) ||
-        item.role?.toLowerCase().includes(value)
-      );
+        item.role?.toLowerCase().includes(value);
+
+      return matchesRole && matchesSearch;
     });
-  }, [client, search]);
+  }, [client, search, activeFilter]);
 
   // REFRESH
 
   const onRefresh = async () => {
+    if (refreshing) {
+      return;
+    }
+
     setRefreshing(true);
-    await Promise.all([getUser(), getOrganisations(), getEmployees()]);
-    setRefreshing(false);
+    try {
+      await Promise.all([getUser(), getOrganisations(), getEmployees()]);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   // OPEN CLIENT MODAL
@@ -786,13 +828,20 @@ const ClientPage = () => {
         allowMultiSelection: true,
       });
 
+      const pickedFiles = Array.isArray(result) ? result : [];
+
       setDocumentFiles(previous => {
         const existingUris = new Set(previous.map(file => file.uri));
-        const newFiles = result.filter(file => !existingUris.has(file.uri));
-        const availableSlots = 10 - previous.length;
+        const newFiles = pickedFiles.filter(
+          file => Boolean(file?.uri) && !existingUris.has(file.uri),
+        );
+        const availableSlots = Math.max(0, 10 - previous.length);
 
         if (newFiles.length > availableSlots) {
-          Alert.alert('File Limit', 'You can select a maximum of 10 files.');
+          Alert.alert(
+            'File Limit',
+            'Only the first 10 unique files can be selected.',
+          );
         }
 
         return [...previous, ...newFiles.slice(0, availableSlots)];
@@ -931,6 +980,16 @@ const ClientPage = () => {
     setEditEmployeeVisible(true);
   };
 
+  const closeEditEmployeeModal = () => {
+    if (savingEmployee) {
+      return;
+    }
+
+    setEditEmployeeVisible(false);
+    setEditEmployeePassword('');
+    setShowEditPassword(false);
+  };
+
   const updateSelectedEmployee = async () => {
     const userId = selectedClient?._id || selectedClient?.id;
     const isEmployee = selectedClient?.role === 'employee';
@@ -1056,6 +1115,12 @@ const ClientPage = () => {
   // VIEW USER
   const viewClient = (item: User) => {
     setSelectedClient(item);
+    setDetailsVisible(true);
+  };
+
+  const closeDetailsModal = () => {
+    setDetailsVisible(false);
+    setSelectedClient(null);
   };
 
   // USER CARD
@@ -1092,7 +1157,11 @@ const ClientPage = () => {
             </Text>
 
             <View style={styles.hospitalRow}>
-              <Text style={styles.hospitalIcon}>+</Text>
+              <Ionicons
+                name="business-outline"
+                size={14}
+                color={theme.primary}
+              />
 
               <Text style={styles.hospitalText} numberOfLines={1}>
                 {item.organisation?.name}
@@ -1144,7 +1213,7 @@ const ClientPage = () => {
               setEditEmployeeVisible(true);
             }}
           >
-            <Text style={styles.moreButtonText}>•••</Text>
+            <Ionicons name="ellipsis-vertical" size={20} color={theme.ink} />
           </TouchableOpacity>
         </View>
       </View>
@@ -1268,7 +1337,7 @@ const ClientPage = () => {
                   alignItems: 'center',
                 }}
               >
-                <ActivityIndicator size="small" color="#7357E8" />
+                <ActivityIndicator size="small" color={theme.primary} />
 
                 <Text
                   style={{
@@ -1300,14 +1369,11 @@ const ClientPage = () => {
                     : 'Select organisation'}
                 </Text>
 
-                <Text
-                  style={{
-                    fontSize: 18,
-                    color: theme.muted,
-                  }}
-                >
-                  {showOrganisationList ? '▲' : '▼'}
-                </Text>
+                <Ionicons
+                  name={showOrganisationList ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={theme.muted}
+                />
               </View>
             )}
           </TouchableOpacity>
@@ -1385,14 +1451,11 @@ const ClientPage = () => {
                       </Text>
 
                       {selected && (
-                        <Text
-                          style={{
-                            color: theme.primary,
-                            fontWeight: '700',
-                          }}
-                        >
-                          ✓
-                        </Text>
+                        <Ionicons
+                          name="checkmark"
+                          size={18}
+                          color={theme.primary}
+                        />
                       )}
                     </TouchableOpacity>
                   );
@@ -1450,7 +1513,7 @@ const ClientPage = () => {
                   alignItems: 'center',
                 }}
               >
-                <ActivityIndicator size="small" color="#7357E8" />
+                <ActivityIndicator size="small" color={theme.primary} />
 
                 <Text
                   style={{
@@ -1494,14 +1557,11 @@ const ClientPage = () => {
                     : 'Select employees'}
                 </Text>
 
-                <Text
-                  style={{
-                    fontSize: 18,
-                    color: theme.muted,
-                  }}
-                >
-                  {showEmployeeList ? '▲' : '▼'}
-                </Text>
+                <Ionicons
+                  name={showEmployeeList ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={theme.muted}
+                />
               </View>
             )}
           </TouchableOpacity>
@@ -1650,15 +1710,11 @@ const ClientPage = () => {
                         }}
                       >
                         {selected && (
-                          <Text
-                            style={{
-                              color: theme.everWhite,
-                              fontSize: 15,
-                              fontWeight: '800',
-                            }}
-                          >
-                            ✓
-                          </Text>
+                          <Ionicons
+                            name="checkmark"
+                            size={16}
+                            color={theme.everWhite}
+                          />
                         )}
                       </View>
                     </TouchableOpacity>
@@ -1715,9 +1771,11 @@ const ClientPage = () => {
               disabled={creating}
               activeOpacity={0.7}
             >
-              <Text style={styles.passwordToggleText}>
-                {showPassword ? 'Hide' : 'Show'}
-              </Text>
+              <Ionicons
+                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
+                color={theme.primary}
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -1742,7 +1800,11 @@ const ClientPage = () => {
             </>
           ) : (
             <>
-              <Text style={styles.submitIcon}>+</Text>
+              <Ionicons
+                name="person-add-outline"
+                size={19}
+                color={theme.everWhite}
+              />
 
               <Text style={styles.submitText}>Create Client Account</Text>
             </>
@@ -1917,9 +1979,11 @@ const ClientPage = () => {
               disabled={creating}
               activeOpacity={0.7}
             >
-              <Text style={styles.passwordToggleText}>
-                {showPassword ? 'Hide' : 'Show'}
-              </Text>
+              <Ionicons
+                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
+                color={theme.primary}
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -1963,7 +2027,11 @@ const ClientPage = () => {
             </>
           ) : (
             <>
-              <Text style={styles.submitIcon}>+</Text>
+              <Ionicons
+                name="person-add-outline"
+                size={19}
+                color={theme.everWhite}
+              />
 
               <Text style={styles.submitText}>Create Employee Account</Text>
             </>
@@ -1999,7 +2067,7 @@ const ClientPage = () => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor="#7357E8"
+            tintColor={theme.primary}
           />
         }
         contentContainerStyle={styles.scrollContent}
@@ -2040,7 +2108,7 @@ const ClientPage = () => {
                 activeOpacity={0.8}
                 onPress={openClientModal}
               >
-                <Text style={styles.createIcon}>+</Text>
+                <Ionicons name="person-add" size={19} color={theme.everWhite} />
 
                 <Text style={styles.createButtonText}>Create Client</Text>
               </TouchableOpacity>
@@ -2048,11 +2116,11 @@ const ClientPage = () => {
               {/* CREATE EMPLOYEE */}
 
               <TouchableOpacity
-                style={[styles.createButton, { backgroundColor: 'black' }]}
+                style={[styles.createButton, styles.employeeCreateButton]}
                 activeOpacity={0.8}
                 onPress={openEmployeeModal}
               >
-                <Text style={styles.createIcon}>+</Text>
+                <Ionicons name="person-add" size={19} color={theme.everWhite} />
 
                 <Text style={styles.createButtonText}>Create Employee</Text>
               </TouchableOpacity>
@@ -2064,27 +2132,27 @@ const ClientPage = () => {
           ================================================= */}
 
           <View style={styles.statsRow}>
+            {/* Total Users */}
             <View style={[styles.statCard, styles.statCardPurple]}>
-              <View style={styles.statIcon}>
-                <Text style={styles.statIconText}>U</Text>
+              <View style={[styles.statIcon, styles.statIconPrimary]}>
+                <Ionicons name="people" size={24} color="#FFFFFF" />
               </View>
 
-              <View>
-                <Text style={styles.statLabel}>TOTAL USERS</Text>
-
+              <View style={{ flex: 1 }}>
                 <Text style={styles.statValue}>{client.length}</Text>
+                <Text style={styles.statLabel}>Total Users</Text>
               </View>
             </View>
 
+            {/* Organisations */}
             <View style={[styles.statCard, styles.statCardGreen]}>
-              <View style={styles.statIcon}>
-                <Text style={styles.statIconText}>O</Text>
+              <View style={[styles.statIcon, styles.statIconGreen]}>
+                <Ionicons name="business" size={24} color="#FFFFFF" />
               </View>
 
-              <View>
-                <Text style={styles.statLabel}>ORGANISATIONS</Text>
-
+              <View style={{ flex: 1 }}>
                 <Text style={styles.statValue}>{organisations.length}</Text>
+                <Text style={styles.statLabel}>Organisations</Text>
               </View>
             </View>
           </View>
@@ -2094,7 +2162,12 @@ const ClientPage = () => {
           ================================================= */}
 
           <View style={styles.searchBox}>
-            <Text style={styles.searchIcon}>⌕</Text>
+            <Ionicons
+              name="search-outline"
+              size={21}
+              color={theme.primary}
+              style={{ marginRight: 10 }}
+            />
 
             <TextInput
               style={styles.searchInput}
@@ -2113,7 +2186,7 @@ const ClientPage = () => {
                 style={styles.clearSearch}
                 activeOpacity={0.7}
               >
-                <Text style={styles.clearSearchText}>×</Text>
+                <Ionicons name="close-circle" size={20} color={theme.primary} />
               </TouchableOpacity>
             )}
           </View>
@@ -2123,23 +2196,38 @@ const ClientPage = () => {
           ================================================= */}
 
           <View style={styles.listHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>All Users</Text>
+            <View style={styles.filterTabs}>
+              {(
+                [
+                  { label: 'All Users', value: 'all' },
+                  { label: 'Clients', value: 'client' },
+                  { label: 'Employees', value: 'employee' },
+                ] as const
+              ).map(tab => {
+                const selected = activeFilter === tab.value;
 
-              <Text style={styles.sectionSubtitle}>
-                {filteredClients.length}{' '}
-                {filteredClients.length === 1 ? 'user' : 'users'}{' '}
-                {search ? 'matching your search' : 'in your organisation'}
-              </Text>
+                return (
+                  <TouchableOpacity
+                    key={tab.value}
+                    onPress={() => setActiveFilter(tab.value)}
+                    activeOpacity={0.8}
+                    style={[
+                      styles.filterTab,
+                      selected && styles.filterTabSelected,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterTabText,
+                        selected && styles.filterTabTextSelected,
+                      ]}
+                    >
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-
-            <TouchableOpacity
-              onPress={onRefresh}
-              style={styles.refreshButton}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.refreshText}>↻</Text>
-            </TouchableOpacity>
           </View>
 
           {/* =================================================
@@ -2148,14 +2236,18 @@ const ClientPage = () => {
 
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="small" color="#7357E8" />
+              <ActivityIndicator size="small" color={theme.primary} />
 
               <Text style={styles.loadingText}>Loading users...</Text>
             </View>
           ) : filteredClients.length === 0 ? (
             <View style={styles.emptyCard}>
               <View style={styles.emptyIcon}>
-                <Text style={styles.emptyIconText}>U</Text>
+                <Ionicons
+                  name="people-outline"
+                  size={25}
+                  color={theme.primary}
+                />
               </View>
 
               <Text style={styles.emptyTitle}>No users found</Text>
@@ -2179,20 +2271,30 @@ const ClientPage = () => {
                     onPress={openClientModal}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.emptyButtonText}>+ Client</Text>
+                    <Ionicons
+                      name="person-add-outline"
+                      size={16}
+                      color={theme.everWhite}
+                    />
+                    <Text style={styles.emptyButtonText}>Client</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[
                       styles.emptyButton,
                       {
-                        backgroundColor: '#18181B',
+                        backgroundColor: theme.ink,
                       },
                     ]}
                     onPress={openEmployeeModal}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.emptyButtonText}>+ Employee</Text>
+                    <Ionicons
+                      name="people-outline"
+                      size={16}
+                      color={theme.everWhite}
+                    />
+                    <Text style={styles.emptyButtonText}>Employee</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -2260,7 +2362,7 @@ const ClientPage = () => {
                 disabled={creating}
                 activeOpacity={0.7}
               >
-                <Text style={styles.closeText}>×</Text>
+                <Ionicons name="close" size={24} color={theme.ink} />
               </TouchableOpacity>
             </View>
 
@@ -2318,7 +2420,7 @@ const ClientPage = () => {
                 disabled={creating}
                 activeOpacity={0.7}
               >
-                <Text style={styles.closeText}>×</Text>
+                <Ionicons name="close" size={24} color={theme.ink} />
               </TouchableOpacity>
             </View>
 
@@ -2431,15 +2533,7 @@ const ClientPage = () => {
                   alignItems: 'center',
                 }}
               >
-                <Text
-                  style={{
-                    fontSize: 24,
-                    lineHeight: 27,
-                    color: theme.ink,
-                  }}
-                >
-                  ×
-                </Text>
+                <Ionicons name="close" size={23} color={theme.ink} />
               </TouchableOpacity>
             </View>
 
@@ -2579,11 +2673,11 @@ const ClientPage = () => {
       </Modal>
 
       <Modal
-        visible={!!selectedClient}
+        visible={detailsVisible}
         transparent
         animationType="fade"
         statusBarTranslucent
-        onRequestClose={() => setSelectedClient(null)}
+        onRequestClose={closeDetailsModal}
       >
         <View
           style={[
@@ -2602,207 +2696,77 @@ const ClientPage = () => {
                 backgroundColor: theme.background,
                 borderColor: theme.border,
                 borderWidth: 1,
+                maxHeight: '88%',
               },
             ]}
           >
-            <View style={styles.clientModalHeader}>
-              <View
-                style={[
-                  styles.clientAvatar,
-                  {
-                    backgroundColor: theme.primarySoft,
-                  },
-                ]}
-              >
-                <Text
-                  style={[styles.clientAvatarText, { color: theme.primary }]}
-                >
-                  {selectedClient?.userName?.charAt(0)?.toUpperCase() || 'U'}
-                </Text>
-              </View>
-
-              <View style={styles.clientHeaderInfo}>
-                <Text style={[styles.clientModalName, { color: theme.ink }]}>
-                  {selectedClient?.userName}
-                </Text>
-
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ paddingBottom: 2 }}
+            >
+              <View style={styles.clientModalHeader}>
                 <View
                   style={[
-                    styles.roleBadge,
+                    styles.clientAvatar,
                     {
                       backgroundColor: theme.primarySoft,
                     },
                   ]}
                 >
                   <Text
-                    style={[styles.roleBadgeText, { color: theme.primary }]}
+                    style={[styles.clientAvatarText, { color: theme.primary }]}
                   >
-                    {selectedClient && getRoleLabel(selectedClient.role)}
+                    {selectedClient?.userName?.charAt(0)?.toUpperCase() || 'U'}
                   </Text>
                 </View>
-              </View>
 
-              <TouchableOpacity
-                style={[
-                  styles.closeButton,
-                  {
-                    backgroundColor: theme.background,
-                    borderColor: theme.border,
-                  },
-                ]}
-                onPress={() => setSelectedClient(null)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.closeButtonText, { color: theme.ink }]}>
-                  ×
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View
-              style={[styles.modalDivider, { backgroundColor: theme.divider }]}
-            />
-
-            <View style={styles.detailsSection}>
-              <View style={styles.detailRow}>
-                <View
-                  style={[
-                    styles.detailIcon,
-                    { backgroundColor: theme.primarySoft },
-                  ]}
-                >
-                  <Text>✉️</Text>
-                </View>
-
-                <View style={styles.detailContent}>
-                  <Text style={[styles.detailLabel, { color: theme.muted }]}>
-                    EMAIL
+                <View style={styles.clientHeaderInfo}>
+                  <Text style={[styles.clientModalName, { color: theme.ink }]}>
+                    {selectedClient?.userName}
                   </Text>
 
-                  <Text style={[styles.detailValue, { color: theme.ink }]}>
-                    {selectedClient?.email || 'Not available'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.detailRow}>
-                <View
-                  style={[
-                    styles.detailIcon,
-                    { backgroundColor: theme.primarySoft },
-                  ]}
-                >
-                  <Text>✉️</Text>
-                </View>
-
-                <View style={styles.detailContent}>
-                  <Text style={[styles.detailLabel, { color: theme.muted }]}>
-                    Phone Number
-                  </Text>
-
-                  <Text style={[styles.detailValue, { color: theme.ink }]}>
-                    {selectedClient?.mobileNumber || 'Not available'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.detailRow}>
-                <View
-                  style={[
-                    styles.detailIcon,
-                    { backgroundColor: theme.primarySoft },
-                  ]}
-                >
-                  <Text>🏢</Text>
-                </View>
-
-                <View style={styles.detailContent}>
-                  <Text style={[styles.detailLabel, { color: theme.muted }]}>
-                    ORGANISATION
-                  </Text>
-
-                  <Text style={[styles.detailValue, { color: theme.ink }]}>
-                    {selectedClient?.organisation?.name || 'No Organisation'}
-                  </Text>
-                </View>
-              </View>
-
-              {(selectedClient?.role === 'employee' ||
-                selectedClient?.role === 'client') && (
-                <View
-                  style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}
-                >
-                  <TouchableOpacity
-                    onPress={openEditEmployee}
-                    activeOpacity={0.8}
-                    style={{
-                      flex: 1,
-                      backgroundColor: theme.primarySoft,
-                      borderColor: theme.border,
-                      borderWidth: 1,
-                      borderRadius: 10,
-                      paddingVertical: 12,
-                      alignItems: 'center',
-                    }}
+                  <View
+                    style={[
+                      styles.roleBadge,
+                      {
+                        backgroundColor: theme.primarySoft,
+                      },
+                    ]}
                   >
-                    <Text style={{ color: theme.primary, fontWeight: '800' }}>
-                      Edit{' '}
-                      {selectedClient?.role === 'employee'
-                        ? 'Employee'
-                        : 'Client'}
-                    </Text>
-                  </TouchableOpacity>
-                  {selectedClient?.role === 'employee' && (
-                    <TouchableOpacity
-                      onPress={loadEmployeeAttendance}
-                      activeOpacity={0.8}
-                      style={{
-                        flex: 1,
-                        backgroundColor: theme.primary,
-                        borderRadius: 10,
-                        paddingVertical: 12,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                      }}
+                    <Text
+                      style={[styles.roleBadgeText, { color: theme.primary }]}
                     >
-                      <Text
-                        style={{ color: theme.everWhite, fontWeight: '800' }}
-                      >
-                        Attendance History
-                      </Text>
-                    </TouchableOpacity>
-                  )}
+                      {selectedClient && getRoleLabel(selectedClient.role)}
+                    </Text>
+                  </View>
                 </View>
-              )}
 
-              {selectedClient?.role === 'employee' && (
                 <TouchableOpacity
-                  onPress={openUploadModal}
-                  activeOpacity={0.8}
-                  style={{
-                    backgroundColor: theme.primary,
-                    borderRadius: 12,
-                    paddingVertical: 14,
-                    paddingHorizontal: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: 12,
-                  }}
+                  style={[
+                    styles.closeButton,
+                    {
+                      backgroundColor: theme.background,
+                      borderColor: theme.border,
+                    },
+                  ]}
+                  onPress={closeDetailsModal}
+                  activeOpacity={0.7}
                 >
-                  <Text
-                    style={{
-                      color: theme.everWhite,
-                      fontSize: 14,
-                      fontWeight: '800',
-                    }}
-                  >
-                    + Upload Documents
+                  <Text style={[styles.closeButtonText, { color: theme.ink }]}>
+                    ×
                   </Text>
                 </TouchableOpacity>
-              )}
+              </View>
 
-              {selectedClient?.role === 'client' && (
+              <View
+                style={[
+                  styles.modalDivider,
+                  { backgroundColor: theme.divider },
+                ]}
+              />
+
+              <View style={styles.detailsSection}>
                 <View style={styles.detailRow}>
                   <View
                     style={[
@@ -2810,87 +2774,244 @@ const ClientPage = () => {
                       { backgroundColor: theme.primarySoft },
                     ]}
                   >
-                    <Text>👨‍💼</Text>
+                    <Ionicons
+                      name="mail-outline"
+                      size={18}
+                      color={theme.primary}
+                    />
                   </View>
 
                   <View style={styles.detailContent}>
                     <Text style={[styles.detailLabel, { color: theme.muted }]}>
-                      ASSIGNED EMPLOYEES
+                      EMAIL
                     </Text>
 
-                    {selectedClient?.assignedEmployee &&
-                    selectedClient.assignedEmployee.length > 0 ? (
-                      <View style={styles.employeeList}>
-                        {selectedClient.assignedEmployee.map(employee => (
-                          <View
-                            key={employee._id}
-                            style={[
-                              styles.employeeChip,
-                              {
-                                backgroundColor: theme.primarySoft,
-                                borderWidth: 1,
-                                borderColor: theme.border,
-                              },
-                            ]}
-                          >
-                            <View
-                              style={[
-                                styles.employeeDot,
-                                { backgroundColor: theme.primary },
-                              ]}
-                            />
-
-                            <View style={{ flex: 1 }}>
-                              <Text
-                                style={[
-                                  styles.employeeName,
-                                  { color: theme.ink },
-                                ]}
-                              >
-                                {employee.userName}
-                              </Text>
-
-                              {employee.designation && (
-                                <Text
-                                  style={[
-                                    styles.employeeDesignation,
-                                    { color: theme.muted },
-                                  ]}
-                                >
-                                  {employee.designation}
-                                </Text>
-                              )}
-                            </View>
-                          </View>
-                        ))}
-                      </View>
-                    ) : (
-                      <Text
-                        style={[styles.noEmployeeText, { color: theme.muted }]}
-                      >
-                        No employee assigned
-                      </Text>
-                    )}
+                    <Text style={[styles.detailValue, { color: theme.ink }]}>
+                      {selectedClient?.email || 'Not available'}
+                    </Text>
                   </View>
                 </View>
-              )}
-            </View>
 
-            <TouchableOpacity
-              style={[styles.doneButton, { backgroundColor: theme.primary }]}
-              onPress={() => setSelectedClient(null)}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={{
-                  color: theme.everWhite,
-                  fontSize: 14,
-                  fontWeight: '800',
-                }}
+                <View style={styles.detailRow}>
+                  <View
+                    style={[
+                      styles.detailIcon,
+                      { backgroundColor: theme.primarySoft },
+                    ]}
+                  >
+                    <Ionicons
+                      name="call-outline"
+                      size={18}
+                      color={theme.primary}
+                    />
+                  </View>
+
+                  <View style={styles.detailContent}>
+                    <Text style={[styles.detailLabel, { color: theme.muted }]}>
+                      PHONE NUMBER
+                    </Text>
+
+                    <Text style={[styles.detailValue, { color: theme.ink }]}>
+                      {selectedClient?.mobileNumber || 'Not available'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailRow}>
+                  <View
+                    style={[
+                      styles.detailIcon,
+                      { backgroundColor: theme.primarySoft },
+                    ]}
+                  >
+                    <Ionicons
+                      name="business-outline"
+                      size={18}
+                      color={theme.primary}
+                    />
+                  </View>
+
+                  <View style={styles.detailContent}>
+                    <Text style={[styles.detailLabel, { color: theme.muted }]}>
+                      ORGANISATION
+                    </Text>
+
+                    <Text style={[styles.detailValue, { color: theme.ink }]}>
+                      {selectedClient?.organisation?.name || 'No Organisation'}
+                    </Text>
+                  </View>
+                </View>
+
+                {(selectedClient?.role === 'employee' ||
+                  selectedClient?.role === 'client') && (
+                  <View
+                    style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}
+                  >
+                    <TouchableOpacity
+                      onPress={openEditEmployee}
+                      activeOpacity={0.8}
+                      style={{
+                        flex: 1,
+                        backgroundColor: theme.primarySoft,
+                        borderColor: theme.border,
+                        borderWidth: 1,
+                        borderRadius: 10,
+                        paddingVertical: 12,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Text style={{ color: theme.primary, fontWeight: '800' }}>
+                        Edit{' '}
+                        {selectedClient?.role === 'employee'
+                          ? 'Employee'
+                          : 'Client'}
+                      </Text>
+                    </TouchableOpacity>
+                    {selectedClient?.role === 'employee' && (
+                      <TouchableOpacity
+                        onPress={loadEmployeeAttendance}
+                        activeOpacity={0.8}
+                        style={{
+                          flex: 1,
+                          backgroundColor: theme.primary,
+                          borderRadius: 10,
+                          paddingVertical: 12,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Text
+                          style={{ color: theme.everWhite, fontWeight: '800' }}
+                        >
+                          Attendance History
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
+                {selectedClient?.role === 'employee' && (
+                  <TouchableOpacity
+                    onPress={openUploadModal}
+                    activeOpacity={0.8}
+                    style={{
+                      backgroundColor: theme.primary,
+                      borderRadius: 12,
+                      paddingVertical: 14,
+                      paddingHorizontal: 16,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 12,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: theme.everWhite,
+                        fontSize: 14,
+                        fontWeight: '800',
+                      }}
+                    >
+                      + Upload Documents
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {selectedClient?.role === 'client' && (
+                  <View style={styles.detailRow}>
+                    <View
+                      style={[
+                        styles.detailIcon,
+                        { backgroundColor: theme.primarySoft },
+                      ]}
+                    >
+                      <Text>👨‍💼</Text>
+                    </View>
+
+                    <View style={styles.detailContent}>
+                      <Text
+                        style={[styles.detailLabel, { color: theme.muted }]}
+                      >
+                        ASSIGNED EMPLOYEES
+                      </Text>
+
+                      {selectedClient?.assignedEmployee &&
+                      selectedClient.assignedEmployee.length > 0 ? (
+                        <View style={styles.employeeList}>
+                          {selectedClient.assignedEmployee.map(employee => (
+                            <View
+                              key={employee._id}
+                              style={[
+                                styles.employeeChip,
+                                {
+                                  backgroundColor: theme.primarySoft,
+                                  borderWidth: 1,
+                                  borderColor: theme.border,
+                                },
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.employeeDot,
+                                  { backgroundColor: theme.primary },
+                                ]}
+                              />
+
+                              <View style={{ flex: 1 }}>
+                                <Text
+                                  style={[
+                                    styles.employeeName,
+                                    { color: theme.ink },
+                                  ]}
+                                >
+                                  {employee.userName}
+                                </Text>
+
+                                {employee.designation && (
+                                  <Text
+                                    style={[
+                                      styles.employeeDesignation,
+                                      { color: theme.muted },
+                                    ]}
+                                  >
+                                    {employee.designation}
+                                  </Text>
+                                )}
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      ) : (
+                        <Text
+                          style={[
+                            styles.noEmployeeText,
+                            { color: theme.muted },
+                          ]}
+                        >
+                          No employee assigned
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.doneButton, { backgroundColor: theme.primary }]}
+                onPress={closeDetailsModal}
+                activeOpacity={0.8}
               >
-                Close
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={{
+                    color: theme.everWhite,
+                    fontSize: 14,
+                    fontWeight: '800',
+                  }}
+                >
+                  Close
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -2901,13 +3022,7 @@ const ClientPage = () => {
         transparent
         animationType="slide"
         statusBarTranslucent
-        onRequestClose={() => {
-          if (!savingEmployee) {
-            setEditEmployeeVisible(false);
-            setEditEmployeePassword('');
-            setShowEditPassword(false);
-          }
-        }}
+        onRequestClose={closeEditEmployeeModal}
       >
         <KeyboardAvoidingView
           style={[
@@ -3057,15 +3172,11 @@ const ClientPage = () => {
                   disabled={savingEmployee}
                   activeOpacity={0.7}
                 >
-                  <Text
-                    style={{
-                      color: theme.primary,
-                      fontWeight: '800',
-                      paddingVertical: 8,
-                    }}
-                  >
-                    {showEditPassword ? 'Hide' : 'Show'}
-                  </Text>
+                  <Ionicons
+                    name={showEditPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color={theme.primary}
+                  />
                 </TouchableOpacity>
               </View>
               <Text style={{ color: theme.muted, fontSize: 12, marginTop: 5 }}>
@@ -3119,14 +3230,13 @@ const ClientPage = () => {
                             {employee.email}
                           </Text>
                         </View>
-                        <Text
-                          style={{
-                            color: checked ? theme.primary : theme.muted,
-                            fontWeight: '800',
-                          }}
-                        >
-                          {checked ? '✓' : '○'}
-                        </Text>
+                        <Ionicons
+                          name={
+                            checked ? 'checkmark-circle' : 'ellipse-outline'
+                          }
+                          size={21}
+                          color={checked ? theme.primary : theme.muted}
+                        />
                       </TouchableOpacity>
                     );
                   })}
@@ -3135,13 +3245,7 @@ const ClientPage = () => {
             )}
             <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
               <TouchableOpacity
-                onPress={() => {
-                  if (!savingEmployee) {
-                    setEditEmployeeVisible(false);
-                    setEditEmployeePassword('');
-                    setShowEditPassword(false);
-                  }
-                }}
+                onPress={closeEditEmployeeModal}
                 disabled={savingEmployee}
                 style={{
                   flex: 1,
@@ -3441,7 +3545,12 @@ const ClientPage = () => {
                   marginBottom: 16,
                 }}
               >
-                <Text style={{ fontSize: 26, marginBottom: 8 }}>📎</Text>
+                <Ionicons
+                  name="attach-outline"
+                  size={28}
+                  color={theme.primary}
+                  style={{ marginBottom: 8 }}
+                />
 
                 <Text
                   style={{
@@ -3479,7 +3588,12 @@ const ClientPage = () => {
                     marginBottom: 9,
                   }}
                 >
-                  <Text style={{ fontSize: 22, marginRight: 11 }}>📄</Text>
+                  <Ionicons
+                    name="document-text-outline"
+                    size={23}
+                    color={theme.primary}
+                    style={{ marginRight: 11 }}
+                  />
 
                   <View style={{ flex: 1 }}>
                     <Text

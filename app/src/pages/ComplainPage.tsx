@@ -1,10 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import createStyles from '../style/complainStyle';
 import { useTheme } from '../context/ThemeContext';
-import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 import AttendanceToggle from '../components/attendance';
-
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   View,
   Text,
@@ -16,7 +15,7 @@ import {
   RefreshControl,
   Modal,
 } from 'react-native';
-
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFilter } from '../hooks/useFilter';
@@ -128,6 +127,9 @@ const ComplainPage = () => {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [assigningTicket, setAssigningTicket] = useState(false);
+  const [activeTicketDropdown, setActiveTicketDropdown] = useState<
+    'status' | 'employee' | null
+  >(null);
 
   const {
     softwareFilter,
@@ -587,6 +589,15 @@ const ComplainPage = () => {
     item => item.status?.toLowerCase() === 'resolved',
   ).length;
 
+  const resolvedPercent =
+    totalTickets > 0 ? Math.round((resolvedTickets / totalTickets) * 100) : 0;
+  const pendingPercent =
+    totalTickets > 0 ? (pendingTickets / totalTickets) * 100 : 0;
+  const progressPercent =
+    totalTickets > 0 ? (progressTickets / totalTickets) * 100 : 0;
+  const resolvedBarPercent =
+    totalTickets > 0 ? (resolvedTickets / totalTickets) * 100 : 0;
+
   const isAdmin = user?.role?.toLowerCase() === 'admin';
   const isEmployee = user?.role?.toLowerCase() === 'employee';
 
@@ -616,8 +627,18 @@ const ComplainPage = () => {
 
   return (
     <>
-      <View style={styles.container}>
+      <SafeAreaView
+        style={[
+          styles.container,
+          {
+            flex: 1,
+            backgroundColor: isDarkMode ? theme.background : '#F0E7DA',
+          },
+        ]}
+        edges={['top', 'left', 'right']}
+      >
         <ScrollView
+          style={{ backgroundColor: theme.background }}
           contentContainerStyle={
             isAdmin ? styles.adminContent : styles.clientContent
           }
@@ -630,67 +651,70 @@ const ComplainPage = () => {
             />
           }
         >
-          {/* =================================================
-              HEADER
-          ================================================= */}
+          {/* HEADER */}
+          <View
+            style={[
+              styles.headerBackground,
+              {
+                backgroundColor: isDarkMode ? theme.background : '#F0E7DA',
+              },
+            ]}
+          >
+            <View style={styles.pageHeader}>
+              <View style={styles.headerTopRow}>
+                <View style={styles.headerTextContainer}>
+                  <Text style={styles.eyebrow}>
+                    {isAdmin || isEmployee ? 'SUPPORT CENTER' : 'MY SUPPORT'}
+                  </Text>
 
-          <View style={styles.pageHeader}>
-            <View style={styles.headerTopRow}>
-              <View style={styles.headerTextContainer}>
-                <Text style={styles.eyebrow}>
-                  {isAdmin || isEmployee ? 'SUPPORT CENTER' : 'MY SUPPORT'}
-                </Text>
+                  <Text style={styles.title}>
+                    {isAdmin || isEmployee ? 'Tickets' : 'My Tickets'}
+                  </Text>
 
-                <Text style={styles.title}>
-                  {isAdmin || isEmployee ? 'Tickets' : 'My Tickets'}
-                </Text>
+                  <Text style={styles.subtitle}>
+                    {isAdmin || isEmployee
+                      ? `Manage support requests from ${
+                          user?.organisation?.name || 'your organisations'
+                        }`
+                      : 'Track and manage your submitted support requests'}
+                  </Text>
+                </View>
 
-                <Text style={styles.subtitle}>
-                  {isAdmin || isEmployee
-                    ? `Manage support requests from ${
-                        user?.organisation?.name || 'your organisations'
-                      }`
-                    : 'Track and manage your submitted support requests'}
-                </Text>
-              </View>
-              {(isAdmin || isEmployee) && (
+                {(isAdmin || isEmployee) && (
+                  <TouchableOpacity
+                    style={styles.notificationButton}
+                    activeOpacity={0.8}
+                    onPress={handleCompanyCalendar}
+                    accessibilityLabel="Open company calendar"
+                  >
+                    <Ionicons
+                      name="calendar-outline"
+                      size={21}
+                      color={theme.text}
+                    />
+                  </TouchableOpacity>
+                )}
+
                 <TouchableOpacity
                   style={styles.notificationButton}
-                  activeOpacity={0.8}
-                  onPress={handleCompanyCalendar}
+                  activeOpacity={0.75}
+                  onPress={handleNotification}
+                  accessibilityLabel="Open notifications"
                 >
-                  <Text style={styles.notificationIcon}>📅</Text>
+                  <Ionicons
+                    name="notifications-outline"
+                    size={21}
+                    color={theme.text}
+                  />
+                  <View style={styles.notificationDot} />
                 </TouchableOpacity>
-              )}
-              <TouchableOpacity
-                style={styles.notificationButton}
-                activeOpacity={0.8}
-                onPress={handleNotification}
-              >
-                <Text style={styles.notificationIcon}>🔔</Text>
-                <View style={styles.notificationDot} />
-              </TouchableOpacity>
-            </View>
-            {isEmployee && (
-              <View style={styles.attendanceContainer}>
-                <AttendanceToggle />
               </View>
-            )}
 
-            {/* =================================================
-                FILTER
-            ================================================= */}
-
-            <View style={styles.searchRow}>
-              <TouchableOpacity
-                style={styles.filterButton}
-                activeOpacity={0.85}
-                onPress={handleFilter}
-              >
-                <Text style={styles.filterButtonIcon}>☷</Text>
-
-                <Text style={styles.filterButtonText}>Filter</Text>
-              </TouchableOpacity>
+              {isEmployee && (
+                <View style={styles.attendanceContainer}>
+                  <AttendanceToggle />
+                </View>
+              )}
             </View>
           </View>
 
@@ -698,45 +722,385 @@ const ComplainPage = () => {
               STATS
           ================================================= */}
 
-          <View style={styles.statsGrid}>
-            <View style={[styles.statCard, styles.statTotal]}>
-              <View style={styles.statIcon}>
-                <Text style={styles.statIconText}>▤</Text>
+          <View
+            style={{
+              width: '100%',
+              backgroundColor: theme.white || '#FFFFFF',
+              borderRadius: 22,
+              padding: 18,
+              borderWidth: 1,
+              borderColor: theme.border || '#E9E5EF',
+              marginTop: 12,
+              marginBottom: 10,
+              shadowColor: '#17131D',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.045,
+              shadowRadius: 12,
+              elevation: 2,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <View>
+                <Text
+                  style={{
+                    fontSize: 10,
+                    fontWeight: '800',
+                    letterSpacing: 1.5,
+                    color: theme.muted || '#8A8494',
+                    marginBottom: 5,
+                  }}
+                >
+                  TICKET OVERVIEW
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 18,
+                    lineHeight: 24,
+                    fontWeight: '800',
+                    color: theme.ink || theme.text || '#211C2A',
+                  }}
+                >
+                  Resolution progress
+                </Text>
               </View>
-
-              <Text style={styles.statNumber}>{totalTickets}</Text>
-
-              <Text style={styles.statLabel}>Total</Text>
+              <View
+                style={{
+                  width: 43,
+                  height: 43,
+                  borderRadius: 14,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: theme.primarySoft || '#F0EAFE',
+                }}
+              >
+                <Ionicons
+                  name="analytics-outline"
+                  size={22}
+                  color={theme.primary}
+                />
+              </View>
             </View>
 
-            <View style={[styles.statCard, styles.statPending]}>
-              <View style={styles.statIcon}>
-                <Text style={styles.statIconText}>◷</Text>
+            {/* TICKET STATUS GRAPH */}
+            <View style={{ marginTop: 24, marginBottom: 8 }}>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: 18,
+                }}
+              >
+                <View>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: '800',
+                      color: theme.ink || theme.text || '#211C2A',
+                    }}
+                  >
+                    Ticket breakdown
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      color: theme.muted || '#8A8494',
+                      marginTop: 4,
+                    }}
+                  >
+                    Tickets by current status
+                  </Text>
+                </View>
+
+                <View
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 10,
+                    backgroundColor: theme.primarySoft || '#F0EAFE',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: '700',
+                      color: theme.primary,
+                    }}
+                  >
+                    {totalTickets} total
+                  </Text>
+                </View>
               </View>
 
-              <Text style={styles.statNumber}>{pendingTickets}</Text>
+              <View
+                accessibilityRole="image"
+                accessibilityLabel={`Ticket breakdown chart. ${pendingTickets} pending, ${progressTickets} in progress, ${resolvedTickets} resolved.`}
+                style={{
+                  height: 150,
+                  flexDirection: 'row',
+                  alignItems: 'flex-end',
+                  justifyContent: 'space-around',
+                  paddingTop: 8,
+                }}
+              >
+                {[
+                  {
+                    label: 'Pending',
+                    count: pendingTickets,
+                    color: theme.orange || '#D99024',
+                  },
+                  {
+                    label: 'In progress',
+                    count: progressTickets,
+                    color: theme.blue || '#6551C9',
+                  },
+                  {
+                    label: 'Resolved',
+                    count: resolvedTickets,
+                    color: theme.green || '#23845D',
+                  },
+                ].map(item => {
+                  const maxCount = Math.max(
+                    pendingTickets,
+                    progressTickets,
+                    resolvedTickets,
+                    1,
+                  );
+                  const barHeight =
+                    item.count > 0
+                      ? Math.max((item.count / maxCount) * 92, 8)
+                      : 4;
 
-              <Text style={styles.statLabel}>Pending</Text>
+                  return (
+                    <View
+                      key={item.label}
+                      style={{
+                        flex: 1,
+                        alignItems: 'center',
+                        justifyContent: 'flex-end',
+                        height: '100%',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          fontWeight: '800',
+                          color: theme.ink || theme.text || '#211C2A',
+                          marginBottom: 8,
+                        }}
+                      >
+                        {item.count}
+                      </Text>
+
+                      <View
+                        style={{
+                          width: 34,
+                          height: barHeight,
+                          backgroundColor: item.color,
+                          borderRadius: 10,
+                          opacity: item.count === 0 ? 0.35 : 1,
+                        }}
+                      />
+
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          fontSize: 10,
+                          fontWeight: '700',
+                          color: theme.muted || '#8A8494',
+                          marginTop: 9,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {item.label}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
             </View>
 
-            <View style={[styles.statCard, styles.statProgress]}>
-              <View style={styles.statIcon}>
-                <Text style={styles.statIconText}>↻</Text>
+            <View
+              style={{
+                height: 1,
+                backgroundColor: theme.divider || theme.border || '#E9E5EF',
+                marginTop: 22,
+                marginBottom: 17,
+              }}
+            />
+
+            <View style={{ flexDirection: 'row', alignItems: 'stretch' }}>
+              <View style={{ flex: 1, minWidth: 0, paddingHorizontal: 5 }}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    marginBottom: 10,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 4,
+                      backgroundColor: theme.orange || '#D99024',
+                    }}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      fontWeight: '700',
+                      color: theme.muted || '#8A8494',
+                      flexShrink: 1,
+                    }}
+                  >
+                    Pending
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    fontSize: 23,
+                    lineHeight: 29,
+                    fontWeight: '800',
+                    color: theme.ink || theme.text || '#211C2A',
+                  }}
+                >
+                  {pendingTickets}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 9,
+                    lineHeight: 14,
+                    color: theme.muted || '#8A8494',
+                    marginTop: 3,
+                  }}
+                >
+                  Awaiting action
+                </Text>
               </View>
 
-              <Text style={styles.statNumber}>{progressTickets}</Text>
+              <View
+                style={{
+                  width: 1,
+                  backgroundColor: theme.divider || theme.border || '#E9E5EF',
+                  marginHorizontal: 5,
+                }}
+              />
 
-              <Text style={styles.statLabel}>In Progress</Text>
-            </View>
-
-            <View style={[styles.statCard, styles.statResolved]}>
-              <View style={styles.statIcon}>
-                <Text style={styles.statIconText}>✓</Text>
+              <View style={{ flex: 1, minWidth: 0, paddingHorizontal: 5 }}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    marginBottom: 10,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 4,
+                      backgroundColor: theme.blue || '#6551C9',
+                    }}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      fontWeight: '700',
+                      color: theme.muted || '#8A8494',
+                      flexShrink: 1,
+                    }}
+                  >
+                    In progress
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    fontSize: 23,
+                    lineHeight: 29,
+                    fontWeight: '800',
+                    color: theme.ink || theme.text || '#211C2A',
+                  }}
+                >
+                  {progressTickets}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 9,
+                    lineHeight: 14,
+                    color: theme.muted || '#8A8494',
+                    marginTop: 3,
+                  }}
+                >
+                  Being handled
+                </Text>
               </View>
 
-              <Text style={styles.statNumber}>{resolvedTickets}</Text>
+              <View
+                style={{
+                  width: 1,
+                  backgroundColor: theme.divider || theme.border || '#E9E5EF',
+                  marginHorizontal: 5,
+                }}
+              />
 
-              <Text style={styles.statLabel}>Resolved</Text>
+              <View style={{ flex: 1, minWidth: 0, paddingHorizontal: 5 }}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    marginBottom: 10,
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: 4,
+                      backgroundColor: theme.green || '#23845D',
+                    }}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 10,
+                      fontWeight: '700',
+                      color: theme.muted || '#8A8494',
+                      flexShrink: 1,
+                    }}
+                  >
+                    Resolved
+                  </Text>
+                </View>
+                <Text
+                  style={{
+                    fontSize: 23,
+                    lineHeight: 29,
+                    fontWeight: '800',
+                    color: theme.ink || theme.text || '#211C2A',
+                  }}
+                >
+                  {resolvedTickets}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 9,
+                    lineHeight: 14,
+                    color: theme.muted || '#8A8494',
+                    marginTop: 3,
+                  }}
+                >
+                  Successfully closed
+                </Text>
+              </View>
             </View>
           </View>
 
@@ -758,20 +1122,35 @@ const ComplainPage = () => {
               SECTION HEADER
           ================================================= */}
 
+          {/* SECTION HEADER */}
           {displayComplain.length > 0 && (
             <View style={styles.sectionHeader}>
-              <View>
+              <View style={styles.sectionHeaderText}>
                 <Text style={styles.sectionTitle}>Recent Tickets</Text>
-
                 <Text style={styles.sectionSubtitle}>
                   Tap a ticket to see full details
                 </Text>
               </View>
 
-              <View style={styles.ticketCountBadge}>
-                <Text style={styles.ticketCountText}>
-                  {displayComplain.length}
-                </Text>
+              <View style={styles.sectionHeaderActions}>
+                <View style={styles.ticketCountBadge}>
+                  <Text style={styles.ticketCountText}>
+                    {displayComplain.length}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.filterButton}
+                  activeOpacity={0.85}
+                  onPress={handleFilter}
+                  accessibilityLabel="Filter tickets"
+                >
+                  <Ionicons
+                    name="options-outline"
+                    size={20}
+                    color={theme.primary}
+                  />
+                </TouchableOpacity>
               </View>
             </View>
           )}
@@ -927,7 +1306,7 @@ const ComplainPage = () => {
             </View>
           )}
         </ScrollView>
-      </View>
+      </SafeAreaView>
 
       {/* 
           FILTER MODAL
@@ -957,6 +1336,7 @@ const ComplainPage = () => {
               setStatusFilter={setStatusFilter}
               sortFilter={sortFilter}
               setSortFilter={setSortFilter}
+              onClose={() => setOpenFilter(false)}
               onApply={() => setOpenFilter(false)}
             />
           </View>
@@ -971,459 +1351,803 @@ const ComplainPage = () => {
         visible={selectedComplaint !== null}
         transparent
         animationType="slide"
+        statusBarTranslucent
         onRequestClose={closeComplaintDetails}
       >
-        <View style={styles.detailsOverlay}>
-          <View style={styles.detailsContainer}>
-            <View style={styles.modalHandle} />
-
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.detailsContent}
-            >
-              {/* HEADER */}
-
-              <View style={styles.detailsHeader}>
-                <View style={styles.detailsHeaderLeft}>
-                  <View
-                    style={[
-                      styles.detailsModuleIcon,
-                      getModuleStyle(selectedComplaint?.module || ''),
-                    ]}
-                  >
-                    <Text style={styles.detailsModuleIconText}>
-                      {getModuleIcon(selectedComplaint?.module || '')}
-                    </Text>
-                  </View>
-
-                  <View style={styles.detailsHeaderText}>
-                    <Text style={styles.detailsEyebrow}>TICKET DETAILS</Text>
-
-                    <Text style={styles.detailsTitle} numberOfLines={2}>
-                      {selectedComplaint?.module}
-                    </Text>
-
-                    <Text style={styles.detailsId}>
-                      #{selectedComplaint?._id}
-                    </Text>
-
-                    {selectedComplaint && (
-                      <Text style={styles.detailsCreated}>
-                        {formatDate(selectedComplaint.createdAt)} ·{' '}
-                        {formatTime(selectedComplaint.createdAt)}
-                      </Text>
-                    )}
-                  </View>
+        <View style={styles.premiumOverlay}>
+          <View style={styles.premiumSheet}>
+            {/* COMPACT TOP BAR */}
+            <View style={styles.premiumTop}>
+              <View style={styles.premiumGrabber} />
+              <View style={styles.premiumTopRow}>
+                <View>
+                  <Text style={styles.premiumOverline}>SUPPORT DESK</Text>
+                  <Text style={styles.premiumTopTitle}>Ticket overview</Text>
                 </View>
 
                 <TouchableOpacity
-                  style={styles.detailsCloseButton}
                   onPress={closeComplaintDetails}
+                  style={styles.premiumClose}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.detailsCloseText}>×</Text>
+                  <Ionicons name="close" size={21} color={theme.text} />
                 </TouchableOpacity>
               </View>
+            </View>
 
-              {/* CURRENT STATUS */}
-
+            <ScrollView
+              style={styles.premiumScroll}
+              contentContainerStyle={styles.premiumScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
               {selectedComplaint && (
-                <View
-                  style={[
-                    styles.detailsStatusCard,
-                    getStatusStyle(selectedComplaint.status),
-                  ]}
-                >
-                  <View>
-                    <Text style={styles.detailsSectionLabel}>
-                      CURRENT STATUS
-                    </Text>
+                <>
+                  {/* TICKET IDENTITY */}
+                  <View style={styles.premiumIdentity}>
+                    <View
+                      style={[
+                        styles.premiumModuleIcon,
+                        getModuleStyle(selectedComplaint.module || ''),
+                      ]}
+                    >
+                      <Text style={styles.detailsModuleIconText}>
+                        {getModuleIcon(selectedComplaint.module || '')}
+                      </Text>
+                    </View>
 
-                    <View style={styles.detailsStatusRow}>
+                    <View style={styles.premiumIdentityText}>
+                      <Text style={styles.premiumModuleName}>
+                        {selectedComplaint.module || 'General complaint'}
+                      </Text>
+                      <Text style={styles.premiumTicketId}>
+                        TICKET / #{selectedComplaint._id}
+                      </Text>
+                    </View>
+
+                    <View
+                      style={[
+                        styles.premiumStatusChip,
+                        getStatusStyle(selectedComplaint.status),
+                      ]}
+                    >
                       <View
                         style={[
                           styles.largeStatusDot,
                           getStatusDotStyle(selectedComplaint.status),
                         ]}
                       />
-
-                      <Text style={styles.detailsStatusText}>
+                      <Text style={styles.premiumStatusText}>
                         {getStatusLabel(selectedComplaint.status)}
                       </Text>
                     </View>
-
-                    <Text style={styles.statusDescription}>
-                      {normalizeComplaintStatus(
-                        selectedComplaint.status,
-                      )?.toLowerCase() === 'pending'
-                        ? 'Your request is waiting for support.'
-                        : normalizeComplaintStatus(
-                            selectedComplaint.status,
-                          )?.toLowerCase() === 'in-progress'
-                        ? 'Our support team is working on it.'
-                        : 'This ticket has been completed.'}
-                    </Text>
                   </View>
 
-                  <View style={styles.statusIndicator}>
-                    <View
-                      style={[
-                        styles.statusIndicatorDot,
-                        getStatusDotStyle(selectedComplaint.status),
-                      ]}
-                    />
-                  </View>
-                </View>
-              )}
+                  {/* PROBLEM FIRST — HERO SECTION */}
+                  <View style={styles.premiumProblem}>
+                    <View style={styles.premiumProblemHeading}>
+                      <Text style={styles.premiumOverline}>REPORTED ISSUE</Text>
+                      <Ionicons
+                        name="document-text-outline"
+                        size={19}
+                        color={theme.primary}
+                      />
+                    </View>
 
-              {/* ADMIN UPDATE */}
-
-              {(isAdmin || isEmployee) && selectedComplaint && (
-                <View style={styles.statusControlSection}>
-                  <View style={styles.sectionTitleRow}>
-                    <Text style={styles.detailsSectionTitle}>
-                      Update Status
+                    <Text style={styles.premiumProblemTitle}>
+                      What needs attention?
                     </Text>
 
-                    <Text style={styles.adminOnlyLabel}>
-                      {isAdmin ? 'ADMIN' : 'EMPLOYEE'}
+                    <Text style={styles.premiumProblemDescription}>
+                      {selectedComplaint.problem ||
+                        'No description was provided for this ticket.'}
                     </Text>
-                  </View>
 
-                  <View style={styles.statusPickerWrapper}>
-                    <Picker
-                      selectedValue={normalizeComplaintStatus(
-                        selectedComplaint.status,
-                      )}
-                      onValueChange={value =>
-                        updateStatus(selectedComplaint._id, value)
-                      }
-                      style={styles.detailsPicker}
-                      mode="dropdown"
-                    >
-                      <Picker.Item label="Pending" value="pending" />
-
-                      <Picker.Item label="In Progress" value="in-progress" />
-
-                      <Picker.Item label="Resolved" value="resolved" />
-                    </Picker>
-                  </View>
-                </View>
-              )}
-
-              {/* JOURNEY */}
-
-              {selectedComplaint && (
-                <View style={styles.timelineSection}>
-                  <View style={styles.sectionHeadingRow}>
-                    <View>
-                      <Text style={styles.detailsSectionTitle}>
-                        Ticket Journey
+                    <View style={styles.premiumDateRow}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={15}
+                        color={'#898692'}
+                      />
+                      <Text style={styles.premiumDateText}>
+                        Reported {formatDate(selectedComplaint.createdAt)}
                       </Text>
-
-                      <Text style={styles.detailsSectionSubtitle}>
-                        Track the progress of this request
+                      <View style={styles.premiumDateDot} />
+                      <Text style={styles.premiumDateText}>
+                        {formatTime(selectedComplaint.createdAt)}
                       </Text>
                     </View>
                   </View>
 
-                  <View style={styles.timeline}>
-                    {/* SUBMITTED */}
-
-                    <View style={styles.timelineItem}>
-                      <View
-                        style={[
-                          styles.timelineCircle,
-                          styles.timelineCircleCompleted,
-                        ]}
-                      >
-                        <Text style={styles.timelineCheck}>✓</Text>
+                  {/* ATTACHMENTS — RIGHT AFTER DESCRIPTION */}
+                  <View style={styles.premiumSection}>
+                    <View style={styles.premiumSectionHeading}>
+                      <View>
+                        <Text style={styles.premiumSectionTitle}>
+                          Evidence & attachments
+                        </Text>
+                        <Text style={styles.premiumSectionHint}>
+                          Supporting images for this issue
+                        </Text>
                       </View>
 
-                      <View style={styles.timelineText}>
-                        <Text style={styles.timelineTitle}>
-                          Ticket Submitted
-                        </Text>
-
-                        <Text style={styles.timelineDescription}>
-                          Your support request was received.
+                      <View style={styles.premiumCount}>
+                        <Text style={styles.premiumCountText}>
+                          {selectedComplaint.image?.length || 0}
                         </Text>
                       </View>
                     </View>
 
-                    <View style={styles.timelineLine} />
-
-                    {/* PROGRESS */}
-
-                    <View style={styles.timelineItem}>
-                      <View
-                        style={[
-                          styles.timelineCircle,
-                          normalizeComplaintStatus(selectedComplaint.status) ===
-                            'in-progress' ||
-                          normalizeComplaintStatus(selectedComplaint.status) ===
-                            'resolved'
-                            ? styles.timelineCircleActive
-                            : styles.timelineCircleInactive,
-                        ]}
-                      >
-                        {(normalizeComplaintStatus(selectedComplaint.status) ===
-                          'in-progress' ||
-                          normalizeComplaintStatus(selectedComplaint.status) ===
-                            'resolved') && (
-                          <Text style={styles.timelineCheck}>✓</Text>
-                        )}
-                      </View>
-
-                      <View style={styles.timelineText}>
-                        <Text style={styles.timelineTitle}>In Progress</Text>
-
-                        <Text style={styles.timelineDescription}>
-                          Support team is working on the ticket.
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.timelineLine} />
-
-                    {/* RESOLVED */}
-
-                    <View style={styles.timelineItem}>
-                      <View
-                        style={[
-                          styles.timelineCircle,
-                          normalizeComplaintStatus(selectedComplaint.status) ===
-                          'resolved'
-                            ? styles.timelineCircleCompleted
-                            : styles.timelineCircleInactive,
-                        ]}
-                      >
-                        {normalizeComplaintStatus(selectedComplaint.status) ===
-                          'resolved' && (
-                          <Text style={styles.timelineCheck}>✓</Text>
-                        )}
-                      </View>
-
-                      <View style={styles.timelineText}>
-                        <Text style={styles.timelineTitle}>Resolved</Text>
-
-                        <Text style={styles.timelineDescription}>
-                          Ticket has been resolved.
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              )}
-
-              {/* ADMIN TICKET ASSIGNMENT */}
-
-              {selectedComplaint && isAdmin && (
-                <View style={styles.statusControlSection}>
-                  <View style={styles.sectionTitleRow}>
-                    <Text style={styles.detailsSectionTitle}>
-                      Assign Ticket
-                    </Text>
-                    <Text style={styles.adminOnlyLabel}>ADMIN</Text>
-                  </View>
-                  <Text style={styles.detailsSectionSubtitle}>
-                    Choose an employee responsible for this ticket.
-                  </Text>
-                  {loadingEmployees ? (
-                    <ActivityIndicator
-                      color={theme.primary}
-                      style={{ marginVertical: 14 }}
-                    />
-                  ) : employees.length > 0 ? (
-                    <>
-                      <View style={styles.statusPickerWrapper}>
-                        <Picker
-                          selectedValue={selectedEmployeeId}
-                          onValueChange={(value: string) =>
-                            setSelectedEmployeeId(value)
-                          }
-                          style={styles.detailsPicker}
-                          mode="dropdown"
-                        >
-                          <Picker.Item label="Select an employee..." value="" />
-                          {employees.map(employee => (
-                            <Picker.Item
-                              key={employee.id}
-                              label={`${employee.userName}${
-                                employee.designation
-                                  ? ` — ${employee.designation}`
-                                  : ''
-                              }`}
-                              value={employee.id}
-                            />
-                          ))}
-                        </Picker>
-                      </View>
+                    {selectedComplaint.image?.length > 0 ? (
                       <TouchableOpacity
-                        style={[
-                          styles.detailsDoneButton,
-                          { marginTop: 10, opacity: assigningTicket ? 0.6 : 1 },
-                        ]}
-                        activeOpacity={0.85}
-                        disabled={assigningTicket}
-                        onPress={assignTicket}
+                        style={styles.premiumAttachment}
+                        activeOpacity={0.8}
+                        onPress={() => openAttachments(selectedComplaint)}
                       >
-                        {assigningTicket ? (
-                          <ActivityIndicator color="#FFFFFF" />
-                        ) : (
-                          <Text style={styles.detailsDoneText}>
-                            {selectedComplaint.assignedEmployeeId ||
-                            selectedComplaint.assignedEmployee
-                              ? 'Reassign Ticket'
-                              : 'Assign Ticket'}
+                        <View style={styles.premiumAttachmentIcon}>
+                          <Ionicons
+                            name="images-outline"
+                            size={23}
+                            color={theme.primary}
+                          />
+                        </View>
+
+                        <View style={styles.premiumAttachmentInfo}>
+                          <Text style={styles.premiumAttachmentTitle}>
+                            View attached files
                           </Text>
-                        )}
+                          <Text style={styles.premiumSectionHint}>
+                            {selectedComplaint.image.length}{' '}
+                            {selectedComplaint.image.length === 1
+                              ? 'image attached'
+                              : 'images attached'}
+                          </Text>
+                        </View>
+
+                        <Ionicons
+                          name="arrow-up-right"
+                          size={20}
+                          color={theme.text}
+                        />
                       </TouchableOpacity>
-                    </>
-                  ) : (
-                    <View style={styles.problemDetailCard}>
-                      <Text style={styles.problemDetailText}>
-                        No employees were returned by /api/auth/getUser. Check
-                        that this endpoint returns users to admins.
-                      </Text>
+                    ) : (
+                      <View style={styles.premiumNoAttachment}>
+                        <Ionicons
+                          name="image-outline"
+                          size={20}
+                          color={'#898692'}
+                        />
+                        <Text style={styles.premiumSectionHint}>
+                          No supporting files
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {/* PROGRESS — MINIMAL TIMELINE */}
+                  <View style={styles.premiumSection}>
+                    <View style={styles.premiumSectionHeading}>
+                      <View>
+                        <Text style={styles.premiumSectionTitle}>
+                          Resolution progress
+                        </Text>
+                        <Text style={styles.premiumSectionHint}>
+                          From submission to completion
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name="git-branch-outline"
+                        size={20}
+                        color={theme.primary}
+                      />
+                    </View>
+
+                    <View style={styles.premiumProgressTrack}>
+                      <View style={styles.premiumProgressStep}>
+                        <View
+                          style={[
+                            styles.premiumProgressIcon,
+                            styles.premiumProgressDone,
+                          ]}
+                        >
+                          <Ionicons
+                            name="checkmark"
+                            size={15}
+                            color="#FFFFFF"
+                          />
+                        </View>
+                        <View style={styles.premiumProgressCopy}>
+                          <Text style={styles.premiumProgressTitle}>
+                            Submitted
+                          </Text>
+                          <Text style={styles.premiumSectionHint}>
+                            Request received
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.premiumProgressConnector} />
+
+                      <View style={styles.premiumProgressStep}>
+                        <View
+                          style={[
+                            styles.premiumProgressIcon,
+                            ['in-progress', 'resolved'].includes(
+                              normalizeComplaintStatus(
+                                selectedComplaint.status,
+                              ),
+                            )
+                              ? styles.premiumProgressDone
+                              : styles.premiumProgressPending,
+                          ]}
+                        >
+                          {['in-progress', 'resolved'].includes(
+                            normalizeComplaintStatus(selectedComplaint.status),
+                          ) && (
+                            <Ionicons
+                              name="checkmark"
+                              size={15}
+                              color="#FFFFFF"
+                            />
+                          )}
+                        </View>
+                        <View style={styles.premiumProgressCopy}>
+                          <Text style={styles.premiumProgressTitle}>
+                            In progress
+                          </Text>
+                          <Text style={styles.premiumSectionHint}>
+                            Support team handling
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.premiumProgressConnector} />
+
+                      <View style={styles.premiumProgressStep}>
+                        <View
+                          style={[
+                            styles.premiumProgressIcon,
+                            normalizeComplaintStatus(
+                              selectedComplaint.status,
+                            ) === 'resolved'
+                              ? styles.premiumProgressDone
+                              : styles.premiumProgressPending,
+                          ]}
+                        >
+                          {normalizeComplaintStatus(
+                            selectedComplaint.status,
+                          ) === 'resolved' && (
+                            <Ionicons
+                              name="checkmark"
+                              size={15}
+                              color="#FFFFFF"
+                            />
+                          )}
+                        </View>
+                        <View style={styles.premiumProgressCopy}>
+                          <Text style={styles.premiumProgressTitle}>
+                            Resolved
+                          </Text>
+                          <Text style={styles.premiumSectionHint}>
+                            Issue completed
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* MANAGEMENT — ROLE RESTRICTIONS PRESERVED */}
+                  {(isAdmin || isEmployee) && (
+                    <View style={styles.premiumSection}>
+                      <View style={styles.premiumSectionHeading}>
+                        <View>
+                          <Text style={styles.premiumSectionTitle}>
+                            Manage ticket
+                          </Text>
+                          <Text style={styles.premiumSectionHint}>
+                            Update the current workflow status
+                          </Text>
+                        </View>
+                        <View style={styles.premiumRoleTag}>
+                          <Text style={styles.premiumRoleTagText}>
+                            {isAdmin ? 'ADMIN' : 'EMPLOYEE'}
+                          </Text>
+                        </View>
+                      </View>
+
                       <TouchableOpacity
-                        onPress={getEmployees}
-                        style={{ marginTop: 10 }}
+                        activeOpacity={0.8}
+                        onPress={() => setActiveTicketDropdown('status')}
+                        style={{
+                          minHeight: 54,
+                          paddingHorizontal: 15,
+                          borderRadius: 14,
+                          borderWidth: 1,
+                          borderColor: theme.border || '#E5DFD5',
+                          backgroundColor: theme.background,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
                       >
                         <Text
-                          style={{ color: theme.primary, fontWeight: '600' }}
+                          style={{
+                            flex: 1,
+                            fontSize: 15,
+                            lineHeight: 22,
+                            fontWeight: '600',
+                            color: theme.text,
+                            includeFontPadding: true,
+                          }}
                         >
-                          Try again
+                          {getStatusLabel(selectedComplaint.status)}
                         </Text>
+                        <Ionicons
+                          name="chevron-down"
+                          size={19}
+                          color={'#8A8494'}
+                        />
                       </TouchableOpacity>
                     </View>
                   )}
-                </View>
+
+                  {/* ASSIGNMENT */}
+                  {isAdmin && (
+                    <View style={styles.premiumSection}>
+                      <View style={styles.premiumSectionHeading}>
+                        <View>
+                          <Text style={styles.premiumSectionTitle}>
+                            Ticket ownership
+                          </Text>
+                          <Text style={styles.premiumSectionHint}>
+                            Select the responsible employee
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name="person-add-outline"
+                          size={20}
+                          color={theme.primary}
+                        />
+                      </View>
+
+                      {loadingEmployees ? (
+                        <ActivityIndicator
+                          color={theme.primary}
+                          style={{ paddingVertical: 16 }}
+                        />
+                      ) : employees.length > 0 ? (
+                        <>
+                          <TouchableOpacity
+                            activeOpacity={0.8}
+                            onPress={() => setActiveTicketDropdown('employee')}
+                            style={{
+                              minHeight: 54,
+                              paddingHorizontal: 15,
+                              borderRadius: 14,
+                              borderWidth: 1,
+                              borderColor: theme.border || '#E5DFD5',
+                              backgroundColor: theme.background,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                            }}
+                          >
+                            <View style={{ flex: 1, paddingRight: 12 }}>
+                              <Text
+                                numberOfLines={1}
+                                style={{
+                                  fontSize: 14,
+                                  lineHeight: 21,
+                                  fontWeight: selectedEmployeeId
+                                    ? '600'
+                                    : '400',
+                                  color: selectedEmployeeId
+                                    ? theme.text
+                                    : '#8A8494',
+                                  includeFontPadding: true,
+                                }}
+                              >
+                                {employees.find(
+                                  item => item.id === selectedEmployeeId,
+                                )
+                                  ? `${
+                                      employees.find(
+                                        item => item.id === selectedEmployeeId,
+                                      )?.userName
+                                    }${
+                                      employees.find(
+                                        item => item.id === selectedEmployeeId,
+                                      )?.designation
+                                        ? ` — ${
+                                            employees.find(
+                                              item =>
+                                                item.id === selectedEmployeeId,
+                                            )?.designation
+                                          }`
+                                        : ''
+                                    }`
+                                  : 'Select an employee...'}
+                              </Text>
+                            </View>
+                            <Ionicons
+                              name="chevron-down"
+                              size={19}
+                              color={'#8A8494'}
+                            />
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.premiumAssignButton,
+                              { opacity: assigningTicket ? 0.65 : 1 },
+                            ]}
+                            activeOpacity={0.85}
+                            disabled={assigningTicket}
+                            onPress={assignTicket}
+                          >
+                            {assigningTicket ? (
+                              <ActivityIndicator color="#FFFFFF" />
+                            ) : (
+                              <Text style={styles.premiumAssignButtonText}>
+                                {selectedComplaint.assignedEmployeeId ||
+                                selectedComplaint.assignedEmployee
+                                  ? 'Reassign employee'
+                                  : 'Assign employee'}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <View style={styles.premiumEmpty}>
+                          <Text style={styles.premiumSectionHint}>
+                            No employees were returned by /api/auth/getUser.
+                            Check that this endpoint returns users to admins.
+                          </Text>
+                          <TouchableOpacity
+                            onPress={getEmployees}
+                            style={{ marginTop: 10 }}
+                          >
+                            <Text style={styles.premiumRetry}>Try again</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  )}
+
+                  {/* CURRENT OWNER */}
+                  {(isAdmin || isEmployee) && (
+                    <View style={styles.premiumSection}>
+                      <Text style={styles.premiumSectionTitle}>
+                        Assigned to
+                      </Text>
+
+                      <View style={styles.premiumOwner}>
+                        <View style={styles.premiumOwnerIcon}>
+                          <Ionicons
+                            name="person-outline"
+                            size={21}
+                            color={theme.primary}
+                          />
+                        </View>
+                        <View style={styles.premiumOwnerCopy}>
+                          <Text style={styles.premiumOwnerName}>
+                            {selectedComplaint.assignedEmployee?.userName ||
+                              'Not assigned'}
+                          </Text>
+                          {!!selectedComplaint.assignedEmployee
+                            ?.designation && (
+                            <Text style={styles.premiumSectionHint}>
+                              {selectedComplaint.assignedEmployee.designation}
+                            </Text>
+                          )}
+                          {!!selectedComplaint.assignedEmployee?.email && (
+                            <Text style={styles.premiumSectionHint}>
+                              {selectedComplaint.assignedEmployee.email}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  )}
+                </>
               )}
-
-              {/* ASSIGNED EMPLOYEE */}
-
-              {selectedComplaint && (isAdmin || isEmployee) && (
-                <View style={styles.detailSection}>
-                  <View style={styles.sectionHeadingRow}>
-                    <View>
-                      <Text style={styles.detailsSectionTitle}>
-                        Assigned Employee
-                      </Text>
-                      <Text style={styles.detailsSectionSubtitle}>
-                        Current ticket owner
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.problemDetailCard}>
-                    <Text style={styles.problemDetailText}>
-                      {selectedComplaint.assignedEmployee?.userName ||
-                        'Not assigned'}
-                    </Text>
-                    {!!selectedComplaint.assignedEmployee?.designation && (
-                      <Text style={styles.detailsSectionSubtitle}>
-                        {selectedComplaint.assignedEmployee.designation}
-                      </Text>
-                    )}
-                    {!!selectedComplaint.assignedEmployee?.email && (
-                      <Text style={styles.detailsSectionSubtitle}>
-                        {selectedComplaint.assignedEmployee.email}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-              )}
-
-              {/* PROBLEM */}
-
-              <View style={styles.detailSection}>
-                <View style={styles.sectionHeadingRow}>
-                  <View>
-                    <Text style={styles.detailsSectionTitle}>
-                      Problem Description
-                    </Text>
-
-                    <Text style={styles.detailsSectionSubtitle}>
-                      Issue reported by the user
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.problemDetailCard}>
-                  <Text style={styles.problemDetailText}>
-                    {selectedComplaint?.problem || 'No description available.'}
-                  </Text>
-                </View>
-              </View>
-
-              {/* ATTACHMENTS */}
-
-              <View style={styles.detailSection}>
-                <View style={styles.attachmentsHeader}>
-                  <View>
-                    <Text style={styles.detailsSectionTitle}>Attachments</Text>
-
-                    <Text style={styles.detailsSectionSubtitle}>
-                      Files attached to this ticket
-                    </Text>
-                  </View>
-
-                  <View style={styles.attachmentCount}>
-                    <Text style={styles.attachmentCountText}>
-                      {selectedComplaint?.image?.length || 0}
-                    </Text>
-                  </View>
-                </View>
-
-                {selectedComplaint?.image &&
-                selectedComplaint.image.length > 0 ? (
-                  <TouchableOpacity
-                    style={styles.detailsAttachmentButton}
-                    activeOpacity={0.85}
-                    onPress={() => openAttachments(selectedComplaint)}
-                  >
-                    <View style={styles.detailsAttachmentIcon}>
-                      <Text>▧</Text>
-                    </View>
-
-                    <View style={styles.detailsAttachmentText}>
-                      <Text style={styles.detailsAttachmentTitle}>
-                        View attachments
-                      </Text>
-
-                      <Text style={styles.detailsAttachmentSubtitle}>
-                        {selectedComplaint.image.length}{' '}
-                        {selectedComplaint.image.length === 1
-                          ? 'image'
-                          : 'images'}{' '}
-                        attached
-                      </Text>
-                    </View>
-
-                    <Text style={styles.detailsAttachmentArrow}>›</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.noAttachmentDetail}>
-                    <Text style={styles.noAttachmentDetailText}>
-                      No attachments were added to this ticket.
-                    </Text>
-                  </View>
-                )}
-              </View>
             </ScrollView>
 
-            {/* FOOTER */}
-
-            <View style={styles.detailsFooter}>
+            {/* FIXED BOTTOM ACTION */}
+            <View style={styles.premiumFooter}>
               <TouchableOpacity
-                style={styles.detailsDoneButton}
+                style={styles.premiumFooterButton}
                 activeOpacity={0.85}
                 onPress={closeComplaintDetails}
               >
-                <Text style={styles.detailsDoneText}>Close Details</Text>
+                <Text style={styles.premiumFooterText}>Done</Text>
+                <Ionicons name="checkmark" size={18} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
           </View>
         </View>
+      </Modal>
+
+      {/* CUSTOM TICKET DROPDOWNS: avoids Android native Picker popup clipping */}
+      <Modal
+        visible={activeTicketDropdown !== null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setActiveTicketDropdown(null)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setActiveTicketDropdown(null)}
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(15, 13, 18, 0.42)',
+            justifyContent: 'center',
+            paddingHorizontal: 24,
+          }}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => {}}
+            style={{
+              width: '100%',
+              maxHeight: '72%',
+              alignSelf: 'center',
+              backgroundColor: theme.background,
+              borderRadius: 20,
+              paddingTop: 19,
+              paddingBottom: 10,
+              paddingHorizontal: 16,
+              borderWidth: 1,
+              borderColor: theme.border || '#E7E1D8',
+              elevation: 18,
+              shadowColor: '#000000',
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.2,
+              shadowRadius: 18,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 10,
+                fontWeight: '800',
+                letterSpacing: 1.4,
+                color: '#8A8494',
+                marginBottom: 5,
+              }}
+            >
+              {activeTicketDropdown === 'status'
+                ? 'TICKET WORKFLOW'
+                : 'TICKET OWNER'}
+            </Text>
+            <Text
+              style={{
+                fontSize: 20,
+                lineHeight: 27,
+                fontWeight: '800',
+                color: theme.text,
+                marginBottom: 13,
+              }}
+            >
+              {activeTicketDropdown === 'status'
+                ? 'Update status'
+                : 'Assign employee'}
+            </Text>
+
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {activeTicketDropdown === 'status' ? (
+                [
+                  { label: 'Pending', value: 'pending', icon: 'time-outline' },
+                  {
+                    label: 'In Progress',
+                    value: 'in-progress',
+                    icon: 'sync-outline',
+                  },
+                  {
+                    label: 'Resolved',
+                    value: 'resolved',
+                    icon: 'checkmark-circle-outline',
+                  },
+                ].map(option => {
+                  const selected =
+                    normalizeComplaintStatus(selectedComplaint?.status) ===
+                    option.value;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      activeOpacity={0.75}
+                      onPress={() => {
+                        if (selectedComplaint) {
+                          updateStatus(selectedComplaint._id, option.value);
+                        }
+                        setActiveTicketDropdown(null);
+                      }}
+                      style={{
+                        minHeight: 54,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingHorizontal: 12,
+                        marginBottom: 5,
+                        borderRadius: 12,
+                        backgroundColor: selected
+                          ? theme.primarySoft || '#F1E7D9'
+                          : 'transparent',
+                      }}
+                    >
+                      <Ionicons
+                        name={option.icon as any}
+                        size={20}
+                        color={selected ? theme.primary : '#8A8494'}
+                      />
+                      <Text
+                        style={{
+                          flex: 1,
+                          marginLeft: 12,
+                          fontSize: 15,
+                          lineHeight: 22,
+                          fontWeight: selected ? '700' : '500',
+                          color: theme.text,
+                          includeFontPadding: true,
+                        }}
+                      >
+                        {option.label}
+                      </Text>
+                      {selected && (
+                        <Ionicons
+                          name="checkmark"
+                          size={19}
+                          color={theme.primary}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              ) : (
+                <>
+                  <TouchableOpacity
+                    activeOpacity={0.75}
+                    onPress={() => {
+                      setSelectedEmployeeId('');
+                      setActiveTicketDropdown(null);
+                    }}
+                    style={{
+                      minHeight: 50,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingHorizontal: 12,
+                      borderRadius: 12,
+                      marginBottom: 5,
+                    }}
+                  >
+                    <Ionicons
+                      name="person-outline"
+                      size={19}
+                      color={'#8A8494'}
+                    />
+                    <Text
+                      style={{
+                        marginLeft: 12,
+                        fontSize: 14,
+                        lineHeight: 21,
+                        color: theme.text,
+                      }}
+                    >
+                      Unassigned
+                    </Text>
+                    {!selectedEmployeeId && (
+                      <Ionicons
+                        name="checkmark"
+                        size={19}
+                        color={theme.primary}
+                        style={{ marginLeft: 'auto' }}
+                      />
+                    )}
+                  </TouchableOpacity>
+                  {employees.map(employee => {
+                    const selected = selectedEmployeeId === employee.id;
+                    return (
+                      <TouchableOpacity
+                        key={employee.id}
+                        activeOpacity={0.75}
+                        onPress={() => {
+                          setSelectedEmployeeId(employee.id);
+                          setActiveTicketDropdown(null);
+                        }}
+                        style={{
+                          minHeight: 58,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          paddingHorizontal: 12,
+                          marginBottom: 5,
+                          borderRadius: 12,
+                          backgroundColor: selected
+                            ? theme.primarySoft || '#F1E7D9'
+                            : 'transparent',
+                        }}
+                      >
+                        <View
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: 12,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backgroundColor: selected
+                              ? theme.background
+                              : theme.background || '#F7F5F1',
+                            borderWidth: 1,
+                            borderColor: theme.border || '#E7E1D8',
+                          }}
+                        >
+                          <Ionicons
+                            name="person-outline"
+                            size={18}
+                            color={theme.primary}
+                          />
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 11 }}>
+                          <Text
+                            numberOfLines={1}
+                            style={{
+                              fontSize: 14,
+                              lineHeight: 20,
+                              fontWeight: selected ? '700' : '600',
+                              color: theme.text,
+                            }}
+                          >
+                            {employee.userName}
+                          </Text>
+                          {!!employee.designation && (
+                            <Text
+                              numberOfLines={1}
+                              style={{
+                                fontSize: 11,
+                                lineHeight: 16,
+                                marginTop: 2,
+                                color: '#8A8494',
+                              }}
+                            >
+                              {employee.designation}
+                            </Text>
+                          )}
+                        </View>
+                        {selected && (
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={20}
+                            color={theme.primary}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              onPress={() => setActiveTicketDropdown(null)}
+              style={{
+                height: 45,
+                marginTop: 8,
+                borderRadius: 12,
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: theme.background,
+                borderWidth: 1,
+                borderColor: theme.border || '#E7E1D8',
+              }}
+            >
+              <Text
+                style={{ fontSize: 13, fontWeight: '700', color: theme.text }}
+              >
+                Cancel
+              </Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* 

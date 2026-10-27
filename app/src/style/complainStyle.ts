@@ -40,9 +40,7 @@ const createStyles = (theme: any) => {
   ===================================================== */
 
     container: {
-      flex: 1,
       backgroundColor: COLORS.background,
-      paddingTop: 15,
     },
 
     adminContent: {
@@ -98,9 +96,21 @@ const createStyles = (theme: any) => {
      HEADER
   ===================================================== */
 
+    headerBackground: {
+      backgroundColor: COLORS.background,
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
+      borderBottomWidth: 1,
+      borderBottomColor: COLORS.border,
+      paddingHorizontal: 16,
+      marginHorizontal: -16,
+      overflow: 'hidden',
+    },
+
     pageHeader: {
       paddingTop: 20,
-      paddingBottom: 8,
+      paddingBottom: 16,
+      marginBottom: 0,
     },
 
     headerTopRow: {
@@ -113,7 +123,7 @@ const createStyles = (theme: any) => {
     headerTextContainer: {
       flex: 1,
       minWidth: 0,
-      paddingRight: 12,
+      paddingRight: 10,
     },
 
     eyebrow: {
@@ -178,6 +188,14 @@ const createStyles = (theme: any) => {
       marginBottom: 4,
     },
 
+    headerDivider: {
+      height: 1,
+      width: '100%',
+      backgroundColor: COLORS.border,
+      marginTop: 18,
+      marginBottom: 0,
+    },
+
     /* =====================================================
      SEARCH
   ===================================================== */
@@ -215,108 +233,207 @@ const createStyles = (theme: any) => {
       fontWeight: '600',
     },
 
-    filterButton: {
-      height: 48,
-      paddingHorizontal: 16,
-      borderRadius: 16,
-      backgroundColor: COLORS.primarySoft,
-
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-
-      marginLeft: 8,
-    },
-
-    filterButtonIcon: {
-      fontSize: 18,
-      color: COLORS.ink,
-      marginRight: 7,
-    },
-
-    filterButtonText: {
-      color: COLORS.ink,
-      fontSize: 12,
-      fontWeight: '900',
-    },
-
     /* =====================================================
-     STATS
-  ===================================================== */
-    statTotal: {
-      backgroundColor: COLORS.primary,
-      borderColor: COLORS.primary,
-      shadowColor: COLORS.primary,
-    },
+       MOBILE TICKET OVERVIEW / PROGRESS GRAPH
+    ===================================================== */
 
-    statPending: {
-      backgroundColor: COLORS.orangeSoft,
-      shadowColor: COLORS.orange,
-    },
-
-    statProgress: {
-      backgroundColor: COLORS.blueSoft,
-      shadowColor: COLORS.blue,
-    },
-
-    statResolved: {
-      backgroundColor: COLORS.greenSoft,
-      shadowColor: COLORS.green,
-    },
-
-    statsGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'space-between',
-      paddingTop: 12,
-      paddingBottom: 4,
-      rowGap: 10,
-    },
-
-    statCard: {
-      width: '48.5%',
-      minHeight: 104,
-      borderRadius: 18,
-      padding: 13,
-      justifyContent: 'space-between',
+    ticketOverview: {
+      width: '100%',
+      backgroundColor: COLORS.white,
+      borderRadius: 22,
+      padding: 18,
       borderWidth: 1,
       borderColor: COLORS.border,
-      shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 3 },
+      marginTop: 12,
+      marginBottom: 10,
+      shadowColor: '#17131D',
+      shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.045,
-      shadowRadius: 7,
+      shadowRadius: 12,
       elevation: 2,
     },
 
-    statIcon: {
-      width: 31,
-      height: 31,
-      borderRadius: 11,
-      backgroundColor: 'rgba(255,255,255,0.55)',
+    overviewHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+
+    overviewEyebrow: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 1.5,
+      color: COLORS.muted,
+      marginBottom: 5,
+    },
+
+    overviewTitle: {
+      fontSize: 18,
+      lineHeight: 24,
+      fontWeight: '800',
+      color: COLORS.ink,
+    },
+
+    overviewIcon: {
+      width: 43,
+      height: 43,
+      borderRadius: 14,
       alignItems: 'center',
       justifyContent: 'center',
+      backgroundColor: COLORS.primarySoft,
     },
 
-    statIconText: {
-      fontSize: 15,
+    progressSummary: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 23,
+      marginBottom: 17,
+      gap: 8,
+    },
+
+    progressTextGroup: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    progressPercentage: {
+      fontSize: 35,
+      lineHeight: 41,
+      fontWeight: '800',
+      letterSpacing: -1.2,
       color: COLORS.ink,
-      fontWeight: '900',
     },
 
-    statNumber: {
-      fontSize: 27,
-      fontWeight: '900',
-      color: COLORS.ink,
-      marginTop: 7,
-    },
-
-    statLabel: {
-      fontSize: 10,
+    progressCaption: {
+      fontSize: 13,
       fontWeight: '700',
       color: COLORS.text,
+      marginTop: 2,
     },
 
-    /* Make total card text white */
+    progressSubtext: {
+      fontSize: 11,
+      lineHeight: 16,
+      color: COLORS.muted,
+      marginTop: 5,
+    },
+
+    totalBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      borderRadius: 12,
+      backgroundColor: COLORS.primarySoft,
+    },
+
+    totalBadgeText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: COLORS.primary,
+    },
+
+    progressTrack: {
+      height: 10,
+      width: '100%',
+      flexDirection: 'row',
+      overflow: 'hidden',
+      borderRadius: 10,
+      backgroundColor: COLORS.light,
+      gap: 3,
+    },
+
+    progressSegment: {
+      height: '100%',
+      borderRadius: 8,
+      minWidth: 0,
+    },
+
+    pendingSegment: {
+      backgroundColor: COLORS.orange,
+    },
+
+    inProgressSegment: {
+      backgroundColor: COLORS.blue,
+    },
+
+    resolvedSegment: {
+      backgroundColor: COLORS.green,
+    },
+
+    overviewDivider: {
+      height: 1,
+      backgroundColor: COLORS.divider,
+      marginTop: 22,
+      marginBottom: 17,
+    },
+
+    statusDetails: {
+      flexDirection: 'row',
+      alignItems: 'stretch',
+    },
+
+    statusDetail: {
+      flex: 1,
+      minWidth: 0,
+      paddingHorizontal: 5,
+    },
+
+    statusDetailTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      marginBottom: 10,
+    },
+
+    statusDot: {
+      width: 7,
+      height: 7,
+      borderRadius: 4,
+      flexShrink: 0,
+    },
+
+    pendingDot: {
+      backgroundColor: COLORS.orange,
+    },
+
+    inProgressDot: {
+      backgroundColor: COLORS.blue,
+    },
+
+    resolvedDot: {
+      backgroundColor: COLORS.green,
+    },
+
+    statusDetailLabel: {
+      fontSize: 10,
+      fontWeight: '700',
+      color: COLORS.muted,
+      flexShrink: 1,
+    },
+
+    statusDetailCount: {
+      fontSize: 23,
+      lineHeight: 29,
+      fontWeight: '800',
+      color: COLORS.ink,
+    },
+
+    statusDetailCaption: {
+      fontSize: 9,
+      lineHeight: 14,
+      color: COLORS.muted,
+      marginTop: 3,
+    },
+
+    statusDivider: {
+      width: 1,
+      backgroundColor: COLORS.divider,
+      marginHorizontal: 5,
+    },
 
     /* =====================================================
      ERROR
@@ -362,34 +479,52 @@ const createStyles = (theme: any) => {
 
     sectionHeader: {
       marginTop: 20,
-      marginBottom: 11,
-
+      marginBottom: 12,
+      width: '100%',
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
     },
 
+    sectionHeaderText: {
+      flex: 1,
+      minWidth: 0,
+      paddingRight: 10,
+    },
+
     sectionTitle: {
       fontSize: 18,
+      lineHeight: 24,
       fontWeight: '900',
       color: COLORS.ink,
     },
 
     sectionSubtitle: {
-      marginTop: 3,
-      fontSize: 10,
+      marginTop: 4,
+      fontSize: 11,
+      lineHeight: 16,
       color: COLORS.muted,
       fontWeight: '600',
     },
 
+    sectionHeaderActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      gap: 8,
+      flexShrink: 0,
+    },
+
     ticketCountBadge: {
-      minWidth: 30,
-      height: 30,
+      minWidth: 32,
+      height: 32,
       borderRadius: 11,
       backgroundColor: COLORS.primarySoft,
+      borderWidth: 1,
+      borderColor: COLORS.border,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 8,
+      paddingHorizontal: 9,
     },
 
     ticketCountText: {
@@ -398,6 +533,16 @@ const createStyles = (theme: any) => {
       fontWeight: '900',
     },
 
+    filterButton: {
+      width: 42,
+      height: 42,
+      borderRadius: 13,
+      backgroundColor: COLORS.primarySoft,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     /* =====================================================
      EMPTY
   ===================================================== */
@@ -451,40 +596,48 @@ const createStyles = (theme: any) => {
   ===================================================== */
 
     ticketList: {
-      gap: 12,
+      gap: 14,
     },
 
     ticketCard: {
       backgroundColor: COLORS.white,
-      borderRadius: 18,
+      borderRadius: 22,
       borderWidth: 1,
       borderColor: COLORS.border,
-      padding: 15,
+      paddingHorizontal: 17,
+      paddingTop: 16,
+      paddingBottom: 14,
       shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: 0.045,
-      shadowRadius: 8,
-      elevation: 2,
+      shadowOffset: { width: 0, height: 5 },
+      shadowOpacity: 0.07,
+      shadowRadius: 12,
+      elevation: 3,
     },
 
     ticketTopRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      minHeight: 30,
     },
 
     ticketNumber: {
-      paddingHorizontal: 9,
-      paddingVertical: 6,
-      borderRadius: 10,
+      minWidth: 43,
+      height: 30,
+      paddingHorizontal: 10,
+      borderRadius: 11,
       backgroundColor: COLORS.background,
+      borderWidth: 1,
+      borderColor: COLORS.border,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
 
     ticketNumberText: {
       fontSize: 10,
       fontWeight: '900',
       color: COLORS.muted,
-      letterSpacing: 0.5,
+      letterSpacing: 0.7,
     },
 
     /* =====================================================
@@ -494,9 +647,12 @@ const createStyles = (theme: any) => {
     statusBadge: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 10,
+      justifyContent: 'center',
+      minHeight: 31,
+      paddingHorizontal: 11,
       paddingVertical: 7,
-      borderRadius: 11,
+      borderRadius: 12,
+      gap: 5,
     },
 
     statusPending: {
@@ -513,13 +669,6 @@ const createStyles = (theme: any) => {
 
     statusUnknown: {
       backgroundColor: COLORS.background,
-    },
-
-    statusDot: {
-      width: 7,
-      height: 7,
-      borderRadius: 4,
-      marginRight: 6,
     },
 
     statusDotPending: {
@@ -539,9 +688,10 @@ const createStyles = (theme: any) => {
     },
 
     statusBadgeText: {
-      fontSize: 10,
-      fontWeight: '900',
+      fontSize: 11,
+      fontWeight: '800',
       color: COLORS.text,
+      letterSpacing: -0.1,
     },
 
     /* =====================================================
@@ -569,73 +719,82 @@ const createStyles = (theme: any) => {
     ticketTitleRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginTop: 15,
+      marginTop: 18,
+      minHeight: 56,
     },
 
     moduleIcon: {
-      width: 48,
-      height: 48,
-      borderRadius: 16,
-
+      width: 54,
+      height: 54,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
-
       borderWidth: 1,
+      flexShrink: 0,
     },
 
     moduleIconText: {
-      fontSize: 21,
-      fontWeight: '900',
+      fontSize: 23,
+      fontWeight: '800',
       color: COLORS.primary,
+      textAlign: 'center',
     },
 
     moduleTextContainer: {
       flex: 1,
-      marginLeft: 12,
+      minWidth: 0,
+      marginLeft: 13,
     },
 
     ticketModule: {
-      fontSize: 17,
+      fontSize: 19,
+      lineHeight: 24,
       fontWeight: '900',
       color: COLORS.ink,
+      letterSpacing: -0.4,
     },
 
     dateRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginTop: 4,
+      flexWrap: 'wrap',
+      marginTop: 5,
     },
 
     ticketDate: {
-      fontSize: 10,
+      fontSize: 11,
+      lineHeight: 16,
       color: COLORS.muted,
       fontWeight: '600',
     },
 
     dateDot: {
-      width: 3,
-      height: 3,
+      width: 4,
+      height: 4,
       borderRadius: 2,
-      backgroundColor: COLORS.light,
-      marginHorizontal: 6,
+      backgroundColor: COLORS.muted,
+      marginHorizontal: 7,
     },
 
     chevronContainer: {
-      width: 35,
-      height: 35,
-      borderRadius: 12,
+      width: 40,
+      height: 40,
+      borderRadius: 14,
       backgroundColor: COLORS.background,
-
+      borderWidth: 1,
+      borderColor: COLORS.border,
       alignItems: 'center',
       justifyContent: 'center',
-
-      marginLeft: 8,
+      marginLeft: 10,
+      flexShrink: 0,
     },
 
     chevron: {
-      fontSize: 23,
+      fontSize: 27,
+      lineHeight: 29,
       color: COLORS.primary,
       fontWeight: '500',
+      marginTop: -2,
     },
 
     /* =====================================================
@@ -643,11 +802,12 @@ const createStyles = (theme: any) => {
   ===================================================== */
 
     ticketProblem: {
-      marginTop: 14,
-      fontSize: 12,
-      lineHeight: 18,
+      marginTop: 17,
+      fontSize: 13,
+      lineHeight: 20,
       color: COLORS.text,
       fontWeight: '500',
+      letterSpacing: 0.05,
     },
 
     /* =====================================================
@@ -655,30 +815,34 @@ const createStyles = (theme: any) => {
   ===================================================== */
 
     ticketMetaRow: {
-      marginTop: 13,
-      paddingTop: 12,
-
+      marginTop: 16,
+      paddingTop: 13,
       borderTopWidth: 1,
       borderTopColor: COLORS.divider,
-
       flexDirection: 'row',
       alignItems: 'center',
+      flexWrap: 'wrap',
+      rowGap: 9,
     },
 
     metaItem: {
       flexDirection: 'row',
       alignItems: 'center',
       flexShrink: 1,
+      minWidth: 0,
+      maxWidth: '100%',
     },
 
     metaIcon: {
-      fontSize: 9,
+      fontSize: 11,
       color: COLORS.primary,
-      marginRight: 5,
+      marginRight: 6,
+      fontWeight: '800',
     },
 
     metaText: {
-      fontSize: 10,
+      fontSize: 11,
+      lineHeight: 15,
       color: COLORS.muted,
       fontWeight: '700',
       flexShrink: 1,
@@ -686,9 +850,9 @@ const createStyles = (theme: any) => {
 
     metaDivider: {
       width: 1,
-      height: 13,
+      height: 14,
       backgroundColor: COLORS.border,
-      marginHorizontal: 9,
+      marginHorizontal: 10,
     },
 
     attachmentMiniBadge: {
@@ -711,29 +875,532 @@ const createStyles = (theme: any) => {
     /* =====================================================
      FILTER
   ===================================================== */
-
     filterOverlay: {
       flex: 1,
-      backgroundColor: 'rgba(23,19,29,0.58)',
+      backgroundColor: 'rgba(20, 18, 16, 0.52)',
       justifyContent: 'flex-end',
     },
 
     filterContainer: {
+      height: '90%',
       maxHeight: '91%',
       backgroundColor: COLORS.background,
-      borderTopLeftRadius: 30,
-      borderTopRightRadius: 30,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
       overflow: 'hidden',
+      borderWidth: 1,
+      borderBottomWidth: 0,
+      borderColor: 'rgba(160, 145, 120, 0.18)',
+      elevation: 20,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: -5,
+      },
+      shadowOpacity: 0.12,
+      shadowRadius: 18,
     },
 
     modalHandle: {
       alignSelf: 'center',
-      width: 40,
+      width: 38,
       height: 4,
-      borderRadius: 3,
-      backgroundColor: '#D5CFDC',
-      marginTop: 9,
-      marginBottom: 2,
+      borderRadius: 4,
+      backgroundColor: '#CFC9BE',
+      marginTop: 10,
+      marginBottom: 8,
+    },
+
+    premiumOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(14, 12, 20, 0.62)',
+      justifyContent: 'flex-end',
+    },
+
+    premiumSheet: {
+      flex: 1,
+      marginTop: 34,
+      backgroundColor: theme.background,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      overflow: 'hidden',
+    },
+
+    premiumTop: {
+      paddingHorizontal: 21,
+      paddingTop: 10,
+    },
+
+    premiumGrabber: {
+      alignSelf: 'center',
+      width: 35,
+      height: 4,
+      borderRadius: 10,
+      backgroundColor: theme.border || '#DED9E3',
+      marginBottom: 17,
+    },
+
+    premiumTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingBottom: 15,
+    },
+
+    premiumOverline: {
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 1.5,
+      color: theme.secondaryText || '#89838F',
+    },
+
+    premiumTopTitle: {
+      fontSize: 22,
+      fontWeight: '800',
+      letterSpacing: -0.7,
+      color: theme.ink || theme.text,
+      marginTop: 4,
+    },
+
+    premiumClose: {
+      width: 38,
+      height: 38,
+      borderRadius: 13,
+      backgroundColor: theme.card || theme.background,
+      borderWidth: 1,
+      borderColor: theme.border || '#E9E4ED',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    premiumScroll: {
+      flex: 1,
+    },
+
+    premiumScrollContent: {
+      paddingHorizontal: 21,
+      paddingTop: 5,
+      paddingBottom: 28,
+    },
+
+    premiumIdentity: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingBottom: 19,
+      gap: 11,
+    },
+
+    premiumModuleIcon: {
+      width: 43,
+      height: 43,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    premiumIdentityText: {
+      flex: 1,
+      minWidth: 0,
+    },
+
+    premiumModuleName: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: theme.ink || theme.text,
+    },
+
+    premiumTicketId: {
+      fontSize: 10,
+      fontWeight: '600',
+      color: theme.secondaryText || '#89838F',
+      marginTop: 4,
+    },
+
+    premiumStatusChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 9,
+      paddingVertical: 7,
+      borderRadius: 20,
+      maxWidth: 125,
+    },
+
+    premiumStatusText: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: theme.text,
+      flexShrink: 1,
+    },
+
+    premiumProblem: {
+      paddingTop: 19,
+      paddingBottom: 20,
+      paddingHorizontal: 18,
+      borderRadius: 20,
+      backgroundColor: theme.card || theme.background,
+      borderWidth: 1,
+      borderColor: theme.border || '#E8E2EC',
+      marginBottom: 23,
+    },
+
+    premiumProblemHeading: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 13,
+    },
+
+    premiumProblemTitle: {
+      fontSize: 21,
+      lineHeight: 28,
+      fontWeight: '800',
+      letterSpacing: -0.65,
+      color: theme.ink || theme.text,
+      marginBottom: 9,
+    },
+
+    premiumProblemDescription: {
+      fontSize: 14,
+      lineHeight: 23,
+      color: theme.text,
+    },
+
+    premiumDateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 7,
+      borderTopWidth: 1,
+      borderTopColor: theme.border || '#E8E2EC',
+      marginTop: 18,
+      paddingTop: 13,
+    },
+
+    premiumDateText: {
+      fontSize: 10,
+      color: theme.secondaryText || '#89838F',
+      fontWeight: '600',
+    },
+
+    premiumDateDot: {
+      width: 3,
+      height: 3,
+      borderRadius: 2,
+      backgroundColor: theme.secondaryText || '#89838F',
+      marginHorizontal: 2,
+    },
+
+    premiumSection: {
+      paddingBottom: 19,
+      marginBottom: 17,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border || '#E8E2EC',
+    },
+
+    premiumSectionHeading: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      marginBottom: 15,
+    },
+
+    premiumSectionTitle: {
+      fontSize: 15,
+      fontWeight: '800',
+      letterSpacing: -0.25,
+      color: theme.ink || theme.text,
+    },
+
+    premiumSectionHint: {
+      fontSize: 11,
+      lineHeight: 17,
+      color: theme.secondaryText || '#89838F',
+      marginTop: 4,
+    },
+
+    premiumCount: {
+      width: 30,
+      height: 30,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.card || theme.background,
+      borderWidth: 1,
+      borderColor: theme.border || '#E8E2EC',
+    },
+
+    premiumCountText: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: theme.text,
+    },
+
+    premiumAttachment: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 5,
+    },
+
+    premiumAttachmentIcon: {
+      width: 45,
+      height: 45,
+      borderRadius: 14,
+      backgroundColor: theme.card || theme.background,
+      borderWidth: 1,
+      borderColor: theme.border || '#E8E2EC',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    premiumAttachmentInfo: {
+      flex: 1,
+    },
+
+    premiumAttachmentTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: theme.ink || theme.text,
+    },
+
+    premiumNoAttachment: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      paddingVertical: 7,
+    },
+
+    premiumProgressTrack: {
+      paddingTop: 2,
+    },
+
+    premiumProgressStep: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+    },
+
+    premiumProgressIcon: {
+      width: 29,
+      height: 29,
+      borderRadius: 15,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    premiumProgressDone: {
+      backgroundColor: theme.primary,
+    },
+
+    premiumProgressPending: {
+      backgroundColor: theme.card || theme.background,
+      borderWidth: 1.5,
+      borderColor: theme.border || '#DCD6E2',
+    },
+
+    premiumProgressCopy: {
+      flex: 1,
+    },
+
+    premiumProgressTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: theme.ink || theme.text,
+    },
+
+    premiumProgressConnector: {
+      height: 21,
+      width: 2,
+      marginLeft: 13,
+      backgroundColor: theme.border || '#E3DDE8',
+      marginVertical: 3,
+    },
+
+    premiumRoleTag: {
+      paddingHorizontal: 9,
+      paddingVertical: 6,
+      borderRadius: 8,
+      backgroundColor: theme.card || theme.background,
+      borderWidth: 1,
+      borderColor: theme.border || '#E8E2EC',
+    },
+
+    premiumRoleTagText: {
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 0.7,
+      color: theme.primary,
+    },
+
+    ticketDropdownOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(15, 13, 18, 0.42)',
+      justifyContent: 'center',
+      paddingHorizontal: 24,
+    },
+
+    ticketDropdownPanel: {
+      width: '100%',
+      maxHeight: '72%',
+      alignSelf: 'center',
+      backgroundColor: theme.card || theme.background,
+      borderRadius: 20,
+      paddingTop: 19,
+      paddingBottom: 10,
+      paddingHorizontal: 16,
+      borderWidth: 1,
+      borderColor: theme.border || '#E7E1D8',
+      elevation: 18,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.2,
+      shadowRadius: 18,
+    },
+
+    ticketDropdownEyebrow: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 1.4,
+      color: theme.secondaryText || '#8A8494',
+      marginBottom: 5,
+    },
+
+    ticketDropdownTitle: {
+      fontSize: 20,
+      lineHeight: 27,
+      fontWeight: '800',
+      color: theme.text,
+      marginBottom: 13,
+      includeFontPadding: true,
+    },
+
+    ticketDropdownOption: {
+      minHeight: 54,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      marginBottom: 5,
+      borderRadius: 12,
+    },
+
+    ticketDropdownOptionSelected: {
+      backgroundColor: theme.primarySoft || '#F1E7D9',
+    },
+
+    ticketDropdownOptionText: {
+      flex: 1,
+      marginLeft: 12,
+      fontSize: 15,
+      lineHeight: 22,
+      fontWeight: '500',
+      color: theme.text,
+      includeFontPadding: true,
+    },
+
+    ticketDropdownFooterButton: {
+      height: 45,
+      marginTop: 8,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.primarySoft || '#F1E7D9',
+    },
+
+    ticketDropdownFooterText: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: theme.primary,
+    },
+
+    premiumPicker: {
+      minHeight: 54,
+      justifyContent: 'center',
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.border || '#E5DFD5',
+      backgroundColor: theme.card || theme.background,
+      paddingHorizontal: 14,
+      overflow: 'visible',
+    },
+
+    premiumAssignButton: {
+      height: 47,
+      borderRadius: 13,
+      backgroundColor: theme.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 11,
+    },
+
+    premiumAssignButtonText: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#FFFFFF',
+    },
+
+    premiumEmpty: {
+      paddingVertical: 9,
+    },
+
+    premiumRetry: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: theme.primary,
+    },
+
+    premiumOwner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginTop: 13,
+    },
+
+    premiumOwnerIcon: {
+      width: 43,
+      height: 43,
+      borderRadius: 14,
+      backgroundColor: theme.card || theme.background,
+      borderWidth: 1,
+      borderColor: theme.border || '#E8E2EC',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    premiumOwnerCopy: {
+      flex: 1,
+    },
+
+    premiumOwnerName: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: theme.ink || theme.text,
+    },
+
+    premiumFooter: {
+      paddingHorizontal: 21,
+      paddingTop: 12,
+      paddingBottom: 13,
+      backgroundColor: theme.background,
+      borderTopWidth: 1,
+      borderTopColor: theme.border || '#E8E2EC',
+    },
+
+    premiumFooterButton: {
+      height: 49,
+      borderRadius: 15,
+      backgroundColor: theme.primary,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+    },
+
+    premiumFooterText: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#FFFFFF',
     },
 
     /* =====================================================
@@ -742,24 +1409,43 @@ const createStyles = (theme: any) => {
 
     detailsOverlay: {
       flex: 1,
-      backgroundColor: 'rgba(23,19,29,0.62)',
+      backgroundColor: 'rgba(24, 23, 20, 0.48)',
       justifyContent: 'flex-end',
     },
 
     detailsContainer: {
-      height: '95%',
+      height: '90%',
       backgroundColor: COLORS.background,
-
-      borderTopLeftRadius: 31,
-      borderTopRightRadius: 31,
-
+      borderTopLeftRadius: 26,
+      borderTopRightRadius: 26,
       overflow: 'hidden',
+      borderWidth: 1,
+      borderBottomWidth: 0,
+      borderColor: COLORS.border,
+      shadowColor: '#17131D',
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.09,
+      shadowRadius: 14,
+      elevation: 14,
     },
 
     detailsContent: {
-      paddingHorizontal: 18,
-      paddingTop: 10,
-      paddingBottom: 30,
+      paddingHorizontal: 16,
+      paddingTop: 6,
+      paddingBottom: 14,
+    },
+
+    detailsHero: {
+      marginHorizontal: -16,
+      marginTop: -6,
+      paddingHorizontal: 16,
+      paddingTop: 3,
+      paddingBottom: 2,
+      backgroundColor: COLORS.background,
+      borderBottomWidth: 1,
+      borderBottomColor: COLORS.border,
+      borderBottomLeftRadius: 18,
+      borderBottomRightRadius: 18,
     },
 
     /* =====================================================
@@ -768,11 +1454,10 @@ const createStyles = (theme: any) => {
 
     detailsHeader: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       justifyContent: 'space-between',
-
-      paddingTop: 10,
-      paddingBottom: 18,
+      paddingTop: 7,
+      paddingBottom: 12,
     },
 
     detailsHeaderLeft: {
@@ -782,71 +1467,67 @@ const createStyles = (theme: any) => {
     },
 
     detailsModuleIcon: {
-      width: 58,
-      height: 58,
-      borderRadius: 19,
-
+      width: 46,
+      height: 46,
+      borderRadius: 14,
       alignItems: 'center',
       justifyContent: 'center',
-
       borderWidth: 1,
+      borderColor: COLORS.border,
     },
 
     detailsModuleIconText: {
-      fontSize: 25,
+      fontSize: 21,
       fontWeight: '900',
       color: COLORS.primary,
     },
 
     detailsHeaderText: {
       flex: 1,
-      marginLeft: 12,
+      marginLeft: 10,
+      minWidth: 0,
     },
 
     detailsEyebrow: {
-      fontSize: 9,
+      fontSize: 8,
       fontWeight: '900',
-      letterSpacing: 1.5,
+      letterSpacing: 1.25,
       color: COLORS.primary,
-      marginBottom: 4,
+      marginBottom: 2,
     },
 
     detailsTitle: {
-      fontSize: 25,
-      lineHeight: 30,
+      fontSize: 22,
+      lineHeight: 26,
       fontWeight: '900',
       color: COLORS.ink,
-      letterSpacing: -0.7,
+      letterSpacing: -0.5,
     },
 
     detailsId: {
-      marginTop: 4,
+      marginTop: 2,
       fontSize: 8,
-      color: COLORS.light,
+      color: COLORS.muted,
       fontWeight: '600',
     },
 
     detailsCreated: {
-      marginTop: 4,
+      marginTop: 3,
       fontSize: 9,
       color: COLORS.muted,
       fontWeight: '600',
     },
 
     detailsCloseButton: {
-      width: 43,
-      height: 43,
-      borderRadius: 15,
-
+      width: 36,
+      height: 36,
+      borderRadius: 12,
       backgroundColor: COLORS.white,
-
       borderWidth: 1,
       borderColor: COLORS.border,
-
       alignItems: 'center',
       justifyContent: 'center',
-
-      marginLeft: 10,
+      marginLeft: 8,
     },
 
     detailsCloseText: {
@@ -861,22 +1542,27 @@ const createStyles = (theme: any) => {
   ===================================================== */
 
     detailsStatusCard: {
-      borderRadius: 22,
-      padding: 17,
-
+      borderRadius: 16,
+      paddingHorizontal: 13,
+      paddingVertical: 11,
+      marginTop: 12,
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-
       borderWidth: 1,
+      shadowColor: '#17131D',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.025,
+      shadowRadius: 4,
+      elevation: 1,
     },
 
     detailsSectionLabel: {
-      fontSize: 9,
+      fontSize: 8,
       fontWeight: '900',
-      letterSpacing: 1.3,
+      letterSpacing: 1.1,
       color: COLORS.muted,
-      marginBottom: 7,
+      marginBottom: 4,
     },
 
     detailsStatusRow: {
@@ -892,32 +1578,31 @@ const createStyles = (theme: any) => {
     },
 
     detailsStatusText: {
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: '900',
       color: COLORS.ink,
     },
 
     statusDescription: {
-      marginTop: 6,
+      marginTop: 4,
       fontSize: 10,
+      lineHeight: 14,
       color: COLORS.muted,
     },
 
     statusIndicator: {
-      width: 48,
-      height: 48,
-      borderRadius: 17,
-
+      width: 36,
+      height: 36,
+      borderRadius: 12,
       backgroundColor: 'rgba(255,255,255,0.6)',
-
       alignItems: 'center',
       justifyContent: 'center',
     },
 
     statusIndicatorDot: {
-      width: 15,
-      height: 15,
-      borderRadius: 8,
+      width: 11,
+      height: 11,
+      borderRadius: 6,
     },
 
     /* =====================================================
@@ -925,7 +1610,12 @@ const createStyles = (theme: any) => {
   ===================================================== */
 
     statusControlSection: {
-      marginTop: 21,
+      marginTop: 14,
+      padding: 12,
+      borderRadius: 16,
+      backgroundColor: COLORS.white,
+      borderWidth: 1,
+      borderColor: COLORS.border,
     },
 
     sectionTitleRow: {
@@ -935,9 +1625,9 @@ const createStyles = (theme: any) => {
     },
 
     adminOnlyLabel: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 7,
+      paddingHorizontal: 7,
+      paddingVertical: 3,
+      borderRadius: 6,
       backgroundColor: COLORS.primarySoft,
       color: COLORS.primary,
       fontSize: 8,
@@ -945,35 +1635,36 @@ const createStyles = (theme: any) => {
     },
 
     detailsSectionTitle: {
-      fontSize: 15,
+      fontSize: 14,
       fontWeight: '900',
       color: COLORS.ink,
-      marginBottom: 4,
+      marginBottom: 3,
     },
 
     detailsSectionSubtitle: {
       fontSize: 10,
+      lineHeight: 14,
       color: COLORS.muted,
-      marginBottom: 11,
+      marginBottom: 7,
     },
 
     statusPickerWrapper: {
-      height: 54,
-
+      minHeight: 52,
       backgroundColor: COLORS.white,
-
       borderWidth: 1,
       borderColor: COLORS.border,
-
-      borderRadius: 16,
-
-      overflow: 'hidden',
+      borderRadius: 13,
+      paddingHorizontal: 13,
+      overflow: 'visible',
       justifyContent: 'center',
     },
 
     detailsPicker: {
-      height: 54,
+      minHeight: 52,
       color: COLORS.ink,
+      fontSize: 15,
+      includeFontPadding: true,
+      paddingVertical: 0,
     },
 
     /* =====================================================
@@ -981,7 +1672,7 @@ const createStyles = (theme: any) => {
   ===================================================== */
 
     detailSection: {
-      marginTop: 23,
+      marginTop: 15,
     },
 
     sectionHeadingRow: {
@@ -993,18 +1684,15 @@ const createStyles = (theme: any) => {
   ===================================================== */
 
     timelineSection: {
-      marginTop: 23,
+      marginTop: 15,
     },
 
     timeline: {
       backgroundColor: COLORS.white,
-
       borderWidth: 1,
       borderColor: COLORS.border,
-
-      borderRadius: 22,
-
-      padding: 17,
+      borderRadius: 16,
+      padding: 13,
     },
 
     timelineItem: {
@@ -1013,13 +1701,11 @@ const createStyles = (theme: any) => {
     },
 
     timelineCircle: {
-      width: 31,
-      height: 31,
-      borderRadius: 11,
-
+      width: 27,
+      height: 27,
+      borderRadius: 9,
       alignItems: 'center',
       justifyContent: 'center',
-
       flexShrink: 0,
     },
 
@@ -1045,30 +1731,29 @@ const createStyles = (theme: any) => {
 
     timelineText: {
       flex: 1,
-      marginLeft: 11,
+      marginLeft: 9,
+      paddingTop: 1,
     },
 
     timelineTitle: {
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '900',
       color: COLORS.ink,
     },
 
     timelineDescription: {
-      marginTop: 4,
+      marginTop: 3,
       fontSize: 10,
-      lineHeight: 15,
+      lineHeight: 14,
       color: COLORS.muted,
     },
 
     timelineLine: {
       width: 2,
-      height: 23,
-
+      height: 14,
       backgroundColor: COLORS.border,
-
-      marginLeft: 14,
-      marginVertical: 4,
+      marginLeft: 12,
+      marginVertical: 3,
     },
 
     /* =====================================================
@@ -1133,13 +1818,10 @@ const createStyles = (theme: any) => {
 
     problemDetailCard: {
       backgroundColor: COLORS.white,
-
       borderWidth: 1,
       borderColor: COLORS.border,
-
-      borderRadius: 21,
-
-      padding: 17,
+      borderRadius: 14,
+      padding: 12,
     },
 
     problemDetailText: {
@@ -1180,25 +1862,19 @@ const createStyles = (theme: any) => {
 
     detailsAttachmentButton: {
       backgroundColor: COLORS.white,
-
       borderWidth: 1,
       borderColor: COLORS.border,
-
-      borderRadius: 19,
-
-      padding: 13,
-
+      borderRadius: 14,
+      padding: 10,
       flexDirection: 'row',
       alignItems: 'center',
     },
 
     detailsAttachmentIcon: {
-      width: 43,
-      height: 43,
-      borderRadius: 14,
-
+      width: 36,
+      height: 36,
+      borderRadius: 11,
       backgroundColor: COLORS.coralSoft,
-
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1228,13 +1904,10 @@ const createStyles = (theme: any) => {
 
     noAttachmentDetail: {
       backgroundColor: COLORS.white,
-
       borderWidth: 1,
       borderColor: COLORS.border,
-
-      borderRadius: 19,
-
-      padding: 16,
+      borderRadius: 14,
+      padding: 12,
     },
 
     noAttachmentDetailText: {
@@ -1247,39 +1920,25 @@ const createStyles = (theme: any) => {
   ===================================================== */
 
     detailsFooter: {
-      paddingHorizontal: 18,
-      paddingTop: 11,
-      paddingBottom: 19,
-
-      backgroundColor: COLORS.white,
-
+      paddingHorizontal: 16,
+      paddingTop: 8,
+      paddingBottom: 10,
+      backgroundColor: COLORS.background,
       borderTopWidth: 1,
       borderTopColor: COLORS.border,
     },
 
     detailsDoneButton: {
-      height: 53,
-
-      borderRadius: 17,
-
+      height: 44,
+      borderRadius: 13,
       backgroundColor: COLORS.primary,
-
       alignItems: 'center',
       justifyContent: 'center',
-
-      shadowColor: COLORS.primary,
-      shadowOffset: {
-        width: 0,
-        height: 5,
-      },
-      shadowOpacity: 0.22,
-      shadowRadius: 10,
-      elevation: 4,
     },
 
     detailsDoneText: {
       color: COLORS.white,
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '900',
     },
 
