@@ -55,6 +55,9 @@ interface User {
   };
   designation?: string;
   assignedEmployee?: AssignedEmployee[];
+  isRevoked?: boolean;
+  revokedAt?: string | null;
+  revokedReason?: string | null;
 }
 
 interface Organisation {
@@ -81,9 +84,10 @@ const ClientPage = () => {
   const [designation, setDesignation] = useState('');
   const [documentTitle, setDocumentTitle] = useState('');
   const [activeFilter, setActiveFilter] = useState<
-    'all' | 'client' | 'employee'
+    'all' | 'client' | 'employee' | 'revoked'
   >('all');
   const [uploadingDocuments, setUploadingDocuments] = useState(false);
+  const [changingAccess, setChangingAccess] = useState(false);
 
   // DATA
 
@@ -177,6 +181,9 @@ const ClientPage = () => {
           _id: String(item._id || item.id || ''),
           mobileNumber:
             item.mobileNumber ?? item.phoneNumber ?? item.mobile ?? '',
+          isRevoked: Boolean(item.isRevoked),
+          revokedAt: item.revokedAt ?? null,
+          revokedReason: item.revokedReason ?? null,
           organisation:
             typeof item.organisation === 'object' && item.organisation
               ? {
@@ -683,11 +690,25 @@ const ClientPage = () => {
 
   // SEARCH
 
+  const revokedUsers = useMemo(
+    () => client.filter(item => item.isRevoked === true),
+    [client],
+  );
+
   const filteredClients = useMemo(() => {
     const value = search.trim().toLowerCase();
 
     return client.filter(item => {
-      const matchesRole = activeFilter === 'all' || item.role === activeFilter;
+      const isRevoked = item.isRevoked === true;
+
+      // Revoked accounts are shown only in the Revoked tab.
+      if (activeFilter === 'revoked' && !isRevoked) return false;
+      if (activeFilter !== 'revoked' && isRevoked) return false;
+
+      const matchesRole =
+        activeFilter === 'all' ||
+        activeFilter === 'revoked' ||
+        item.role === activeFilter;
 
       const matchesSearch =
         !value ||
@@ -1118,6 +1139,102 @@ const ClientPage = () => {
     setDetailsVisible(true);
   };
 
+  // REVOKE OR RESTORE CLIENT / EMPLOYEE ACCESS
+  const changeUserAccess = (action: 'revoke' | 'restore') => {
+    const userId = selectedClient?._id || selectedClient?.id;
+
+    if (!selectedClient || !userId) {
+      Alert.alert('User not found', 'Please close this window and try again.');
+      return;
+    }
+
+    const isRestore = action === 'restore';
+    const title = isRestore
+      ? 'Restore account access?'
+      : 'Revoke account access?';
+    const message = isRestore
+      ? `Allow ${selectedClient.userName} to log in again?`
+      : `This will prevent ${selectedClient.userName} from logging in and invalidate their active sessions.`;
+
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: isRestore ? 'Restore Access' : 'Revoke Access',
+        style: isRestore ? 'default' : 'destructive',
+        onPress: async () => {
+          try {
+            setChangingAccess(true);
+            const token = await AsyncStorage.getItem('token');
+
+            if (!token) {
+              Alert.alert('Authentication Error', 'Please log in again.');
+              return;
+            }
+
+            const endpoint = isRestore ? 'restore-user' : 'revoke-user';
+            const response = await axios.patch(
+              `${Config.API_URL}/api/auth/${endpoint}/${userId}`,
+              {},
+              { headers: { Authorization: `Bearer ${token}` } },
+            );
+
+            const responseUser = response.data?.user || {};
+            const nextUser = {
+              ...selectedClient,
+              ...responseUser,
+              id: responseUser.id || responseUser._id || userId,
+              _id: responseUser._id || responseUser.id || userId,
+              isRevoked: isRestore ? false : true,
+              revokedAt: isRestore
+                ? null
+                : responseUser.revokedAt || new Date().toISOString(),
+              revokedReason: isRestore
+                ? null
+                : responseUser.revokedReason ??
+                  selectedClient.revokedReason ??
+                  null,
+            } as User;
+
+            setSelectedClient(nextUser);
+            setClient(previous =>
+              previous.map(item =>
+                String(item._id || item.id) === String(userId)
+                  ? { ...item, ...nextUser }
+                  : item,
+              ),
+            );
+
+            if (isRestore && activeFilter === 'revoked') {
+              setActiveFilter('all');
+            }
+
+            Alert.alert(
+              isRestore ? 'Access Restored' : 'Access Revoked',
+              response.data?.message ||
+                (isRestore
+                  ? 'The account can log in again.'
+                  : 'The account can no longer log in.'),
+            );
+
+            await getUser();
+          } catch (error: any) {
+            console.log(
+              'CHANGE USER ACCESS ERROR:',
+              error?.response?.data || error,
+            );
+            Alert.alert(
+              isRestore ? 'Restore Failed' : 'Revoke Failed',
+              error?.response?.data?.message ||
+                'Unable to change account access. Please try again.',
+            );
+          } finally {
+            setChangingAccess(false);
+          }
+        },
+      },
+    ]);
+  };
+
   const closeDetailsModal = () => {
     setDetailsVisible(false);
     setSelectedClient(null);
@@ -1145,10 +1262,29 @@ const ClientPage = () => {
                 {item.userName}
               </Text>
 
-              <View style={styles.activeBadge}>
-                <View style={styles.activeDot} />
+              <View
+                style={[
+                  styles.activeBadge,
+                  item.isRevoked && {
+                    backgroundColor: '#FEE2E2',
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.activeDot,
+                    item.isRevoked && { backgroundColor: '#DC2626' },
+                  ]}
+                />
 
-                <Text style={styles.activeText}>{getRoleLabel(item.role)}</Text>
+                <Text
+                  style={[
+                    styles.activeText,
+                    item.isRevoked && { color: '#B91C1C' },
+                  ]}
+                >
+                  {item.isRevoked ? 'Revoked' : getRoleLabel(item.role)}
+                </Text>
               </View>
             </View>
 
@@ -2197,13 +2333,19 @@ const ClientPage = () => {
 
           <View style={styles.listHeader}>
             <View style={styles.filterTabs}>
-              {(
-                [
-                  { label: 'All Users', value: 'all' },
-                  { label: 'Clients', value: 'client' },
-                  { label: 'Employees', value: 'employee' },
-                ] as const
-              ).map(tab => {
+              {[
+                { label: 'All Users', value: 'all' as const },
+                { label: 'Clients', value: 'client' as const },
+                { label: 'Employees', value: 'employee' as const },
+                ...(revokedUsers.length > 0
+                  ? [
+                      {
+                        label: `Revoked (${revokedUsers.length})`,
+                        value: 'revoked' as const,
+                      },
+                    ]
+                  : []),
+              ].map(tab => {
                 const selected = activeFilter === tab.value;
 
                 return (
@@ -2740,6 +2882,29 @@ const ClientPage = () => {
                       {selectedClient && getRoleLabel(selectedClient.role)}
                     </Text>
                   </View>
+
+                  {selectedClient?.isRevoked && (
+                    <View
+                      style={{
+                        alignSelf: 'flex-start',
+                        marginTop: 7,
+                        paddingHorizontal: 9,
+                        paddingVertical: 4,
+                        borderRadius: 20,
+                        backgroundColor: '#FEE2E2',
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: '#B91C1C',
+                          fontSize: 11,
+                          fontWeight: '800',
+                        }}
+                      >
+                        ACCESS REVOKED
+                      </Text>
+                    </View>
+                  )}
                 </View>
 
                 <TouchableOpacity
@@ -2890,6 +3055,101 @@ const ClientPage = () => {
                   </View>
                 )}
 
+                {(selectedClient?.role === 'employee' ||
+                  selectedClient?.role === 'client') && (
+                  <TouchableOpacity
+                    disabled={changingAccess}
+                    onPress={() =>
+                      changeUserAccess(
+                        selectedClient?.isRevoked ? 'restore' : 'revoke',
+                      )
+                    }
+                    activeOpacity={0.8}
+                    style={{
+                      backgroundColor: selectedClient?.isRevoked
+                        ? '#15803D'
+                        : '#B91C1C',
+                      borderRadius: 10,
+                      paddingVertical: 12,
+                      paddingHorizontal: 14,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 12,
+                      opacity: changingAccess ? 0.65 : 1,
+                    }}
+                  >
+                    {changingAccess ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <>
+                        <Ionicons
+                          name={
+                            selectedClient?.isRevoked
+                              ? 'checkmark-circle-outline'
+                              : 'ban-outline'
+                          }
+                          size={18}
+                          color="#FFFFFF"
+                        />
+                        <Text
+                          style={{
+                            color: '#FFFFFF',
+                            fontSize: 14,
+                            fontWeight: '800',
+                            marginLeft: 8,
+                          }}
+                        >
+                          {selectedClient?.isRevoked
+                            ? 'Restore Account Access'
+                            : 'Revoke Account Access'}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                {selectedClient?.isRevoked && (
+                  <View
+                    style={{
+                      padding: 12,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: '#FECACA',
+                      backgroundColor: theme.background,
+                      marginBottom: 12,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: '#B91C1C',
+                        fontSize: 12,
+                        fontWeight: '800',
+                        marginBottom: 4,
+                      }}
+                    >
+                      Account access is disabled
+                    </Text>
+                    {!!selectedClient.revokedAt && (
+                      <Text style={{ color: theme.muted, fontSize: 12 }}>
+                        Revoked:{' '}
+                        {new Date(selectedClient.revokedAt).toLocaleString()}
+                      </Text>
+                    )}
+                    {!!selectedClient.revokedReason && (
+                      <Text
+                        style={{
+                          color: theme.muted,
+                          fontSize: 12,
+                          marginTop: 4,
+                        }}
+                      >
+                        Reason: {selectedClient.revokedReason}
+                      </Text>
+                    )}
+                  </View>
+                )}
+
                 {selectedClient?.role === 'employee' && (
                   <TouchableOpacity
                     onPress={openUploadModal}
@@ -3017,6 +3277,7 @@ const ClientPage = () => {
       </Modal>
 
       {/* ADMIN EDIT EMPLOYEE MODAL */}
+
       <Modal
         visible={editEmployeeVisible}
         transparent
@@ -3027,254 +3288,394 @@ const ClientPage = () => {
         <KeyboardAvoidingView
           style={[
             styles.modalOverlay,
-            { justifyContent: 'center', padding: 20 },
+            {
+              justifyContent: 'center',
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+            },
           ]}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
         >
           <View
             style={{
+              width: '100%',
+              maxWidth: 480,
+              maxHeight: '100%',
+              alignSelf: 'center',
               backgroundColor: theme.background,
               borderColor: theme.border,
               borderWidth: 1,
               borderRadius: 20,
-              padding: 20,
-              maxHeight: '90%',
+              overflow: 'hidden',
             }}
           >
-            <Text
+            {/* HEADER */}
+            <View
               style={{
-                color: theme.ink,
-                fontSize: 20,
-                fontWeight: '800',
-                marginBottom: 4,
+                paddingHorizontal: 18,
+                paddingTop: 18,
+                paddingBottom: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: theme.divider,
               }}
             >
-              Edit {selectedClient?.role === 'employee' ? 'Employee' : 'Client'}
-            </Text>
-            <Text
-              style={{ color: theme.muted, fontSize: 13, marginBottom: 16 }}
-            >
-              Update account details and assignments.
-            </Text>
-            {[
-              {
-                label: 'USERNAME',
-                value: editEmployeeName,
-                set: setEditEmployeeName,
-                placeholder: 'Username',
-                keyboard: 'default',
-              },
-              {
-                label: 'EMAIL',
-                value: editEmployeeEmail,
-                set: setEditEmployeeEmail,
-                placeholder: 'Email address',
-                keyboard: 'email-address',
-              },
-              {
-                label: 'MOBILE NUMBER',
-                value: editEmployeeMobile,
-                set: (value: string) =>
-                  setEditEmployeeMobile(value.replace(/\D/g, '').slice(0, 10)),
-                placeholder: '10-digit mobile number',
-                keyboard: 'phone-pad',
-              },
-              {
-                label: 'DESIGNATION',
-                value: editEmployeeDesignation,
-                set: setEditEmployeeDesignation,
-                placeholder: 'Designation',
-                keyboard: 'default',
-              },
-            ]
-              .filter(
-                field =>
-                  field.label !== 'DESIGNATION' ||
-                  selectedClient?.role === 'employee',
-              )
-              .map(field => (
-                <View key={field.label} style={{ marginBottom: 12 }}>
-                  <Text
-                    style={{
-                      color: theme.muted,
-                      fontSize: 11,
-                      fontWeight: '800',
-                      marginBottom: 6,
-                    }}
-                  >
-                    {field.label}
-                  </Text>
-                  <TextInput
-                    value={field.value}
-                    onChangeText={field.set}
-                    placeholder={field.placeholder}
-                    placeholderTextColor={theme.muted}
-                    keyboardType={field.keyboard as any}
-                    autoCapitalize={
-                      field.keyboard === 'email-address' ? 'none' : 'sentences'
-                    }
-                    editable={!savingEmployee}
-                    style={{
-                      color: theme.ink,
-                      backgroundColor: theme.background,
-                      borderWidth: 1,
-                      borderColor: theme.border,
-                      borderRadius: 10,
-                      paddingHorizontal: 12,
-                      paddingVertical: 11,
-                    }}
-                  />
-                </View>
-              ))}
+              <Text
+                style={{
+                  color: theme.ink,
+                  fontSize: 20,
+                  fontWeight: '800',
+                }}
+              >
+                Edit{' '}
+                {selectedClient?.role === 'employee' ? 'Employee' : 'Client'}
+              </Text>
 
-            {/* OPTIONAL PASSWORD UPDATE */}
-            <View style={{ marginBottom: 12 }}>
               <Text
                 style={{
                   color: theme.muted,
-                  fontSize: 11,
-                  fontWeight: '800',
-                  marginBottom: 6,
+                  fontSize: 12,
+                  marginTop: 4,
                 }}
               >
-                NEW PASSWORD (OPTIONAL)
-              </Text>
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  borderRadius: 10,
-                  paddingRight: 12,
-                  backgroundColor: theme.background,
-                }}
-              >
-                <TextInput
-                  value={editEmployeePassword}
-                  onChangeText={setEditEmployeePassword}
-                  placeholder="Enter a new password"
-                  placeholderTextColor={theme.muted}
-                  secureTextEntry={!showEditPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  autoComplete="new-password"
-                  editable={!savingEmployee}
-                  style={{
-                    flex: 1,
-                    color: theme.ink,
-                    paddingHorizontal: 12,
-                    paddingVertical: 11,
-                  }}
-                />
-                <TouchableOpacity
-                  onPress={() => setShowEditPassword(previous => !previous)}
-                  disabled={savingEmployee}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name={showEditPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color={theme.primary}
-                  />
-                </TouchableOpacity>
-              </View>
-              <Text style={{ color: theme.muted, fontSize: 12, marginTop: 5 }}>
-                Leave blank to keep the current password.
+                Update account details and assignments.
               </Text>
             </View>
 
-            {selectedClient?.role === 'client' && (
-              <View style={{ marginBottom: 14, maxHeight: 150 }}>
+            {/* SCROLLABLE FORM */}
+            <ScrollView
+              style={{ flexShrink: 1 }}
+              contentContainerStyle={{
+                paddingHorizontal: 18,
+                paddingTop: 14,
+                paddingBottom: 20,
+              }}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={
+                Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+              }
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+            >
+              {[
+                {
+                  label: 'USERNAME',
+                  value: editEmployeeName,
+                  set: setEditEmployeeName,
+                  placeholder: 'Username',
+                  keyboard: 'default',
+                },
+                {
+                  label: 'EMAIL',
+                  value: editEmployeeEmail,
+                  set: setEditEmployeeEmail,
+                  placeholder: 'Email address',
+                  keyboard: 'email-address',
+                },
+                {
+                  label: 'MOBILE NUMBER',
+                  value: editEmployeeMobile,
+                  set: (value: string) =>
+                    setEditEmployeeMobile(
+                      value.replace(/\D/g, '').slice(0, 10),
+                    ),
+                  placeholder: '10-digit mobile number',
+                  keyboard: 'phone-pad',
+                },
+                {
+                  label: 'DESIGNATION',
+                  value: editEmployeeDesignation,
+                  set: setEditEmployeeDesignation,
+                  placeholder: 'Designation',
+                  keyboard: 'default',
+                },
+              ]
+                .filter(
+                  field =>
+                    field.label !== 'DESIGNATION' ||
+                    selectedClient?.role === 'employee',
+                )
+                .map(field => (
+                  <View key={field.label} style={{ marginBottom: 13 }}>
+                    <Text
+                      style={{
+                        color: theme.muted,
+                        fontSize: 10,
+                        fontWeight: '800',
+                        letterSpacing: 0.7,
+                        marginBottom: 6,
+                      }}
+                    >
+                      {field.label}
+                    </Text>
+
+                    <TextInput
+                      value={field.value}
+                      onChangeText={field.set}
+                      placeholder={field.placeholder}
+                      placeholderTextColor={theme.muted}
+                      keyboardType={field.keyboard as any}
+                      autoCapitalize={
+                        field.keyboard === 'email-address'
+                          ? 'none'
+                          : 'sentences'
+                      }
+                      editable={!savingEmployee}
+                      returnKeyType="next"
+                      style={{
+                        minHeight: 46,
+                        color: theme.ink,
+                        backgroundColor: theme.background,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        borderRadius: 11,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        fontSize: 14,
+                      }}
+                    />
+                  </View>
+                ))}
+
+              {/* OPTIONAL PASSWORD UPDATE */}
+              <View style={{ marginBottom: 14 }}>
+                <Text
+                  style={{
+                    color: theme.muted,
+                    fontSize: 10,
+                    fontWeight: '800',
+                    letterSpacing: 0.7,
+                    marginBottom: 6,
+                  }}
+                >
+                  NEW PASSWORD (OPTIONAL)
+                </Text>
+
+                <View
+                  style={{
+                    minHeight: 46,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    borderRadius: 11,
+                    paddingRight: 12,
+                    backgroundColor: theme.background,
+                  }}
+                >
+                  <TextInput
+                    value={editEmployeePassword}
+                    onChangeText={setEditEmployeePassword}
+                    placeholder="Enter a new password"
+                    placeholderTextColor={theme.muted}
+                    secureTextEntry={!showEditPassword}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="new-password"
+                    editable={!savingEmployee}
+                    returnKeyType="done"
+                    blurOnSubmit
+                    style={{
+                      flex: 1,
+                      minHeight: 44,
+                      color: theme.ink,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      fontSize: 14,
+                    }}
+                  />
+
+                  <TouchableOpacity
+                    onPress={() => setShowEditPassword(previous => !previous)}
+                    disabled={savingEmployee}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      showEditPassword ? 'Hide password' : 'Show password'
+                    }
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={{
+                      width: 34,
+                      height: 40,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Ionicons
+                      name={
+                        showEditPassword ? 'eye-off-outline' : 'eye-outline'
+                      }
+                      size={20}
+                      color={theme.primary}
+                    />
+                  </TouchableOpacity>
+                </View>
+
                 <Text
                   style={{
                     color: theme.muted,
                     fontSize: 11,
-                    fontWeight: '800',
-                    marginBottom: 8,
+                    lineHeight: 16,
+                    marginTop: 6,
                   }}
                 >
-                  ASSIGNED EMPLOYEES
+                  Leave blank to keep the current password.
                 </Text>
-                <ScrollView nestedScrollEnabled>
-                  {employees.map(employee => {
-                    const checked = editAssignedEmployees.includes(
-                      employee._id,
-                    );
-                    return (
-                      <TouchableOpacity
-                        key={employee._id}
-                        onPress={() =>
-                          setEditAssignedEmployees(previous =>
-                            checked
-                              ? previous.filter(id => id !== employee._id)
-                              : [...previous, employee._id],
-                          )
-                        }
-                        disabled={savingEmployee}
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          paddingVertical: 9,
-                          borderBottomWidth: 1,
-                          borderBottomColor: theme.divider,
-                        }}
-                      >
-                        <View style={{ flex: 1, paddingRight: 8 }}>
-                          <Text style={{ color: theme.ink, fontWeight: '700' }}>
-                            {employee.userName}
-                          </Text>
-                          <Text style={{ color: theme.muted, fontSize: 12 }}>
-                            {employee.designation || 'Employee'} ·{' '}
-                            {employee.email}
-                          </Text>
-                        </View>
-                        <Ionicons
-                          name={
-                            checked ? 'checkmark-circle' : 'ellipse-outline'
-                          }
-                          size={21}
-                          color={checked ? theme.primary : theme.muted}
-                        />
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
               </View>
-            )}
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 4 }}>
+
+              {/* ASSIGNED EMPLOYEES */}
+              {selectedClient?.role === 'client' && (
+                <View style={{ marginBottom: 14 }}>
+                  <Text
+                    style={{
+                      color: theme.muted,
+                      fontSize: 10,
+                      fontWeight: '800',
+                      letterSpacing: 0.7,
+                      marginBottom: 7,
+                    }}
+                  >
+                    ASSIGNED EMPLOYEES
+                  </Text>
+
+                  <View
+                    style={{
+                      maxHeight: 160,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      borderRadius: 11,
+                      paddingHorizontal: 10,
+                    }}
+                  >
+                    <ScrollView
+                      nestedScrollEnabled
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator
+                    >
+                      {employees.map(employee => {
+                        const checked = editAssignedEmployees.includes(
+                          employee._id,
+                        );
+
+                        return (
+                          <TouchableOpacity
+                            key={employee._id}
+                            onPress={() =>
+                              setEditAssignedEmployees(previous =>
+                                checked
+                                  ? previous.filter(id => id !== employee._id)
+                                  : [...previous, employee._id],
+                              )
+                            }
+                            disabled={savingEmployee}
+                            activeOpacity={0.7}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              paddingVertical: 10,
+                              borderBottomWidth: 1,
+                              borderBottomColor: theme.divider,
+                            }}
+                          >
+                            <View style={{ flex: 1, paddingRight: 10 }}>
+                              <Text
+                                style={{
+                                  color: theme.ink,
+                                  fontWeight: '700',
+                                  fontSize: 13,
+                                }}
+                              >
+                                {employee.userName}
+                              </Text>
+
+                              <Text
+                                style={{
+                                  color: theme.muted,
+                                  fontSize: 11,
+                                  marginTop: 3,
+                                }}
+                              >
+                                {employee.designation || 'Employee'} ·{' '}
+                                {employee.email}
+                              </Text>
+                            </View>
+
+                            <Ionicons
+                              name={
+                                checked ? 'checkmark-circle' : 'ellipse-outline'
+                              }
+                              size={21}
+                              color={checked ? theme.primary : theme.muted}
+                            />
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+
+            {/* FIXED ACTION BUTTONS */}
+            <View
+              style={{
+                flexDirection: 'row',
+                gap: 10,
+                paddingHorizontal: 18,
+                paddingTop: 12,
+                paddingBottom: 14,
+                borderTopWidth: 1,
+                borderTopColor: theme.divider,
+                backgroundColor: theme.background,
+              }}
+            >
               <TouchableOpacity
                 onPress={closeEditEmployeeModal}
                 disabled={savingEmployee}
+                activeOpacity={0.7}
                 style={{
                   flex: 1,
+                  minHeight: 44,
                   borderWidth: 1,
                   borderColor: theme.border,
-                  borderRadius: 10,
-                  paddingVertical: 13,
+                  borderRadius: 11,
                   alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                <Text style={{ color: theme.ink, fontWeight: '700' }}>
+                <Text
+                  style={{ color: theme.ink, fontWeight: '700', fontSize: 13 }}
+                >
                   Cancel
                 </Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 onPress={updateSelectedEmployee}
                 disabled={savingEmployee}
+                activeOpacity={0.8}
                 style={{
                   flex: 1,
+                  minHeight: 44,
                   backgroundColor: theme.primary,
-                  borderRadius: 10,
-                  paddingVertical: 13,
+                  borderRadius: 11,
                   alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'row',
+                  opacity: savingEmployee ? 0.7 : 1,
                 }}
               >
                 {savingEmployee ? (
                   <ActivityIndicator color={theme.everWhite} />
                 ) : (
-                  <Text style={{ color: theme.everWhite, fontWeight: '800' }}>
+                  <Text
+                    style={{
+                      color: theme.everWhite,
+                      fontWeight: '800',
+                      fontSize: 13,
+                    }}
+                  >
                     Save Changes
                   </Text>
                 )}

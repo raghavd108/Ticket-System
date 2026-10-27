@@ -306,7 +306,7 @@ async function register(req, res) {
 }
 
 // =====================================================
-// LOGIN — CREATE VERSIONED JWT
+// LOGIN — REVOKED ACCOUNTS CANNOT LOG IN
 // =====================================================
 
 async function login(req, res) {
@@ -327,26 +327,12 @@ async function login(req, res) {
 
     const loginId = String(userName).trim();
 
-    // Find the user using username, email, or mobile number.
-    // `mode: "insensitive"` is not supported by your current Prisma query.
     const user = await prisma.user.findFirst({
       where: {
         OR: [
-          {
-            userName: {
-              equals: loginId,
-            },
-          },
-          {
-            email: {
-              equals: loginId,
-            },
-          },
-          {
-            mobileNumber: {
-              equals: loginId,
-            },
-          },
+          { userName: { equals: loginId } },
+          { email: { equals: loginId } },
+          { mobileNumber: { equals: loginId } },
         ],
       },
       include: {
@@ -365,7 +351,15 @@ async function login(req, res) {
       });
     }
 
-    // Verify the password
+    if (user.isRevoked) {
+      return res.status(403).json({
+        success: false,
+        code: "ACCOUNT_REVOKED",
+        message:
+          "Access to this account has been revoked. Please contact your administrator.",
+      });
+    }
+
     const passwordCorrect = await bcrypt.compare(password, user.password);
 
     if (!passwordCorrect) {
@@ -374,7 +368,6 @@ async function login(req, res) {
       });
     }
 
-    // Validate JWT configuration
     if (!process.env.JWT_SECRET) {
       console.error("JWT_SECRET is not configured");
 
@@ -383,7 +376,6 @@ async function login(req, res) {
       });
     }
 
-    // Generate JWT
     const token = jwt.sign(
       {
         id: user.id,
@@ -399,7 +391,6 @@ async function login(req, res) {
       },
     );
 
-    // Set authentication cookie
     res.cookie("token", token);
 
     return res.status(200).json({
@@ -430,7 +421,7 @@ async function login(req, res) {
 }
 
 // =====================================================
-// LOGOUT — REVOKE SESSIONS AND CLEAR FCM TOKEN
+// LOGOUT — INVALIDATE EXISTING SESSIONS
 // =====================================================
 
 async function logout(req, res) {
@@ -612,8 +603,9 @@ async function updateProfile(req, res) {
     });
   }
 }
+
 // =====================================================
-// UPDATE PASSWORD — REVOKE EXISTING SESSIONS
+// UPDATE PASSWORD — INVALIDATE EXISTING SESSIONS
 // =====================================================
 
 async function updatePassword(req, res) {
@@ -688,11 +680,47 @@ async function updatePassword(req, res) {
 
 async function getUser(req, res) {
   try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({
+        message: "Only admins can view client and employee management",
+      });
+    }
+
+    const adminOrganisationId = String(
+      req.user?.organisation?.id ||
+        req.user?.organisationId ||
+        req.user?.organisation ||
+        "",
+    );
+
+    if (!adminOrganisationId) {
+      return res.status(400).json({
+        message: "Your admin account is not linked to an organisation",
+      });
+    }
+
     const users = await prisma.user.findMany({
       where: {
         role: {
           in: ["client", "employee"],
         },
+        OR: [
+          {
+            role: "employee",
+            organisationId: adminOrganisationId,
+          },
+          {
+            role: "client",
+            assignedEmployees: {
+              some: {
+                employee: {
+                  role: "employee",
+                  organisationId: adminOrganisationId,
+                },
+              },
+            },
+          },
+        ],
       },
       select: {
         id: true,
@@ -701,6 +729,9 @@ async function getUser(req, res) {
         role: true,
         mobileNumber: true,
         designation: true,
+        isRevoked: true,
+        revokedAt: true,
+        revokedReason: true,
         organisation: {
           select: {
             id: true,
@@ -743,6 +774,7 @@ async function getUser(req, res) {
 // ADMIN UPDATE USER — EMPLOYEES AND CLIENTS
 // PATCH /api/auth/update-user/:userId
 // =====================================================
+
 async function updateUser(req, res) {
   try {
     if (req.user?.role !== "admin") {
@@ -772,8 +804,6 @@ async function updateUser(req, res) {
       });
     }
 
-    // Admins can update employees in their organisation and clients
-    // assigned to employees in that organisation.
     const target = await prisma.user.findFirst({
       where: {
         id: userId,
@@ -820,7 +850,6 @@ async function updateUser(req, res) {
 
     const data = {};
 
-    // UPDATE USERNAME
     if (userName !== undefined) {
       const value = String(userName).trim();
 
@@ -833,7 +862,6 @@ async function updateUser(req, res) {
       data.userName = value;
     }
 
-    // UPDATE EMAIL
     if (email !== undefined) {
       const value = String(email).trim().toLowerCase();
 
@@ -846,7 +874,6 @@ async function updateUser(req, res) {
       data.email = value;
     }
 
-    // UPDATE MOBILE NUMBER
     if (mobileNumber !== undefined) {
       const value = mobileNumber === null ? "" : String(mobileNumber).trim();
 
@@ -865,8 +892,6 @@ async function updateUser(req, res) {
       data.mobileNumber = value || null;
     }
 
-    // UPDATE PASSWORD
-    // Password is optional. If omitted, keep the existing password.
     if (password !== undefined && password !== "") {
       if (typeof password !== "string") {
         return res.status(400).json({
@@ -886,18 +911,13 @@ async function updateUser(req, res) {
         });
       }
 
-      // Use the same bcrypt library used by registration and login.
       data.password = await bcrypt.hash(password, 10);
-
       data.tokenVersion = {
         increment: 1,
       };
-
-      // Remove the saved push token after password reset.
       data.fcmToken = null;
     }
 
-    // UPDATE DESIGNATION
     if (designation !== undefined) {
       if (target.role !== "employee") {
         return res.status(400).json({
@@ -916,7 +936,6 @@ async function updateUser(req, res) {
       data.designation = value;
     }
 
-    // UPDATE CLIENT EMPLOYEE ASSIGNMENTS
     if (assignedEmployee !== undefined) {
       if (target.role !== "client" || !Array.isArray(assignedEmployee)) {
         return res.status(400).json({
@@ -972,14 +991,12 @@ async function updateUser(req, res) {
       };
     }
 
-    // ENSURE AT LEAST ONE FIELD IS PROVIDED
     if (Object.keys(data).length === 0) {
       return res.status(400).json({
         message: "Provide at least one field to update",
       });
     }
 
-    // CHECK USERNAME/EMAIL UNIQUENESS WITHIN THE TARGET ORGANISATION
     if (data.userName !== undefined || data.email !== undefined) {
       const duplicateOr = [];
 
@@ -1015,7 +1032,6 @@ async function updateUser(req, res) {
       }
     }
 
-    // SAVE UPDATED USER
     const updatedUser = await prisma.user.update({
       where: {
         id: target.id,
@@ -1070,6 +1086,7 @@ async function updateUser(req, res) {
     });
   }
 }
+
 // =====================================================
 // SAVE FCM TOKEN
 // =====================================================
@@ -1164,6 +1181,237 @@ async function getEmployees(req, res) {
 }
 
 // =====================================================
+// ADMIN ACCOUNT ACCESS REVOCATION
+// =====================================================
+
+function getAdminOrganisationId(req) {
+  return String(
+    req.user?.organisation?.id ||
+      req.user?.organisationId ||
+      req.user?.organisation ||
+      "",
+  );
+}
+
+async function findManageableUser(userId, adminOrganisationId) {
+  return prisma.user.findFirst({
+    where: {
+      id: userId,
+      OR: [
+        {
+          role: "employee",
+          organisationId: adminOrganisationId,
+        },
+        {
+          role: "client",
+          assignedEmployees: {
+            some: {
+              employee: {
+                role: "employee",
+                organisationId: adminOrganisationId,
+              },
+            },
+          },
+        },
+      ],
+    },
+    select: {
+      id: true,
+      userName: true,
+      role: true,
+      isRevoked: true,
+      revokedAt: true,
+      revokedReason: true,
+    },
+  });
+}
+
+// =====================================================
+// REVOKE USER ACCESS
+// PATCH /api/auth/revoke-user/:userId
+// =====================================================
+
+async function revokeUser(req, res) {
+  try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can revoke account access",
+      });
+    }
+
+    const userId = String(req.params.userId || "").trim();
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    const adminOrganisationId = getAdminOrganisationId(req);
+
+    if (!adminOrganisationId) {
+      return res.status(400).json({
+        success: false,
+        message: "Your admin account is not linked to an organisation",
+      });
+    }
+
+    const target = await findManageableUser(userId, adminOrganisationId);
+
+    if (!target) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Client or employee not found, or you do not have permission to manage this user",
+      });
+    }
+
+    if (target.isRevoked) {
+      return res.status(200).json({
+        success: true,
+        message: "This account's access is already revoked",
+        user: target,
+      });
+    }
+
+    const reason =
+      typeof req.body?.reason === "string"
+        ? req.body.reason.trim().slice(0, 500)
+        : "";
+
+    const user = await prisma.user.update({
+      where: {
+        id: target.id,
+      },
+      data: {
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokedReason: reason || null,
+        tokenVersion: {
+          increment: 1,
+        },
+        fcmToken: null,
+      },
+      select: {
+        id: true,
+        userName: true,
+        role: true,
+        isRevoked: true,
+        revokedAt: true,
+        revokedReason: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `${
+        target.role === "employee" ? "Employee" : "Client"
+      } access revoked successfully`,
+      user,
+    });
+  } catch (error) {
+    console.error("REVOKE USER ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to revoke account access",
+    });
+  }
+}
+
+// =====================================================
+// RESTORE USER ACCESS
+// PATCH /api/auth/restore-user/:userId
+// =====================================================
+
+async function restoreUser(req, res) {
+  try {
+    if (req.user?.role !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only admins can restore account access",
+      });
+    }
+
+    const userId = String(req.params.userId || "").trim();
+
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID is required",
+      });
+    }
+
+    const adminOrganisationId = getAdminOrganisationId(req);
+
+    if (!adminOrganisationId) {
+      return res.status(400).json({
+        success: false,
+        message: "Your admin account is not linked to an organisation",
+      });
+    }
+
+    const target = await findManageableUser(userId, adminOrganisationId);
+
+    if (!target) {
+      return res.status(404).json({
+        success: false,
+        message:
+          "Client or employee not found, or you do not have permission to manage this user",
+      });
+    }
+
+    if (!target.isRevoked) {
+      return res.status(200).json({
+        success: true,
+        message: "This account is already active",
+        user: target,
+      });
+    }
+
+    const user = await prisma.user.update({
+      where: {
+        id: target.id,
+      },
+      data: {
+        isRevoked: false,
+        revokedAt: null,
+        revokedReason: null,
+        tokenVersion: {
+          increment: 1,
+        },
+        fcmToken: null,
+      },
+      select: {
+        id: true,
+        userName: true,
+        role: true,
+        isRevoked: true,
+        revokedAt: true,
+        revokedReason: true,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `${
+        target.role === "employee" ? "Employee" : "Client"
+      } access restored successfully`,
+      user,
+    });
+  } catch (error) {
+    console.error("RESTORE USER ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to restore account access",
+    });
+  }
+}
+
+// =====================================================
 // EXPORTS
 // =====================================================
 
@@ -1178,4 +1426,6 @@ module.exports = {
   updateUser,
   saveFcmToken,
   getEmployees,
+  revokeUser,
+  restoreUser,
 };

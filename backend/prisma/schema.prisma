@@ -70,15 +70,24 @@ model User {
   designation    String?
   fcmToken       String?
   tokenVersion   Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
 
+  // Account access revocation
+  isRevoked     Boolean   @default(false)
+  revokedAt     DateTime?
+  revokedReason String?   @db.VarChar(500)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Organisation relations
   organisation         Organisation   @relation("OrganisationUsers", fields: [organisationId], references: [id], onDelete: Restrict)
   organisationsCreated Organisation[] @relation("OrganisationCreator")
 
+  // Client and employee assignments
   assignedEmployees UserAssignment[] @relation("ClientAssignments")
   assignedToClients UserAssignment[] @relation("EmployeeAssignments")
 
+  // Application relations
   complaints         Complaint[]
   assignedComplaints Complaint[]    @relation("ComplaintAssignedEmployee")
   documents          Document[]
@@ -89,6 +98,7 @@ model User {
   @@index([organisationId])
   @@index([email])
   @@index([role])
+  @@index([isRevoked])
 }
 
 model UserAssignment {

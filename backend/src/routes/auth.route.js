@@ -33,5 +33,18 @@ Router.patch(
   authMiddleware.verifyToken,
   authController.updateUser,
 );
+Router.patch(
+  "/revoke-user/:userId",
+  authMiddleware.verifyToken,
+  authMiddleware.verifyAdmin,
+  authController.revokeUser,
+);
+
+Router.patch(
+  "/restore-user/:userId",
+  authMiddleware.verifyToken,
+  authMiddleware.verifyAdmin,
+  authController.restoreUser,
+);
 Router.post("/logout", authMiddleware.verifyToken, authController.logout);
 module.exports = Router;
