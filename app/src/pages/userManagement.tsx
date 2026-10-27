@@ -22,7 +22,7 @@ import {
   isErrorWithCode,
   errorCodes,
 } from '@react-native-documents/picker';
-import createstyles from '../style/clientManager';
+import createstyles from '../style/userManagement';
 import AttendanceHistory from '../components/AttendanceHistory';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
