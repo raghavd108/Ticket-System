@@ -16,6 +16,17 @@ const ALLOWED_TYPES = new Set([
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
+const ALLOWED_EXTENSIONS = {
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/png": [".png"],
+  "image/webp": [".webp"],
+  "application/pdf": [".pdf"],
+  "application/msword": [".doc"],
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+    ".docx",
+  ],
+};
+
 // Validate file content, not just the filename or MIME header.
 const validateImage = async (buffer, originalName = "image.jpg") => {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
@@ -23,33 +34,25 @@ const validateImage = async (buffer, originalName = "image.jpg") => {
   }
 
   if (buffer.length > MAX_FILE_SIZE) {
-    throw new Error("Image must not exceed 5 MB");
+    throw new Error("File must not exceed 5 MB");
   }
 
   const { fileTypeFromBuffer } = await import("file-type");
   const detected = await fileTypeFromBuffer(buffer);
 
   if (!detected || !ALLOWED_TYPES.has(detected.mime)) {
-    throw new Error("Only JPEG, PNG and WebP images are allowed");
+    throw new Error("Only JPEG, PNG, WebP, PDF and Word files are allowed");
   }
 
-  // Prevent a misleading extension from being used.
-  const expectedExtension = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-  }[detected.mime];
+  // Prevent a misleading extension from being used. Every allowed type
+  // needs an entry here, otherwise valid documents (e.g. PDF) are rejected.
+  const allowedExtensions = ALLOWED_EXTENSIONS[detected.mime];
+  const expectedExtension = allowedExtensions[0];
 
   const extension = path.extname(originalName).toLowerCase();
 
-  if (
-    extension &&
-    ![
-      expectedExtension,
-      ...(detected.mime === "image/jpeg" ? [".jpeg"] : []),
-    ].includes(extension)
-  ) {
-    throw new Error("Image extension does not match its content");
+  if (extension && !allowedExtensions.includes(extension)) {
+    throw new Error("File extension does not match its content");
   }
 
   return { mime: detected.mime, extension: expectedExtension };

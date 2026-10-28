@@ -12,6 +12,9 @@ const {
 // HELPERS
 // =====================================================
 
+const MAX_BACKDATED_LEAVE_DAYS = 30;
+const MAX_LEAVE_SPAN_DAYS = 90;
+
 function getOrganisationId(user) {
   if (!user?.organisation) return null;
 
@@ -171,6 +174,28 @@ exports.applyLeave = async (req, res) => {
     if (endDate < startDate) {
       return res.status(400).json({
         message: "End date cannot be before the start date.",
+      });
+    }
+
+    // Allow recent back-dated leave (e.g. sick leave) but not arbitrary
+    // historic dates that would rewrite old attendance.
+    const earliestStart = DateTime.now()
+      .setZone(TIMEZONE)
+      .minus({ days: MAX_BACKDATED_LEAVE_DAYS })
+      .toISODate();
+
+    if (startDate < earliestStart) {
+      return res.status(400).json({
+        message: `Leave cannot start more than ${MAX_BACKDATED_LEAVE_DAYS} days in the past.`,
+      });
+    }
+
+    if (
+      DateTime.fromISO(endDate).diff(DateTime.fromISO(startDate), "days").days >
+      MAX_LEAVE_SPAN_DAYS
+    ) {
+      return res.status(400).json({
+        message: `A single leave request cannot exceed ${MAX_LEAVE_SPAN_DAYS} days.`,
       });
     }
 

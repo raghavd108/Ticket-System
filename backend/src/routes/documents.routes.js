@@ -9,7 +9,7 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     files: 10,
-    fileSize: 10 * 1024 * 1024, // 10 MB per file
+    fileSize: 5 * 1024 * 1024, // matches imagekitService MAX_FILE_SIZE
   },
 });
 

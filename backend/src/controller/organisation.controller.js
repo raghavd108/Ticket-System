@@ -3,20 +3,22 @@ const prisma = require("../config/prisma");
 // =====================================================
 // ADD ORGANISATION
 // POST /api/org/add-org/:adminId
+// The creator is always the authenticated admin; the URL parameter is
+// kept only for compatibility with existing app builds.
 // =====================================================
 
 async function addOrganisation(req, res) {
   try {
-    const { id } = req.params;
+    const id = String(req.user.id);
     const { name, orgType } = req.body;
 
-    if (!name || !name.trim()) {
+    if (typeof name !== "string" || !name.trim()) {
       return res.status(400).json({
         message: "Organisation name is required",
       });
     }
 
-    if (!orgType || !orgType.trim()) {
+    if (typeof orgType !== "string" || !orgType.trim()) {
       return res.status(400).json({
         message: "Organisation type is required",
       });
@@ -79,7 +81,6 @@ async function addOrganisation(req, res) {
 
     return res.status(500).json({
       message: "Server error",
-      error: error.message,
     });
   }
 }

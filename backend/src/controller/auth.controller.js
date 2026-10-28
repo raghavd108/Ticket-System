@@ -1,6 +1,42 @@
 const prisma = require("../config/prisma");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
+const { getPermissions } = require("../middleware/authMiddleware");
+
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "strict",
+  maxAge: 24 * 60 * 60 * 1000,
+};
+
+// Employees must use a designation that exists in the Designation table.
+async function findDesignation(name) {
+  const value = String(name || "").trim();
+
+  if (!value) return null;
+
+  return prisma.designation.findUnique({
+    where: {
+      name: value,
+    },
+  });
+}
+
+// SuperAdmins manage every client and every SP Infocom employee.
+function manageableUserWhere(adminOrganisationId) {
+  return {
+    OR: [
+      {
+        role: "employee",
+        organisationId: adminOrganisationId,
+      },
+      {
+        role: "client",
+      },
+    ],
+  };
+}
 
 // =====================================================
 // SERIALIZE USER
@@ -15,6 +51,9 @@ function serializeUser(user) {
     assignedEmployees,
     assignedToClients,
     organisationsCreated,
+    designationRef,
+    tokenVersion,
+    fcmToken,
     ...rest
   } = user;
 
@@ -22,6 +61,10 @@ function serializeUser(user) {
     ...rest,
     _id: user.id,
   };
+
+  if (designationRef !== undefined) {
+    result.permissions = getPermissions(user);
+  }
 
   if (user.organisation) {
     result.organisation = {
@@ -99,6 +142,15 @@ async function register(req, res) {
       });
     }
 
+    const designationRecord =
+      role === "employee" ? await findDesignation(normalizedDesignation) : null;
+
+    if (role === "employee" && !designationRecord) {
+      return res.status(400).json({
+        message: "Select a valid designation",
+      });
+    }
+
     if (role === "employee" && !/^\d{10}$/.test(normalizedMobileNumber)) {
       return res.status(400).json({
         message: "A valid 10-digit mobile number is required for employee",
@@ -166,8 +218,10 @@ async function register(req, res) {
 
     const existingUser = await prisma.user.findFirst({
       where: {
-        organisationId: org.id,
-        OR: [{ userName: normalizedUserName }, { email: normalizedEmail }],
+        OR: [
+          { userName: normalizedUserName },
+          { organisationId: org.id, email: normalizedEmail },
+        ],
       },
       select: {
         id: true,
@@ -240,7 +294,7 @@ async function register(req, res) {
         password: hashedPassword,
         role,
         organisationId: org.id,
-        designation: role === "employee" ? normalizedDesignation : null,
+        designation: designationRecord ? designationRecord.name : null,
         mobileNumber: role === "employee" ? normalizedMobileNumber : null,
 
         ...(role === "client" && employeeIds.length > 0
@@ -351,20 +405,21 @@ async function login(req, res) {
       });
     }
 
+    const passwordCorrect = await bcrypt.compare(password, user.password);
+
+    if (!passwordCorrect) {
+      return res.status(401).json({
+        message: "Invalid username/email/mobile number or password",
+      });
+    }
+
+    // Only reveal revocation to someone who knows the password.
     if (user.isRevoked) {
       return res.status(403).json({
         success: false,
         code: "ACCOUNT_REVOKED",
         message:
           "Access to this account has been revoked. Please contact your administrator.",
-      });
-    }
-
-    const passwordCorrect = await bcrypt.compare(password, user.password);
-
-    if (!passwordCorrect) {
-      return res.status(401).json({
-        message: "Invalid username/email/mobile number or password",
       });
     }
 
@@ -391,7 +446,7 @@ async function login(req, res) {
       },
     );
 
-    res.cookie("token", token);
+    res.cookie("token", token, COOKIE_OPTIONS);
 
     return res.status(200).json({
       message: "User login successful",
@@ -438,7 +493,7 @@ async function logout(req, res) {
       },
     });
 
-    res.clearCookie("token");
+    res.clearCookie("token", COOKIE_OPTIONS);
 
     return res.status(200).json({
       success: true,
@@ -465,6 +520,12 @@ async function getMe(req, res) {
         id: String(req.user.id),
       },
       include: {
+        designationRef: {
+          select: {
+            canViewAllTickets: true,
+            canAssignTickets: true,
+          },
+        },
         organisation: {
           select: {
             id: true,
@@ -512,7 +573,7 @@ async function getMe(req, res) {
 
 async function updateProfile(req, res) {
   try {
-    const { userName, email } = req.body;
+    const { userName, email, mobileNumber } = req.body;
 
     if (!userName || !email) {
       return res.status(400).json({
@@ -523,6 +584,33 @@ async function updateProfile(req, res) {
     const userId = String(req.user.id);
     const normalizedUserName = String(userName).trim();
     const normalizedEmail = String(email).trim().toLowerCase();
+
+    if (!normalizedUserName || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
+      return res.status(400).json({
+        message: "Enter a valid username and email address",
+      });
+    }
+
+    const normalizedMobileNumber =
+      mobileNumber === undefined || mobileNumber === null
+        ? undefined
+        : String(mobileNumber).trim();
+
+    if (
+      normalizedMobileNumber !== undefined &&
+      normalizedMobileNumber !== "" &&
+      !/^\d{10}$/.test(normalizedMobileNumber)
+    ) {
+      return res.status(400).json({
+        message: "Mobile number must contain exactly 10 digits",
+      });
+    }
+
+    if (req.user.role === "employee" && normalizedMobileNumber === "") {
+      return res.status(400).json({
+        message: "A valid 10-digit mobile number is required for employees",
+      });
+    }
 
     const existingUser = await prisma.user.findUnique({
       where: {
@@ -561,6 +649,9 @@ async function updateProfile(req, res) {
       data: {
         userName: normalizedUserName,
         email: normalizedEmail,
+        ...(normalizedMobileNumber !== undefined
+          ? { mobileNumber: normalizedMobileNumber || null }
+          : {}),
       },
       include: {
         organisation: {
@@ -586,7 +677,7 @@ async function updateProfile(req, res) {
     });
 
     return res.status(200).json({
-      message: "Username and email updated successfully",
+      message: "Profile updated successfully",
       user: serializeUser(user),
     });
   } catch (error) {
@@ -700,28 +791,7 @@ async function getUser(req, res) {
     }
 
     const users = await prisma.user.findMany({
-      where: {
-        role: {
-          in: ["client", "employee"],
-        },
-        OR: [
-          {
-            role: "employee",
-            organisationId: adminOrganisationId,
-          },
-          {
-            role: "client",
-            assignedEmployees: {
-              some: {
-                employee: {
-                  role: "employee",
-                  organisationId: adminOrganisationId,
-                },
-              },
-            },
-          },
-        ],
-      },
+      where: manageableUserWhere(adminOrganisationId),
       select: {
         id: true,
         userName: true,
@@ -807,23 +877,7 @@ async function updateUser(req, res) {
     const target = await prisma.user.findFirst({
       where: {
         id: userId,
-        OR: [
-          {
-            role: "employee",
-            organisationId: adminOrganisationId,
-          },
-          {
-            role: "client",
-            assignedEmployees: {
-              some: {
-                employee: {
-                  organisationId: adminOrganisationId,
-                  role: "employee",
-                },
-              },
-            },
-          },
-        ],
+        ...manageableUserWhere(adminOrganisationId),
       },
       select: {
         id: true,
@@ -925,15 +979,15 @@ async function updateUser(req, res) {
         });
       }
 
-      const value = String(designation).trim();
+      const designationRecord = await findDesignation(designation);
 
-      if (!value) {
+      if (!designationRecord) {
         return res.status(400).json({
-          message: "Designation cannot be empty for employees",
+          message: "Select a valid designation",
         });
       }
 
-      data.designation = value;
+      data.designation = designationRecord.name;
     }
 
     if (assignedEmployee !== undefined) {
@@ -1017,8 +1071,11 @@ async function updateUser(req, res) {
           id: {
             not: target.id,
           },
-          organisationId: target.organisationId,
-          OR: duplicateOr,
+          OR: duplicateOr.map((condition) =>
+            condition.email
+              ? { ...condition, organisationId: target.organisationId }
+              : condition,
+          ),
         },
         select: {
           id: true,
@@ -1197,23 +1254,7 @@ async function findManageableUser(userId, adminOrganisationId) {
   return prisma.user.findFirst({
     where: {
       id: userId,
-      OR: [
-        {
-          role: "employee",
-          organisationId: adminOrganisationId,
-        },
-        {
-          role: "client",
-          assignedEmployees: {
-            some: {
-              employee: {
-                role: "employee",
-                organisationId: adminOrganisationId,
-              },
-            },
-          },
-        },
-      ],
+      ...manageableUserWhere(adminOrganisationId),
     },
     select: {
       id: true,

@@ -6,18 +6,26 @@ const multer = require("multer");
 
 const Router = express.Router();
 
+const MAX_TICKET_FILES = 5;
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 5 * 1024 * 1024,
-    files: 5,
+    files: MAX_TICKET_FILES,
   },
 });
+
+Router.get(
+  "/statuses",
+  authMiddleware.verifyToken,
+  complainController.getStatuses,
+);
 
 Router.post(
   "/postcomplain",
   authMiddleware.verifyToken,
-  upload.array("image", 10),
+  upload.array("image", MAX_TICKET_FILES),
   complainController.complain,
 );
 
@@ -35,6 +43,11 @@ Router.get(
   "/search",
   authMiddleware.verifyToken,
   complainController.searchComplaint,
+);
+Router.get(
+  "/:id/assignable-employees",
+  authMiddleware.verifyToken,
+  complainController.listAssignableEmployees,
 );
 Router.patch(
   "/:id/assign",

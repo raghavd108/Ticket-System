@@ -13,12 +13,6 @@ enum Role {
   employee
 }
 
-enum ComplaintStatus {
-  pending
-  in_progress @map("in-progress")
-  resolved
-}
-
 enum AttendanceStatus {
   present
   absent
@@ -60,8 +54,8 @@ model Organisation {
 }
 
 model User {
-  id             String   @id @default(cuid())
-  userName       String   @unique
+  id             String  @id @default(cuid())
+  userName       String  @unique
   email          String
   mobileNumber   String?
   password       String
@@ -69,7 +63,7 @@ model User {
   organisationId String
   designation    String?
   fcmToken       String?
-  tokenVersion   Int      @default(0)
+  tokenVersion   Int     @default(0)
 
   // Account access revocation
   isRevoked     Boolean   @default(false)
@@ -80,7 +74,10 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Organisation relations
-  organisation         Organisation   @relation("OrganisationUsers", fields: [organisationId], references: [id], onDelete: Restrict)
+  organisation Organisation @relation("OrganisationUsers", fields: [organisationId], references: [id], onDelete: Restrict)
+
+  // Employee designations are managed in the Designation table.
+  designationRef       Designation?   @relation(fields: [designation], references: [name], onDelete: Restrict, onUpdate: Cascade)
   organisationsCreated Organisation[] @relation("OrganisationCreator")
 
   // Client and employee assignments
@@ -99,6 +96,32 @@ model User {
   @@index([email])
   @@index([role])
   @@index([isRevoked])
+  @@index([designation])
+}
+
+// Employee designations and the ticket permissions they grant.
+model Designation {
+  id                Int      @id @default(autoincrement())
+  name              String   @unique
+  canViewAllTickets Boolean  @default(false)
+  canAssignTickets  Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users User[]
+}
+
+// Ticket workflow statuses. Defaults are seeded by prisma/seed.js.
+model TicketStatus {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique @db.VarChar(50)
+  name      String   @db.VarChar(100)
+  sortOrder Int      @default(0)
+  isFinal   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  complaints Complaint[]
 }
 
 model UserAssignment {
@@ -114,16 +137,17 @@ model UserAssignment {
 }
 
 model Complaint {
-  id                 String          @id @default(cuid())
+  id                 String   @id @default(cuid())
   module             String
-  problem            String          @db.Text
+  problem            String   @db.Text
   userId             String
   organisationId     String
-  assignedEmployeeId String?         @db.VarChar(191)
-  status             ComplaintStatus @default(pending)
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
+  assignedEmployeeId String?  @db.VarChar(191)
+  statusId           Int
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
+  status       TicketStatus @relation(fields: [statusId], references: [id], onDelete: Restrict)
   user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
   organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Restrict)
 
@@ -133,7 +157,8 @@ model Complaint {
   notifications Notification[]
 
   @@index([userId])
-  @@index([organisationId, status])
+  @@index([organisationId, statusId])
+  @@index([statusId, createdAt])
   @@index([assignedEmployeeId])
 }
 

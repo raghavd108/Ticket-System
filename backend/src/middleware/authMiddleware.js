@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const prisma = require("../config/prisma");
 
 function getToken(req) {
   // Check cookie
@@ -18,26 +19,110 @@ function getToken(req) {
   return null;
 }
 
-function verifyToken(req, res, next) {
+// Verify the JWT and confirm the session is still valid in the database.
+// Logout, password changes and revocation increment tokenVersion, so an
+// older token is rejected. Role, organisation and designation are read
+// from the database so permission changes apply immediately.
+async function authenticate(req, res) {
+  const token = getToken(req);
+
+  if (!token) {
+    res.status(401).json({
+      message: "Access denied. Token not found",
+    });
+    return null;
+  }
+
+  let decoded;
+
   try {
-    const token = getToken(req);
-
-    if (!token) {
-      return res.status(401).json({
-        message: "Access denied. Token not found",
-      });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    req.user = decoded;
-
-    next();
+    decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      algorithms: ["HS256"],
+    });
   } catch (error) {
     console.error("AUTH ERROR:", error.message);
 
-    return res.status(401).json({
+    res.status(401).json({
       message: "Invalid or expired token",
+    });
+    return null;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: {
+      id: String(decoded.id || ""),
+    },
+    select: {
+      id: true,
+      role: true,
+      organisationId: true,
+      userName: true,
+      email: true,
+      designation: true,
+      tokenVersion: true,
+      isRevoked: true,
+      designationRef: {
+        select: {
+          canViewAllTickets: true,
+          canAssignTickets: true,
+        },
+      },
+    },
+  });
+
+  if (!user || user.tokenVersion !== Number(decoded.tokenVersion ?? 0)) {
+    res.status(401).json({
+      code: "SESSION_EXPIRED",
+      message: "Your session has expired. Please log in again.",
+    });
+    return null;
+  }
+
+  if (user.isRevoked) {
+    res.status(401).json({
+      code: "ACCOUNT_REVOKED",
+      message:
+        "Access to this account has been revoked. Please contact your administrator.",
+    });
+    return null;
+  }
+
+  return {
+    id: user.id,
+    role: user.role,
+    organisation: user.organisationId,
+    userName: user.userName,
+    email: user.email,
+    designation: user.designation,
+    tokenVersion: user.tokenVersion,
+    permissions: getPermissions(user),
+  };
+}
+
+function getPermissions(user) {
+  const isAdmin = user.role === "admin";
+
+  return {
+    canViewAllTickets:
+      isAdmin || Boolean(user.designationRef?.canViewAllTickets),
+    canAssignTickets: isAdmin || Boolean(user.designationRef?.canAssignTickets),
+  };
+}
+
+async function verifyToken(req, res, next) {
+  try {
+    const user = await authenticate(req, res);
+
+    if (!user) return;
+
+    req.user = user;
+
+    next();
+  } catch (error) {
+    console.error("AUTH ERROR:", error);
+
+    return res.status(500).json({
+      message: "Unable to verify session",
     });
   }
 }
@@ -46,32 +131,26 @@ function verifyToken(req, res, next) {
 // VERIFY ADMIN
 // =====================================================
 
-function verifyAdmin(req, res, next) {
+async function verifyAdmin(req, res, next) {
   try {
-    const token = getToken(req);
+    const user = await authenticate(req, res);
 
-    if (!token) {
-      return res.status(401).json({
-        message: "Access denied. Token not found",
-      });
-    }
+    if (!user) return;
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    if (decoded.role !== "admin") {
+    if (user.role !== "admin") {
       return res.status(403).json({
         message: "Access denied. Admin only",
       });
     }
 
-    req.user = decoded;
+    req.user = user;
 
     next();
   } catch (error) {
-    console.error("ADMIN AUTH ERROR:", error.message);
+    console.error("ADMIN AUTH ERROR:", error);
 
-    return res.status(401).json({
-      message: "Invalid or expired token",
+    return res.status(500).json({
+      message: "Unable to verify session",
     });
   }
 }
@@ -79,4 +158,5 @@ function verifyAdmin(req, res, next) {
 module.exports = {
   verifyToken,
   verifyAdmin,
+  getPermissions,
 };

@@ -1,10 +1,18 @@
 const prisma = require("../config/prisma");
 const { uploadImage } = require("../services/imagekitService");
 const { getSignedImageUrl } = require("../services/fileService");
-const { sendNotification } = require("../services/fcmService");
+const { notifyUsers } = require("../services/fcmService");
 
 // =====================================================
-// COMMON HELPERS
+// ACCESS RULES
+// -----------------------------------------------------
+// admin                         : every ticket
+// employee, canViewAllTickets   : every ticket (CEO, CTO, Customer Care,
+//                                 Business Development Manager, Sales
+//                                 Executive, ...)
+// employee, other designations  : tickets assigned to them AND raised by
+//                                 a client they are mapped to
+// client                        : tickets they raised
 // =====================================================
 
 const complaintInclude = {
@@ -32,6 +40,15 @@ const complaintInclude = {
       designation: true,
     },
   },
+  status: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      sortOrder: true,
+      isFinal: true,
+    },
+  },
   images: {
     select: {
       id: true,
@@ -40,94 +57,165 @@ const complaintInclude = {
   },
 };
 
-function getOrganisationId(user) {
-  if (!user) return null;
+// Older app builds send these values.
+const LEGACY_STATUS_CODES = {
+  in_progress: "in-progress",
+  resolved: "work-completed",
+};
 
-  const id =
-    user.organisationId ??
-    user.organisation?.id ??
-    user.organisation?._id ??
-    user.organisation;
-
-  return id ? String(id) : null;
-}
-
-function normalizeStatus(status) {
-  return status === "in-progress" ? "in_progress" : status;
-}
-
-function displayStatus(status) {
-  return status === "in_progress" ? "in-progress" : status;
-}
-
-function isValidStatus(status) {
-  return ["pending", "in-progress", "in_progress", "resolved"].includes(status);
-}
+const recipientSelect = {
+  id: true,
+  role: true,
+  fcmToken: true,
+};
 
 function getUserId(user) {
   const id = user?.id ?? user?._id;
   return id ? String(id) : null;
 }
 
-// Clients assigned to employees belonging to an organisation.
-async function getAssignedClientIds(organisationId) {
-  if (!organisationId) return [];
-
-  const assignments = await prisma.userAssignment.findMany({
-    where: {
-      employee: {
-        role: "employee",
-        organisationId,
-      },
-      client: {
-        role: "client",
-      },
-    },
-    select: {
-      clientId: true,
-    },
-  });
-
-  return [...new Set(assignments.map((item) => item.clientId))];
+function canViewAllTickets(user) {
+  return user?.role === "admin" || Boolean(user?.permissions?.canViewAllTickets);
 }
 
-// Clients assigned to a particular employee.
-async function getEmployeeClientIds(employeeId, organisationId) {
-  const assignments = await prisma.userAssignment.findMany({
-    where: {
-      employeeId,
-      employee: {
-        id: employeeId,
-        role: "employee",
-        ...(organisationId ? { organisationId } : {}),
-      },
-      client: {
-        role: "client",
-      },
-    },
-    select: {
-      clientId: true,
-    },
-  });
-
-  return [...new Set(assignments.map((item) => item.clientId))];
+function canAssignTickets(user) {
+  return user?.role === "admin" || Boolean(user?.permissions?.canAssignTickets);
 }
 
-// Check whether an employee is assigned to the ticket's client.
-async function isEmployeeAssignedToClient(employeeId, clientId) {
-  const assignment = await prisma.userAssignment.findUnique({
+// Prisma filter for the tickets the user may see.
+function getAccessWhere(user) {
+  const userId = getUserId(user);
+
+  if (canViewAllTickets(user)) {
+    return {};
+  }
+
+  if (user?.role === "employee") {
+    return {
+      assignedEmployeeId: userId,
+      user: {
+        assignedEmployees: {
+          some: {
+            employeeId: userId,
+          },
+        },
+      },
+    };
+  }
+
+  if (user?.role === "client") {
+    return {
+      userId,
+    };
+  }
+
+  return null;
+}
+
+async function findAccessibleComplaint(user, id) {
+  const accessWhere = getAccessWhere(user);
+
+  if (!accessWhere) return null;
+
+  return prisma.complaint.findFirst({
     where: {
-      clientId_employeeId: {
-        clientId,
-        employeeId,
+      AND: [{ id }, accessWhere],
+    },
+    include: complaintInclude,
+  });
+}
+
+function isValidDateString(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
+}
+
+// Optional list filters: ?status=pending&from=2026-10-01&to=2026-10-31&clientId=...
+// Dates are calendar days in IST.
+function getListFilters(query) {
+  const filters = [];
+  const { status, from, to, clientId } = query || {};
+
+  if (typeof status === "string" && status && status !== "all") {
+    filters.push({
+      status: {
+        code: LEGACY_STATUS_CODES[status] || status,
+      },
+    });
+  }
+
+  if (isValidDateString(from)) {
+    filters.push({
+      createdAt: {
+        gte: new Date(`${from}T00:00:00.000+05:30`),
+      },
+    });
+  }
+
+  if (isValidDateString(to)) {
+    filters.push({
+      createdAt: {
+        lte: new Date(`${to}T23:59:59.999+05:30`),
+      },
+    });
+  }
+
+  if (typeof clientId === "string" && clientId.trim()) {
+    filters.push({
+      userId: clientId.trim(),
+    });
+  }
+
+  return filters;
+}
+
+async function findStatus({ statusId, status }) {
+  if (statusId !== undefined && statusId !== null && statusId !== "") {
+    const id = Number(statusId);
+
+    if (!Number.isInteger(id)) return null;
+
+    return prisma.ticketStatus.findUnique({ where: { id } });
+  }
+
+  if (typeof status === "string" && status.trim()) {
+    const code = status.trim();
+
+    return prisma.ticketStatus.findUnique({
+      where: {
+        code: LEGACY_STATUS_CODES[code] || code,
+      },
+    });
+  }
+
+  return null;
+}
+
+// Employees mapped to a client (active accounts only).
+async function getClientEmployees(clientId) {
+  const assignments = await prisma.userAssignment.findMany({
+    where: {
+      clientId,
+      employee: {
+        role: "employee",
+        isRevoked: false,
       },
     },
     select: {
-      clientId: true,
+      employee: {
+        select: recipientSelect,
+      },
     },
   });
 
-  return Boolean(assignment);
+  return assignments.map((assignment) => assignment.employee);
 }
 
 // Convert Prisma complaint records into the existing API response format.
@@ -143,6 +231,7 @@ async function formatComplaint(complaint) {
     organisation,
     assignedEmployee,
     status,
+    statusId,
     ...rest
   } = complaint;
 
@@ -157,7 +246,12 @@ async function formatComplaint(complaint) {
   return {
     ...rest,
     _id: complaint.id,
-    status: displayStatus(status),
+
+    // `status` stays a string code for compatibility with existing clients.
+    status: status?.code ?? null,
+    statusId,
+    statusName: status?.name ?? null,
+    statusDetails: status || null,
 
     user: user
       ? {
@@ -186,6 +280,67 @@ async function formatComplaint(complaint) {
   };
 }
 
+// Notify everyone involved in a ticket about a status change, except the
+// person who made the change.
+async function notifyStatusChange({ complaint, statusName, actorId }) {
+  const [clientEmployees, client, assignee] = await Promise.all([
+    getClientEmployees(complaint.userId),
+    prisma.user.findUnique({
+      where: { id: complaint.userId },
+      select: recipientSelect,
+    }),
+    complaint.assignedEmployeeId
+      ? prisma.user.findUnique({
+          where: { id: complaint.assignedEmployeeId },
+          select: recipientSelect,
+        })
+      : null,
+  ]);
+
+  const recipients = [...clientEmployees, client, assignee].filter(
+    (recipient) => recipient && recipient.id !== actorId,
+  );
+
+  await notifyUsers(recipients, {
+    title: "Ticket Status Updated",
+    body: `Ticket "${complaint.module}" is now ${statusName}`,
+    type: "STATUS_UPDATE",
+    complaintId: complaint.id,
+  });
+}
+
+// =====================================================
+// TICKET STATUSES
+// GET /complain/statuses
+// =====================================================
+
+async function getStatuses(req, res) {
+  try {
+    const statuses = await prisma.ticketStatus.findMany({
+      orderBy: {
+        sortOrder: "asc",
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        sortOrder: true,
+        isFinal: true,
+      },
+    });
+
+    return res.status(200).json({
+      statuses,
+    });
+  } catch (error) {
+    console.error("Get ticket statuses error:", error);
+
+    return res.status(500).json({
+      message: "Unable to fetch ticket statuses",
+    });
+  }
+}
+
 // =====================================================
 // CREATE COMPLAINT
 // POST /complain
@@ -206,52 +361,61 @@ async function complain(req, res) {
       });
     }
 
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({
-        message: "Complaint image is required",
-      });
-    }
-
     const userId = getUserId(req.user);
-    const organisationId = getOrganisationId(req.user);
 
-    if (!userId || !organisationId) {
-      return res.status(400).json({
-        message: "User or organisation not found",
+    if (req.user?.role !== "client" || !userId) {
+      return res.status(403).json({
+        message: "Only clients can create a ticket",
       });
     }
 
-    // Only clients can create complaints.
-    const user = await prisma.user.findFirst({
-      where: {
-        id: userId,
-        organisationId,
-        role: "client",
-      },
-      select: {
-        id: true,
-        userName: true,
-        organisationId: true,
-      },
-    });
+    const [user, pendingStatus] = await Promise.all([
+      prisma.user.findUnique({
+        where: {
+          id: userId,
+        },
+        select: {
+          id: true,
+          userName: true,
+          organisationId: true,
+        },
+      }),
+      prisma.ticketStatus.findUnique({
+        where: {
+          code: "pending",
+        },
+      }),
+    ]);
 
     if (!user) {
       return res.status(403).json({
-        message: "Only an organisation client can create a complaint",
+        message: "Only clients can create a ticket",
       });
     }
 
-    // Upload images and store file names, not permanent public URLs.
+    if (!pendingStatus) {
+      throw new Error("Ticket status 'pending' is not seeded");
+    }
+
+    // Attachments are optional. Store file names, not permanent public URLs.
     const uploadedImages = [];
 
-    for (const file of req.files) {
+    for (const file of req.files || []) {
       if (!file.buffer || !file.originalname) {
         return res.status(400).json({
-          message: "Invalid complaint image",
+          message: "Invalid ticket attachment",
         });
       }
 
-      const result = await uploadImage(file.buffer, file.originalname);
+      let result;
+
+      try {
+        result = await uploadImage(file.buffer, file.originalname);
+      } catch (uploadError) {
+        return res.status(400).json({
+          message: uploadError.message || "Invalid ticket attachment",
+        });
+      }
 
       if (!result?.fileName) {
         throw new Error("Image upload did not return a file name");
@@ -267,8 +431,8 @@ async function complain(req, res) {
         module: module.trim(),
         problem: problem.trim(),
         userId,
-        organisationId,
-        status: "pending",
+        organisationId: user.organisationId,
+        statusId: pendingStatus.id,
         images: {
           create: uploadedImages,
         },
@@ -276,86 +440,25 @@ async function complain(req, res) {
       include: complaintInclude,
     });
 
-    // Notify organisation admins and employees assigned to this client.
+    // Notify every employee mapped to this client, plus SuperAdmins.
     try {
-      const [admins, assignments] = await Promise.all([
+      const [clientEmployees, admins] = await Promise.all([
+        getClientEmployees(userId),
         prisma.user.findMany({
           where: {
             role: "admin",
-            organisationId,
+            isRevoked: false,
           },
-          select: {
-            id: true,
-            userName: true,
-            role: true,
-            fcmToken: true,
-          },
-        }),
-
-        prisma.userAssignment.findMany({
-          where: {
-            clientId: userId,
-            employee: {
-              role: "employee",
-            },
-          },
-          select: {
-            employee: {
-              select: {
-                id: true,
-                userName: true,
-                role: true,
-                fcmToken: true,
-              },
-            },
-          },
+          select: recipientSelect,
         }),
       ]);
 
-      const assignedEmployees = assignments
-        .map((assignment) => assignment.employee)
-        .filter(Boolean);
-
-      const recipients = [
-        ...new Map(
-          [...admins, ...assignedEmployees].map((recipient) => [
-            recipient.id,
-            recipient,
-          ]),
-        ).values(),
-      ];
-
-      for (const recipient of recipients) {
-        const title = "New Ticket Created";
-        const body = `${user.userName || "A client"} created a new ticket`;
-
-        try {
-          await prisma.notification.create({
-            data: {
-              userId: recipient.id,
-              title,
-              body,
-              type: "NEW_TICKET",
-              complaintId: complaint.id,
-            },
-          });
-
-          if (recipient.fcmToken) {
-            await sendNotification({
-              fcmToken: recipient.fcmToken,
-              title,
-              body,
-              type: "NEW_TICKET",
-              targetRole: recipient.role,
-            });
-          }
-        } catch (notificationError) {
-          console.error(
-            `Notification failed for ${recipient.id}:`,
-            notificationError.message,
-          );
-        }
-      }
+      await notifyUsers([...clientEmployees, ...admins], {
+        title: "New Ticket Created",
+        body: `${user.userName || "A client"} raised a ticket: ${complaint.module}`,
+        type: "NEW_TICKET",
+        complaintId: complaint.id,
+      });
     } catch (notificationError) {
       console.error("Complaint notification error:", notificationError.message);
     }
@@ -375,82 +478,23 @@ async function complain(req, res) {
 
 // =====================================================
 // GET COMPLAINTS
-// GET /complain
+// GET /complain/getcomplain?status=&from=&to=&clientId=
 // =====================================================
 
 async function getComplain(req, res) {
   try {
-    const userId = getUserId(req.user);
-    const role = req.user?.role;
-    const organisationId = getOrganisationId(req.user);
+    const accessWhere = getAccessWhere(req.user);
 
-    if (!userId) {
-      return res.status(401).json({
-        message: "Authenticated user not found",
-      });
-    }
-
-    let where;
-
-    if (role === "admin") {
-      if (!organisationId) {
-        return res.status(400).json({
-          message: "Your account is not linked to an organisation",
-        });
-      }
-
-      const assignedClientIds = await getAssignedClientIds(organisationId);
-
-      where = {
-        OR: [
-          {
-            organisationId,
-          },
-          ...(assignedClientIds.length
-            ? [
-                {
-                  userId: {
-                    in: assignedClientIds,
-                  },
-                },
-              ]
-            : []),
-        ],
-      };
-    } else if (role === "employee") {
-      const clientIds = await getEmployeeClientIds(userId, organisationId);
-
-      // Employees can see tickets for their assigned clients and
-      // tickets explicitly assigned to them using assignedEmployeeId.
-      where = {
-        OR: [
-          {
-            assignedEmployeeId: userId,
-          },
-          ...(clientIds.length
-            ? [
-                {
-                  userId: {
-                    in: clientIds,
-                  },
-                },
-              ]
-            : []),
-        ],
-      };
-    } else if (role === "client") {
-      where = {
-        userId,
-        organisationId,
-      };
-    } else {
+    if (!accessWhere) {
       return res.status(403).json({
         message: "You are not authorized to view complaints",
       });
     }
 
     const complaints = await prisma.complaint.findMany({
-      where,
+      where: {
+        AND: [accessWhere, ...getListFilters(req.query)],
+      },
       include: complaintInclude,
       orderBy: {
         createdAt: "desc",
@@ -475,117 +519,40 @@ async function getComplain(req, res) {
 
 // =====================================================
 // UPDATE COMPLAINT STATUS
-// PATCH /complain/:id/status
+// PATCH /complain/update-status/:id   { statusId } or { status: code }
 // =====================================================
 
 async function updateComplaintStatus(req, res) {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const actorId = getUserId(req.user);
 
-    if (!id) {
-      return res.status(400).json({
-        message: "Complaint ID is required",
+    if (!["admin", "employee"].includes(req.user?.role)) {
+      return res.status(403).json({
+        message: "You are not authorized to update complaint status",
       });
     }
+
+    const status = await findStatus(req.body || {});
 
     if (!status) {
-      return res.status(400).json({
-        message: "Status is required",
-      });
-    }
-
-    if (!isValidStatus(status)) {
       return res.status(400).json({
         message: "Invalid complaint status",
       });
     }
 
-    const userId = getUserId(req.user);
-    const role = req.user?.role;
-    const organisationId = getOrganisationId(req.user);
-
-    const complaint = await prisma.complaint.findUnique({
-      where: {
-        id,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            userName: true,
-            role: true,
-            organisationId: true,
-            fcmToken: true,
-          },
-        },
-      },
-    });
+    const complaint = await findAccessibleComplaint(req.user, id);
 
     if (!complaint) {
       return res.status(404).json({
-        message: "Complaint not found",
+        message: "Complaint not found or you are not authorized to update it",
       });
     }
 
-    if (role === "employee") {
-      const directlyAssigned = complaint.assignedEmployeeId === userId;
-
-      const assignedClient = await isEmployeeAssignedToClient(
-        userId,
-        complaint.userId,
-      );
-
-      if (!directlyAssigned && !assignedClient) {
-        return res.status(403).json({
-          message: "You are not authorized to update this complaint",
-        });
-      }
-    } else if (role === "admin") {
-      if (!organisationId) {
-        return res.status(403).json({
-          message: "Your account is not linked to an organisation",
-        });
-      }
-
-      const assignedClientIds = await getAssignedClientIds(organisationId);
-
-      const isOwnOrganisationComplaint =
-        complaint.organisationId === organisationId;
-
-      const isAssignedClientComplaint = assignedClientIds.includes(
-        complaint.userId,
-      );
-
-      // Also allow the admin's organisation to manage tickets
-      // explicitly assigned to its employees.
-      const isAssignedToOrganisationEmployee = complaint.assignedEmployeeId
-        ? Boolean(
-            await prisma.user.findFirst({
-              where: {
-                id: complaint.assignedEmployeeId,
-                role: "employee",
-                organisationId,
-              },
-              select: {
-                id: true,
-              },
-            }),
-          )
-        : false;
-
-      if (
-        !isOwnOrganisationComplaint &&
-        !isAssignedClientComplaint &&
-        !isAssignedToOrganisationEmployee
-      ) {
-        return res.status(403).json({
-          message: "You are not authorized to update this complaint",
-        });
-      }
-    } else {
-      return res.status(403).json({
-        message: "You are not authorized to update complaint status",
+    if (complaint.statusId === status.id) {
+      return res.status(200).json({
+        message: "Status is already up to date",
+        complaint: await formatComplaint(complaint),
       });
     }
 
@@ -594,43 +561,19 @@ async function updateComplaintStatus(req, res) {
         id,
       },
       data: {
-        status: normalizeStatus(status),
+        statusId: status.id,
       },
       include: complaintInclude,
     });
 
-    // Notify the client about the status change.
     try {
-      const client = complaint.user;
-
-      if (client) {
-        const normalizedDisplayStatus = displayStatus(normalizeStatus(status));
-
-        const title = "Ticket Status Updated";
-        const body = `Your ticket status is now ${normalizedDisplayStatus}`;
-
-        await prisma.notification.create({
-          data: {
-            userId: client.id,
-            title,
-            body,
-            type: "STATUS_UPDATE",
-            complaintId: complaint.id,
-          },
-        });
-
-        if (client.fcmToken) {
-          await sendNotification({
-            fcmToken: client.fcmToken,
-            title,
-            body,
-            type: "STATUS_UPDATE",
-            targetRole: "client",
-          });
-        }
-      }
+      await notifyStatusChange({
+        complaint: updatedComplaint,
+        statusName: status.name,
+        actorId,
+      });
     } catch (notificationError) {
-      console.error("Client notification error:", notificationError.message);
+      console.error("Status notification error:", notificationError.message);
     }
 
     return res.status(200).json({
@@ -647,64 +590,63 @@ async function updateComplaintStatus(req, res) {
 }
 
 // =====================================================
-// ASSIGN COMPLAINT TO EMPLOYEE
-// PATCH /complain/:id/assign
-// Admin only
+// EMPLOYEES WHO CAN BE ASSIGNED A TICKET
+// GET /complain/:id/assignable-employees
 // =====================================================
 
-async function assignComplaint(req, res) {
+// An employee can work on a ticket when they are mapped to the client, or
+// when their designation already grants access to every ticket.
+async function getAssignableEmployees(complaint) {
+  return prisma.user.findMany({
+    where: {
+      role: "employee",
+      isRevoked: false,
+      OR: [
+        {
+          assignedToClients: {
+            some: {
+              clientId: complaint.userId,
+            },
+          },
+        },
+        {
+          designationRef: {
+            is: {
+              canViewAllTickets: true,
+            },
+          },
+        },
+      ],
+    },
+    select: {
+      id: true,
+      userName: true,
+      email: true,
+      designation: true,
+      assignedToClients: {
+        where: {
+          clientId: complaint.userId,
+        },
+        select: {
+          clientId: true,
+        },
+      },
+    },
+    orderBy: {
+      userName: "asc",
+    },
+  });
+}
+
+async function listAssignableEmployees(req, res) {
   try {
-    const { id } = req.params;
-    const { employeeId } = req.body;
-
-    const adminId = getUserId(req.user);
-    const organisationId = getOrganisationId(req.user);
-
-    if (req.user?.role !== "admin") {
+    if (!canAssignTickets(req.user)) {
       return res.status(403).json({
-        message: "Only admins can assign complaints",
+        message: "You are not authorized to assign tickets",
       });
     }
 
-    if (!adminId || !organisationId) {
-      return res.status(400).json({
-        message: "Admin or organisation not found",
-      });
-    }
-
-    if (!id || !employeeId || typeof employeeId !== "string") {
-      return res.status(400).json({
-        message: "Complaint ID and employeeId are required",
-      });
-    }
-
-    const [complaint, employee] = await Promise.all([
-      prisma.complaint.findUnique({
-        where: {
-          id,
-        },
-        select: {
-          id: true,
-          userId: true,
-          organisationId: true,
-          assignedEmployeeId: true,
-        },
-      }),
-
-      prisma.user.findFirst({
-        where: {
-          id: employeeId,
-          role: "employee",
-          organisationId,
-        },
-        select: {
-          id: true,
-          userName: true,
-          role: true,
-          fcmToken: true,
-        },
-      }),
-    ]);
+    const complaint = await findAccessibleComplaint(req.user, req.params.id);
 
     if (!complaint) {
       return res.status(404).json({
@@ -712,25 +654,81 @@ async function assignComplaint(req, res) {
       });
     }
 
-    if (!employee) {
-      return res.status(404).json({
-        message: "Employee not found in your organisation",
+    const employees = await getAssignableEmployees(complaint);
+
+    return res.status(200).json({
+      employees: employees.map(({ assignedToClients, ...employee }) => ({
+        ...employee,
+        _id: employee.id,
+        mappedToClient: assignedToClients.length > 0,
+      })),
+    });
+  } catch (error) {
+    console.error("Assignable employees error:", error);
+
+    return res.status(500).json({
+      message: "Unable to fetch employees",
+    });
+  }
+}
+
+// =====================================================
+// ASSIGN COMPLAINT TO EMPLOYEE
+// PATCH /complain/:id/assign   { employeeId }  (null to unassign)
+// Admins and designations with canAssignTickets
+// =====================================================
+
+async function assignComplaint(req, res) {
+  try {
+    const { id } = req.params;
+    const { employeeId } = req.body || {};
+    const actorId = getUserId(req.user);
+
+    if (!canAssignTickets(req.user)) {
+      return res.status(403).json({
+        message: "You are not authorized to assign tickets",
       });
     }
 
-    // The admin must be authorized to manage the ticket.
-    const assignedClientIds = await getAssignedClientIds(organisationId);
+    if (employeeId !== null && (typeof employeeId !== "string" || !employeeId)) {
+      return res.status(400).json({
+        message: "employeeId is required",
+      });
+    }
 
-    const isOwnOrganisationComplaint =
-      complaint.organisationId === organisationId;
+    const complaint = await findAccessibleComplaint(req.user, id);
 
-    const isAssignedClientComplaint = assignedClientIds.includes(
-      complaint.userId,
-    );
+    if (!complaint) {
+      return res.status(404).json({
+        message: "Complaint not found",
+      });
+    }
 
-    if (!isOwnOrganisationComplaint && !isAssignedClientComplaint) {
-      return res.status(403).json({
-        message: "You are not authorized to assign this complaint",
+    let employee = null;
+
+    if (employeeId) {
+      const assignable = await getAssignableEmployees(complaint);
+      employee = assignable.find((item) => item.id === employeeId);
+
+      if (!employee) {
+        return res.status(400).json({
+          message:
+            "This employee cannot work on this client's tickets. Map the employee to the client first.",
+        });
+      }
+    }
+
+    // Moving between Pending and Assigned follows the assignment.
+    const statusCode = complaint.status?.code;
+    let nextStatus = null;
+
+    if (employee && statusCode === "pending") {
+      nextStatus = await prisma.ticketStatus.findUnique({
+        where: { code: "assigned" },
+      });
+    } else if (!employee && statusCode === "assigned") {
+      nextStatus = await prisma.ticketStatus.findUnique({
+        where: { code: "pending" },
       });
     }
 
@@ -739,33 +737,32 @@ async function assignComplaint(req, res) {
         id,
       },
       data: {
-        assignedEmployeeId: employee.id,
+        assignedEmployeeId: employee ? employee.id : null,
+        ...(nextStatus ? { statusId: nextStatus.id } : {}),
       },
       include: complaintInclude,
     });
 
-    // Notify the newly assigned employee.
     try {
-      const title = "Ticket Assigned to You";
-      const body = `A ticket has been assigned to you: ${updatedComplaint.module}`;
+      if (employee && employee.id !== actorId) {
+        const recipient = await prisma.user.findUnique({
+          where: { id: employee.id },
+          select: recipientSelect,
+        });
 
-      await prisma.notification.create({
-        data: {
-          userId: employee.id,
-          title,
-          body,
+        await notifyUsers([recipient], {
+          title: "Ticket Assigned to You",
+          body: `A ticket has been assigned to you: ${updatedComplaint.module}`,
           type: "NEW_TICKET",
           complaintId: complaint.id,
-        },
-      });
+        });
+      }
 
-      if (employee.fcmToken) {
-        await sendNotification({
-          fcmToken: employee.fcmToken,
-          title,
-          body,
-          type: "NEW_TICKET",
-          targetRole: "employee",
+      if (nextStatus) {
+        await notifyStatusChange({
+          complaint: updatedComplaint,
+          statusName: nextStatus.name,
+          actorId,
         });
       }
     } catch (notificationError) {
@@ -776,7 +773,9 @@ async function assignComplaint(req, res) {
     }
 
     return res.status(200).json({
-      message: "Complaint assigned successfully",
+      message: employee
+        ? "Complaint assigned successfully"
+        : "Complaint unassigned successfully",
       complaint: await formatComplaint(updatedComplaint),
     });
   } catch (error) {
@@ -804,85 +803,9 @@ async function searchComplaint(req, res) {
     }
 
     const searchText = q.trim();
-    const userId = getUserId(req.user);
-    const role = req.user?.role;
-    const organisationId = getOrganisationId(req.user);
+    const accessWhere = getAccessWhere(req.user);
 
-    const searchCondition = {
-      OR: [
-        {
-          module: {
-            contains: searchText,
-          },
-        },
-        {
-          problem: {
-            contains: searchText,
-          },
-        },
-      ],
-    };
-
-    let accessCondition;
-
-    if (role === "admin") {
-      if (!organisationId) {
-        return res.status(400).json({
-          message: "Your account is not linked to an organisation",
-        });
-      }
-
-      const assignedClientIds = await getAssignedClientIds(organisationId);
-
-      accessCondition = {
-        OR: [
-          {
-            organisationId,
-          },
-          ...(assignedClientIds.length
-            ? [
-                {
-                  userId: {
-                    in: assignedClientIds,
-                  },
-                },
-              ]
-            : []),
-          {
-            assignedEmployee: {
-              is: {
-                role: "employee",
-                organisationId,
-              },
-            },
-          },
-        ],
-      };
-    } else if (role === "employee") {
-      const clientIds = await getEmployeeClientIds(userId, organisationId);
-
-      accessCondition = {
-        OR: [
-          {
-            assignedEmployeeId: userId,
-          },
-          ...(clientIds.length
-            ? [
-                {
-                  userId: {
-                    in: clientIds,
-                  },
-                },
-              ]
-            : []),
-        ],
-      };
-    } else if (role === "client") {
-      accessCondition = {
-        userId,
-        organisationId,
-      };
-    } else {
+    if (!accessWhere) {
       return res.status(403).json({
         message: "You are not authorized to search complaints",
       });
@@ -890,12 +813,29 @@ async function searchComplaint(req, res) {
 
     const complaints = await prisma.complaint.findMany({
       where: {
-        AND: [accessCondition, searchCondition],
+        AND: [
+          accessWhere,
+          {
+            OR: [
+              {
+                module: {
+                  contains: searchText,
+                },
+              },
+              {
+                problem: {
+                  contains: searchText,
+                },
+              },
+            ],
+          },
+        ],
       },
       include: complaintInclude,
       orderBy: {
         createdAt: "desc",
       },
+      take: 100,
     });
 
     const formattedComplaints = await Promise.all(
@@ -920,9 +860,11 @@ async function searchComplaint(req, res) {
 // =====================================================
 
 module.exports = {
+  getStatuses,
   complain,
   getComplain,
   updateComplaintStatus,
+  listAssignableEmployees,
   assignComplaint,
   searchComplaint,
 };

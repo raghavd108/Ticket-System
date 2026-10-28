@@ -9,6 +9,12 @@ const notificationInclude = {
   complaint: {
     include: {
       images: true,
+      status: {
+        select: {
+          code: true,
+          name: true,
+        },
+      },
     },
   },
 };
@@ -21,7 +27,8 @@ function formatComplaint(complaint) {
   return {
     ...rest,
     _id: id,
-    status: status === "in_progress" ? "in-progress" : status,
+    status: status?.code ?? null,
+    statusName: status?.name ?? null,
     user: userId,
     organisation: organisationId,
     image: (images || []).map((image) => ({
@@ -188,7 +195,12 @@ const customNotification = async (req, res) => {
   try {
     const { title, message } = req.body;
 
-    if (!title || !message) {
+    if (
+      typeof title !== "string" ||
+      typeof message !== "string" ||
+      !title.trim() ||
+      !message.trim()
+    ) {
       return res.status(400).json({
         message: "Title and message are required",
       });
@@ -212,13 +224,20 @@ const customNotification = async (req, res) => {
       });
     }
 
-    // Notify clients and employees in this organisation.
+    // Notify SP Infocom employees and every client. Clients belong to
+    // their own organisations, so they are not filtered by organisation.
     const users = await prisma.user.findMany({
       where: {
-        role: {
-          in: ["client", "employee"],
-        },
-        organisationId,
+        isRevoked: false,
+        OR: [
+          {
+            role: "employee",
+            organisationId,
+          },
+          {
+            role: "client",
+          },
+        ],
       },
       select: {
         id: true,
@@ -280,7 +299,6 @@ const customNotification = async (req, res) => {
 
     return res.status(500).json({
       message: "Unable to send custom notification",
-      error: error.message,
     });
   }
 };

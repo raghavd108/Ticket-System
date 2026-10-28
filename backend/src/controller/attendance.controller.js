@@ -128,6 +128,344 @@ function normalizeStatus(status) {
   return "pending";
 }
 
+// Build the day-by-day attendance and summary for one employee and month.
+// Days before the employee joined are reported as "not-joined" and are
+// not counted as working days or absences.
+function buildMonthAttendance({
+  range,
+  records,
+  calendarByDate,
+  joinedOn,
+  todayKey,
+}) {
+  const recordsByDate = new Map(
+    records.map((record) => [getDateKey(record.date), record]),
+  );
+
+  const attendance = [];
+
+  const summary = {
+    totalCalendarDays: 0,
+    workingDays: 0,
+    present: 0,
+    late: 0,
+    absent: 0,
+    leave: 0,
+    holidays: 0,
+    pending: 0,
+    notJoined: 0,
+    completedWorkingDays: 0,
+    attendancePercentage: 0,
+  };
+
+  for (
+    let day = range.start;
+    day.toMillis() < range.start.plus({ months: 1 }).toMillis();
+    day = day.plus({ days: 1 })
+  ) {
+    summary.totalCalendarDays++;
+
+    const dateKey = day.toISODate();
+    const record = recordsByDate.get(dateKey);
+    const calendarEntry = calendarByDate.get(dateKey);
+
+    // A custom WORKING_DAY overrides a regular Sunday/Saturday holiday.
+    // A custom HOLIDAY overrides a normal working day.
+    const holiday = calendarEntry
+      ? calendarEntry.type === "HOLIDAY"
+      : isRegularHoliday(day);
+
+    const beforeJoining = !record && Boolean(joinedOn) && dateKey < joinedOn;
+
+    let status;
+
+    if (record) {
+      status = normalizeStatus(record.status);
+    } else if (holiday) {
+      status = "holiday";
+    } else if (beforeJoining) {
+      status = "not-joined";
+    } else if (dateKey < todayKey) {
+      status = "absent";
+    } else {
+      status = "pending";
+    }
+
+    if (holiday) {
+      summary.holidays++;
+    } else if (beforeJoining) {
+      summary.notJoined++;
+    } else {
+      summary.workingDays++;
+    }
+
+    if (status === "present") summary.present++;
+    if (status === "late") summary.late++;
+    if (status === "absent") summary.absent++;
+    if (status === "leave") summary.leave++;
+
+    const isCompletedDay =
+      !holiday &&
+      !beforeJoining &&
+      (dateKey < todayKey || (dateKey === todayKey && Boolean(record)));
+
+    if (isCompletedDay) {
+      summary.completedWorkingDays++;
+    }
+
+    if (status === "pending") {
+      summary.pending++;
+    }
+
+    attendance.push({
+      date: dateKey,
+      day: day.toFormat("cccc"),
+      status,
+      isHoliday: holiday,
+      holidayName: holiday ? (calendarEntry?.name ?? "Weekly Holiday") : null,
+      calendarType: calendarEntry?.type ?? null,
+      inTime: record?.inTime ?? null,
+      outTime: record?.outTime ?? null,
+      location: record?.location ?? null,
+    });
+  }
+
+  summary.attendancePercentage =
+    summary.completedWorkingDays > 0
+      ? Math.round(
+          ((summary.present + summary.late) / summary.completedWorkingDays) *
+            100,
+        )
+      : 0;
+
+  return { attendance, summary };
+}
+
+function requireAdmin(req, res) {
+  if (req.user?.role !== "admin") {
+    sendError(res, 403, "Only admins can view attendance reports.");
+    return false;
+  }
+
+  return true;
+}
+
+const reportEmployeeSelect = {
+  id: true,
+  userName: true,
+  designation: true,
+  createdAt: true,
+};
+
+// =====================================================
+// ADMIN DAILY REPORT
+// GET /api/attendance/report/daily?date=2026-10-28
+// =====================================================
+
+exports.getDailyReport = async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const now = getNow();
+    const dateParam = req.query.date;
+
+    const day =
+      dateParam === undefined
+        ? now.startOf("day")
+        : DateTime.fromISO(String(dateParam), { zone: TIMEZONE }).startOf(
+            "day",
+          );
+
+    if (
+      !day.isValid ||
+      (dateParam !== undefined && day.toISODate() !== String(dateParam))
+    ) {
+      return sendError(res, 400, "Please provide a date as YYYY-MM-DD.");
+    }
+
+    const date = getAttendanceDate(day);
+    const dateKey = day.toISODate();
+
+    const [employees, records, holiday] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          role: "employee",
+          isRevoked: false,
+          organisationId: req.user.organisation,
+        },
+        select: reportEmployeeSelect,
+        orderBy: { userName: "asc" },
+      }),
+      prisma.attendance.findMany({
+        where: { date },
+      }),
+      isCompanyHoliday(day),
+    ]);
+
+    const recordsByEmployee = new Map(
+      records.map((record) => [record.employeeId, record]),
+    );
+
+    const summary = {
+      total: 0,
+      present: 0,
+      late: 0,
+      absent: 0,
+      leave: 0,
+      pending: 0,
+      holiday: 0,
+      notJoined: 0,
+    };
+
+    const rows = employees.map((employee) => {
+      const record = recordsByEmployee.get(employee.id);
+      const joinedOn = getDateKey(employee.createdAt);
+
+      let status;
+
+      if (record) {
+        status = normalizeStatus(record.status);
+      } else if (holiday) {
+        status = "holiday";
+      } else if (dateKey < joinedOn) {
+        status = "not-joined";
+      } else if (dateKey < now.toISODate()) {
+        status = "absent";
+      } else {
+        status = "pending";
+      }
+
+      summary.total++;
+      if (status === "not-joined") summary.notJoined++;
+      else if (summary[status] !== undefined) summary[status]++;
+
+      return {
+        employeeId: employee.id,
+        userName: employee.userName,
+        designation: employee.designation,
+        status,
+        inTime: record?.inTime ?? null,
+        outTime: record?.outTime ?? null,
+        location: record?.location ?? null,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      date: dateKey,
+      isHoliday: holiday,
+      summary,
+      employees: rows,
+    });
+  } catch (error) {
+    console.error("DAILY ATTENDANCE REPORT ERROR:", error);
+
+    return sendError(res, 500, "Unable to load the daily attendance report.");
+  }
+};
+
+// =====================================================
+// ADMIN MONTHLY REPORT
+// GET /api/attendance/report/monthly?month=10&year=2026
+// =====================================================
+
+exports.getMonthlyReport = async (req, res) => {
+  try {
+    if (!requireAdmin(req, res)) return;
+
+    const now = getNow();
+    const month = Number(req.query.month ?? now.month);
+    const year = Number(req.query.year ?? now.year);
+
+    if (
+      !Number.isInteger(month) ||
+      month < 1 ||
+      month > 12 ||
+      !Number.isInteger(year) ||
+      year < 2000 ||
+      year > 2100
+    ) {
+      return sendError(res, 400, "Please provide a valid month and year.");
+    }
+
+    const range = getMonthDateRange(year, month);
+
+    const [employees, records, calendarEntries] = await Promise.all([
+      prisma.user.findMany({
+        where: {
+          role: "employee",
+          isRevoked: false,
+          organisationId: req.user.organisation,
+        },
+        select: reportEmployeeSelect,
+        orderBy: { userName: "asc" },
+      }),
+      prisma.attendance.findMany({
+        where: {
+          date: {
+            gte: range.startDate,
+            lt: range.endDateExclusive,
+          },
+        },
+      }),
+      prisma.companyCalendarDay.findMany({
+        where: {
+          date: {
+            gte: range.startDate,
+            lt: range.endDateExclusive,
+          },
+        },
+      }),
+    ]);
+
+    const calendarByDate = new Map(
+      calendarEntries.map((entry) => [getDateKey(entry.date), entry]),
+    );
+
+    const recordsByEmployee = new Map();
+
+    for (const record of records) {
+      if (!recordsByEmployee.has(record.employeeId)) {
+        recordsByEmployee.set(record.employeeId, []);
+      }
+
+      recordsByEmployee.get(record.employeeId).push(record);
+    }
+
+    const rows = employees.map((employee) => {
+      const { summary } = buildMonthAttendance({
+        range,
+        records: recordsByEmployee.get(employee.id) || [],
+        calendarByDate,
+        joinedOn: getDateKey(employee.createdAt),
+        todayKey: now.toISODate(),
+      });
+
+      return {
+        employeeId: employee.id,
+        userName: employee.userName,
+        designation: employee.designation,
+        summary,
+      };
+    });
+
+    return res.status(200).json({
+      success: true,
+      period: {
+        year,
+        month,
+        startDate: range.start.toISODate(),
+        endDate: range.end.toISODate(),
+      },
+      employees: rows,
+    });
+  } catch (error) {
+    console.error("MONTHLY ATTENDANCE REPORT ERROR:", error);
+
+    return sendError(res, 500, "Unable to load the monthly attendance report.");
+  }
+};
+
 // =====================================================
 // CHECK IN
 // POST /api/attendance/check-in
@@ -422,7 +760,11 @@ exports.getAttendanceHistory = async (req, res) => {
 
     const range = getMonthDateRange(year, month);
 
-    const [records, calendarEntries] = await Promise.all([
+    const [employee, records, calendarEntries] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: employeeId },
+        select: { createdAt: true },
+      }),
       prisma.attendance.findMany({
         where: {
           employeeId,
@@ -443,96 +785,17 @@ exports.getAttendanceHistory = async (req, res) => {
       }),
     ]);
 
-    const recordsByDate = new Map(
-      records.map((record) => [getDateKey(record.date), record]),
-    );
-
     const calendarByDate = new Map(
       calendarEntries.map((entry) => [getDateKey(entry.date), entry]),
     );
 
-    const todayKey = now.toISODate();
-    const attendance = [];
-
-    let totalCalendarDays = 0;
-    let workingDays = 0;
-    let present = 0;
-    let late = 0;
-    let absent = 0;
-    let leave = 0;
-    let holidays = 0;
-    let pending = 0;
-    let completedWorkingDays = 0;
-
-    for (
-      let day = range.start;
-      day.toMillis() < range.start.plus({ months: 1 }).toMillis();
-      day = day.plus({ days: 1 })
-    ) {
-      totalCalendarDays++;
-
-      const dateKey = day.toISODate();
-      const record = recordsByDate.get(dateKey);
-      const calendarEntry = calendarByDate.get(dateKey);
-
-      // A custom WORKING_DAY overrides a regular Sunday/Saturday holiday.
-      // A custom HOLIDAY overrides a normal working day.
-      const holiday = calendarEntry
-        ? calendarEntry.type === "HOLIDAY"
-        : isRegularHoliday(day);
-
-      let status;
-
-      if (record) {
-        status = normalizeStatus(record.status);
-      } else if (holiday) {
-        status = "holiday";
-      } else if (dateKey < todayKey) {
-        status = "absent";
-      } else {
-        status = "pending";
-      }
-
-      if (holiday) {
-        holidays++;
-      } else {
-        workingDays++;
-      }
-
-      if (status === "present") present++;
-      if (status === "late") late++;
-      if (status === "absent") absent++;
-      if (status === "leave") leave++;
-
-      const isCompletedDay =
-        !holiday &&
-        (dateKey < todayKey || (dateKey === todayKey && Boolean(record)));
-
-      if (isCompletedDay) {
-        completedWorkingDays++;
-      }
-
-      if (status === "pending" && !holiday && dateKey >= todayKey) {
-        pending++;
-      }
-
-      attendance.push({
-        date: dateKey,
-        day: day.toFormat("cccc"),
-        status,
-        isHoliday: holiday,
-        holidayName: holiday ? (calendarEntry?.name ?? "Weekly Holiday") : null,
-        calendarType: calendarEntry?.type ?? null,
-        inTime: record?.inTime ?? null,
-        outTime: record?.outTime ?? null,
-        location: record?.location ?? null,
-      });
-    }
-
-    const attendancePercentage =
-      completedWorkingDays > 0
-        ? Math.round(((present + late) / completedWorkingDays) * 100)
-        : 0;
+    const { attendance, summary } = buildMonthAttendance({
+      range,
+      records,
+      calendarByDate,
+      joinedOn: getDateKey(employee?.createdAt),
+      todayKey: now.toISODate(),
+    });
 
     return res.status(200).json({
       success: true,
@@ -543,18 +806,7 @@ exports.getAttendanceHistory = async (req, res) => {
         startDate: range.start.toISODate(),
         endDate: range.end.toISODate(),
       },
-      summary: {
-        totalCalendarDays,
-        workingDays,
-        present,
-        late,
-        absent,
-        leave,
-        holidays,
-        pending,
-        completedWorkingDays,
-        attendancePercentage,
-      },
+      summary,
       attendance,
     });
   } catch (error) {

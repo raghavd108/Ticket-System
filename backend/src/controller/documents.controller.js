@@ -119,7 +119,15 @@ async function DocumentUpload(req, res) {
     const uploadedFiles = [];
 
     for (const file of req.files) {
-      const result = await uploadFile(file.buffer, file.originalname);
+      let result;
+
+      try {
+        result = await uploadFile(file.buffer, file.originalname);
+      } catch (uploadError) {
+        return res.status(400).json({
+          message: `${file.originalname}: ${uploadError.message}`,
+        });
+      }
 
       uploadedFiles.push({
         fileName: result.fileName,
