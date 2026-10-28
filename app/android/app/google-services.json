@@ -1,32 +1,13 @@
 {
   "project_info": {
-    "project_number": "897332052779",
-    "project_id": "ticket-b8771",
-    "storage_bucket": "ticket-b8771.firebasestorage.app"
+    "project_number": "918281236063",
+    "project_id": "sp-info-ticket-system",
+    "storage_bucket": "sp-info-ticket-system.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:897332052779:android:871b53906dcd69a9ee3b6e",
-        "android_client_info": {
-          "package_name": "com.app"
-        }
-      },
-      "oauth_client": [],
-      "api_key": [
-        {
-          "current_key": "AIzaSyDC0Q9JXPNlciE76uXv_vihTvVTjMnqizQ"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": []
-        }
-      }
-    },
-    {
-      "client_info": {
-        "mobilesdk_app_id": "1:897332052779:android:ec9ad629e3d67a69ee3b6e",
+        "mobilesdk_app_id": "1:918281236063:android:c5945e666ea5ea2e5ab5ea",
         "android_client_info": {
           "package_name": "com.system.ticket"
         }
@@ -34,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyDC0Q9JXPNlciE76uXv_vihTvVTjMnqizQ"
+          "current_key": "AIzaSyC8eCrUTvxqffqRnxBxMtqnwD34z99MugE"
         }
       ],
       "services": {
