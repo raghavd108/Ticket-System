@@ -1,4 +1,56 @@
 import { useState } from 'react';
+import { normalizeStatusCode } from './useTicketStatuses';
+
+// all | today | 7d | 30d | month | custom
+export type DateFilter = 'all' | 'today' | '7d' | '30d' | 'month' | 'custom';
+
+const startOfDay = (date: Date) => {
+  const result = new Date(date);
+  result.setHours(0, 0, 0, 0);
+  return result;
+};
+
+const endOfDay = (date: Date) => {
+  const result = new Date(date);
+  result.setHours(23, 59, 59, 999);
+  return result;
+};
+
+// Returns the inclusive [from, to] range for a date filter, or null.
+export const getDateRange = (
+  filter: DateFilter,
+  customFrom: Date | null,
+  customTo: Date | null,
+): { from: Date | null; to: Date | null } | null => {
+  const today = new Date();
+
+  switch (filter) {
+    case 'today':
+      return { from: startOfDay(today), to: endOfDay(today) };
+    case '7d': {
+      const from = startOfDay(today);
+      from.setDate(from.getDate() - 6);
+      return { from, to: endOfDay(today) };
+    }
+    case '30d': {
+      const from = startOfDay(today);
+      from.setDate(from.getDate() - 29);
+      return { from, to: endOfDay(today) };
+    }
+    case 'month':
+      return {
+        from: new Date(today.getFullYear(), today.getMonth(), 1),
+        to: endOfDay(today),
+      };
+    case 'custom':
+      return {
+        from: customFrom ? startOfDay(customFrom) : null,
+        to: customTo ? endOfDay(customTo) : null,
+      };
+    default:
+      return null;
+  }
+};
 
 type Complaint = {
   _id: string;
@@ -38,6 +90,10 @@ export const useFilter = (complaints: Complaint[]) => {
   // newest | oldest
   const [sortFilter, setSortFilter] = useState('newest');
 
+  const [dateFilter, setDateFilter] = useState<DateFilter>('all');
+  const [customFrom, setCustomFrom] = useState<Date | null>(null);
+  const [customTo, setCustomTo] = useState<Date | null>(null);
+
   const getFilter = () => {
     let filteredComplaints = [...complaints];
 
@@ -65,8 +121,22 @@ export const useFilter = (complaints: Complaint[]) => {
     // STATUS FILTER
     if (statusFilter !== 'all') {
       filteredComplaints = filteredComplaints.filter(
-        item => item.status === statusFilter,
+        item => normalizeStatusCode(item.status) === statusFilter,
       );
+    }
+
+    // DATE RANGE FILTER
+    const range = getDateRange(dateFilter, customFrom, customTo);
+
+    if (range) {
+      filteredComplaints = filteredComplaints.filter(item => {
+        const created = new Date(item.createdAt).getTime();
+
+        if (range.from && created < range.from.getTime()) return false;
+        if (range.to && created > range.to.getTime()) return false;
+
+        return true;
+      });
     }
 
     // SORTING
@@ -124,6 +194,13 @@ export const useFilter = (complaints: Complaint[]) => {
 
     sortFilter,
     setSortFilter,
+
+    dateFilter,
+    setDateFilter,
+    customFrom,
+    setCustomFrom,
+    customTo,
+    setCustomTo,
 
     displayComplain,
 

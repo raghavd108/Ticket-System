@@ -27,6 +27,9 @@ import {
 import createStyles from '../style/TicketGen.ts';
 import { Config } from 'react-native-config';
 
+// Matches the backend upload limit (5 files, 5 MB each).
+const MAX_ATTACHMENTS = 5;
+
 const ReportPage = () => {
   const [module, setModule] = useState('');
   const [problem, setProblem] = useState('');
@@ -66,7 +69,7 @@ const ReportPage = () => {
     const options: ImageLibraryOptions = {
       mediaType: 'photo',
       quality: 0.8,
-      selectionLimit: 10,
+      selectionLimit: MAX_ATTACHMENTS,
     };
 
     launchImageLibrary(options, response => {
@@ -147,10 +150,13 @@ const ReportPage = () => {
   };
 
   const handleSubmit = async () => {
-    if (!module.trim() || !problem.trim() || image.length === 0) {
-      setMessage(
-        'Please complete the required fields and attach at least one screenshot.',
-      );
+    if (!module.trim() || !problem.trim()) {
+      setMessage('Please enter the module and describe the problem.');
+      return;
+    }
+
+    if (image.length > MAX_ATTACHMENTS) {
+      setMessage(`You can attach up to ${MAX_ATTACHMENTS} screenshots.`);
       return;
     }
 
@@ -363,7 +369,9 @@ const ReportPage = () => {
                   <Text style={styles.inputLabel}>Screenshots</Text>
                 </View>
 
-                <Text style={styles.requiredText}>Required</Text>
+                <Text style={styles.requiredText}>
+                  Optional · up to {MAX_ATTACHMENTS}
+                </Text>
               </View>
 
               {/* UPLOAD BOX */}

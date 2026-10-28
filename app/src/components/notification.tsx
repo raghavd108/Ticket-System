@@ -19,6 +19,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useTheme } from '../context/ThemeContext';
 import { Config } from 'react-native-config';
+import { getStatusName } from '../hooks/useTicketStatuses';
 const BASE_URL = `${Config.API_URL}/api`;
 
 interface NotificationItem {
@@ -342,11 +343,8 @@ const Notification = () => {
   // STATUS
   // =========================================================
 
-  const getStatusLabel = (status?: string) => {
-    if (!status) return '';
-
-    return status.charAt(0).toUpperCase() + status.slice(1);
-  };
+  const getStatusLabel = (status?: string) =>
+    status ? getStatusName(status) : '';
 
   // =========================================================
   // NOTIFICATION CARD

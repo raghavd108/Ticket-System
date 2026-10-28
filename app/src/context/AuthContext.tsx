@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { setupFCM } from '../services/fcmService';
+import { setupFCM, listenForTokenRefresh } from '../services/fcmService';
 import { Config } from 'react-native-config';
 const API_URL = Config.API_URL;
 
@@ -78,34 +78,73 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     setIsAuthenticated(true);
   };
 
-  // Register FCM for the currently authenticated user.
+  // Register FCM for the currently authenticated user and keep the
+  // backend updated when Firebase rotates the device token.
   useEffect(() => {
-    if (isAuthenticated) {
-      void setupFCM();
+    if (!isAuthenticated) {
+      return;
     }
+
+    void setupFCM();
+
+    return listenForTokenRefresh();
   }, [isAuthenticated]);
 
-  // Revoke the server session and clear the backend FCM token.
-  const logout = async () => {
-    const token = await AsyncStorage.getItem('token');
-
-    if (token) {
-      // If this fails, preserve local authentication so logout can be retried.
-      await axios.post(
-        `${API_URL}/api/auth/logout`,
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-    }
-
-    // The backend has confirmed logout; clear the local session.
+  const clearLocalSession = async () => {
     await AsyncStorage.removeItem('token');
     await AsyncStorage.removeItem('user');
     setIsAuthenticated(false);
+  };
+
+  // A 401 from any API call means the session was logged out elsewhere,
+  // the password changed, the account was revoked or the token expired.
+  useEffect(() => {
+    const interceptor = axios.interceptors.response.use(
+      response => response,
+      async error => {
+        const url: string = error?.config?.url ?? '';
+
+        if (
+          error?.response?.status === 401 &&
+          url.startsWith(String(API_URL)) &&
+          !url.endsWith('/api/auth/login')
+        ) {
+          await clearLocalSession();
+        }
+
+        return Promise.reject(error);
+      },
+    );
+
+    return () => {
+      axios.interceptors.response.eject(interceptor);
+    };
+  }, []);
+
+  // Revoke the server session and clear the backend FCM token. The local
+  // session is always cleared, even if the server cannot be reached, so a
+  // user is never stuck signed in on a shared device.
+  const logout = async () => {
+    const token = await AsyncStorage.getItem('token');
+
+    try {
+      if (token) {
+        await axios.post(
+          `${API_URL}/api/auth/logout`,
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            timeout: 10000,
+          },
+        );
+      }
+    } catch (error) {
+      console.log('LOGOUT REQUEST FAILED:', error);
+    } finally {
+      await clearLocalSession();
+    }
   };
 
   return (

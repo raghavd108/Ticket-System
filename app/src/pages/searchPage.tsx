@@ -14,6 +14,7 @@ import axios from 'axios';
 import createStyles from '../style/searchStyle';
 import { useTheme } from '../context/ThemeContext';
 import { Config } from 'react-native-config';
+import { getStatusColor, getStatusName } from '../hooks/useTicketStatuses';
 
 interface Organisation {
   _id: string;
@@ -32,6 +33,7 @@ interface Complaint {
   module: string;
   problem: string;
   status: string;
+  statusName?: string | null;
   createdAt?: string;
 
   organisation?: Organisation | null;
@@ -233,9 +235,19 @@ const SearchPage = () => {
               </View>
 
               {/* STATUS */}
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusText}>
-                  {item.status || 'pending'}
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: getStatusColor(item.status) + '22' },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusText,
+                    { color: getStatusColor(item.status) },
+                  ]}
+                >
+                  {item.statusName || getStatusName(item.status)}
                 </Text>
               </View>
             </View>

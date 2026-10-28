@@ -6,9 +6,19 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Platform,
 } from 'react-native';
+import DateTimePicker, {
+  DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useTheme } from '../context/ThemeContext';
+import {
+  DEFAULT_TICKET_STATUSES,
+  TicketStatus,
+  getStatusColor,
+} from '../hooks/useTicketStatuses';
+import { DateFilter } from '../hooks/useFilter';
 
 type Organisation = {
   _id: string;
@@ -40,6 +50,16 @@ type FilterProps = {
 
   sortFilter: string;
   setSortFilter: (value: string) => void;
+
+  statuses?: TicketStatus[];
+  modules?: string[];
+
+  dateFilter: DateFilter;
+  setDateFilter: (value: DateFilter) => void;
+  customFrom: Date | null;
+  setCustomFrom: (value: Date | null) => void;
+  customTo: Date | null;
+  setCustomTo: (value: Date | null) => void;
 
   onApply?: () => void;
   onClose?: () => void;
@@ -190,18 +210,8 @@ const ChoiceChips = ({
   styles: Styles;
   status?: boolean;
 }) => {
-  const statusColor = (item: string) => {
-    switch (item) {
-      case 'pending':
-        return '#D99A43';
-      case 'in-progress':
-        return '#7295C6';
-      case 'resolved':
-        return '#55A582';
-      default:
-        return ACCENT;
-    }
-  };
+  const statusColor = (item: string) =>
+    item === 'all' ? ACCENT : getStatusColor(item);
 
   return (
     <View style={styles.field}>
@@ -287,6 +297,16 @@ const Filter = ({
   sortFilter,
   setSortFilter,
 
+  statuses = DEFAULT_TICKET_STATUSES,
+  modules = [],
+
+  dateFilter,
+  setDateFilter,
+  customFrom,
+  setCustomFrom,
+  customTo,
+  setCustomTo,
+
   onApply,
   onClose,
 }: FilterProps) => {
@@ -294,6 +314,9 @@ const Filter = ({
   const styles = createStyles(isDarkMode);
 
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  const [activeDatePicker, setActiveDatePicker] = useState<
+    'from' | 'to' | null
+  >(null);
 
   const isClient = role?.toLowerCase() === 'client';
   const isAdmin = role?.toLowerCase() === 'admin';
@@ -326,10 +349,10 @@ const Filter = ({
     setorganisationFilter,
   ]);
 
+  // Modules are free text on the ticket form, so offer the ones in use.
   const softwareOptions: Option[] = [
     { label: 'All Software', value: 'all' },
-    { label: 'IPD', value: 'IPD' },
-    { label: 'OPD', value: 'OPD' },
+    ...modules.map(item => ({ label: item, value: item })),
   ];
 
   const organisationTypeOptions: Option[] = [
@@ -341,10 +364,47 @@ const Filter = ({
 
   const statusOptions: Option[] = [
     { label: 'All Status', value: 'all' },
-    { label: 'Pending', value: 'pending' },
-    { label: 'In progress', value: 'in-progress' },
-    { label: 'Resolved', value: 'resolved' },
+    ...statuses.map(item => ({ label: item.name, value: item.code })),
   ];
+
+  const dateOptions: Option[] = [
+    { label: 'All time', value: 'all' },
+    { label: 'Today', value: 'today' },
+    { label: 'Last 7 days', value: '7d' },
+    { label: 'Last 30 days', value: '30d' },
+    { label: 'This month', value: 'month' },
+    { label: 'Custom', value: 'custom' },
+  ];
+
+  const formatPickerDate = (date: Date | null) =>
+    date
+      ? date.toLocaleDateString('en-IN', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        })
+      : 'Select date';
+
+  const handleDateChange = (event: DateTimePickerEvent, selected?: Date) => {
+    const target = activeDatePicker;
+
+    if (Platform.OS === 'android') {
+      setActiveDatePicker(null);
+    }
+
+    if (event.type === 'dismissed' || !selected || !target) {
+      return;
+    }
+
+    if (target === 'from') {
+      setCustomFrom(selected);
+      if (customTo && customTo.getTime() < selected.getTime()) {
+        setCustomTo(null);
+      }
+    } else {
+      setCustomTo(selected);
+    }
+  };
 
   const sortOptions: Option[] = [
     { label: 'Newest first', value: 'newest' },
@@ -356,6 +416,7 @@ const Filter = ({
     !isClient && organisationFilter !== 'all',
     (isAdmin || isEmployee) && orgTypeFilter !== 'all',
     statusFilter !== 'all',
+    dateFilter !== 'all',
     sortFilter !== 'newest',
   ].filter(Boolean).length;
 
@@ -365,6 +426,10 @@ const Filter = ({
     setOrgTypeFilter('all');
     setStatusFilter('all');
     setSortFilter('newest');
+    setDateFilter('all');
+    setCustomFrom(null);
+    setCustomTo(null);
+    setActiveDatePicker(null);
     setOpenDropdown(null);
   };
 
@@ -524,6 +589,77 @@ const Filter = ({
           styles={styles}
           status
         />
+
+        {/* DATE RANGE (ticket created date) */}
+        <ChoiceChips
+          label="Created date"
+          value={dateFilter}
+          options={dateOptions}
+          onChange={value => setDateFilter(value as DateFilter)}
+          styles={styles}
+        />
+
+        {dateFilter === 'custom' && (
+          <View style={styles.field}>
+            <View style={styles.sortContainer}>
+              {(['from', 'to'] as const).map(key => {
+                const value = key === 'from' ? customFrom : customTo;
+
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[
+                      styles.sortOption,
+                      activeDatePicker === key && styles.sortOptionSelected,
+                    ]}
+                    onPress={() =>
+                      setActiveDatePicker(current =>
+                        current === key ? null : key,
+                      )
+                    }
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Select ${key} date`}
+                  >
+                    <View style={styles.sortIcon}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={17}
+                        color={isDarkMode ? '#C1C6B9' : '#66695F'}
+                      />
+                    </View>
+                    <View style={styles.sortInfo}>
+                      <Text style={styles.sortText}>
+                        {key === 'from' ? 'From' : 'To'}
+                      </Text>
+                      <Text style={styles.sortDescription}>
+                        {formatPickerDate(value)}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {activeDatePicker && (
+              <DateTimePicker
+                value={
+                  (activeDatePicker === 'from' ? customFrom : customTo) ||
+                  new Date()
+                }
+                mode="date"
+                display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
+                minimumDate={
+                  activeDatePicker === 'to' && customFrom
+                    ? customFrom
+                    : undefined
+                }
+                maximumDate={new Date()}
+                onChange={handleDateChange}
+              />
+            )}
+          </View>
+        )}
 
         {/* SORTING */}
         <View style={styles.field}>

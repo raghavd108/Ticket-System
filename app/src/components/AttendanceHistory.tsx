@@ -21,6 +21,7 @@ type AttendanceStatus =
   | 'absent'
   | 'leave'
   | 'holiday'
+  | 'not-joined'
   | 'pending';
 
 interface DailyAttendance {
@@ -315,6 +316,15 @@ const AttendanceHistory = ({
           color: colors.muted,
           background: colors.surface,
           symbol: '—',
+        };
+
+      // Days before the employee's account was created.
+      case 'not-joined':
+        return {
+          label: 'Not joined',
+          color: colors.muted,
+          background: colors.surface,
+          symbol: '·',
         };
 
       default:

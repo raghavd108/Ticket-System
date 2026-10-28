@@ -5,6 +5,7 @@ import { Config } from 'react-native-config';
 import {
   getMessaging,
   getToken,
+  onTokenRefresh,
   requestPermission,
   AuthorizationStatus,
 } from '@react-native-firebase/messaging';
@@ -39,28 +40,12 @@ export const setupFCM = async () => {
     // Get FCM token
     const fcmToken = await getToken(messagingInstance);
 
-    console.log('FCM TOKEN:', fcmToken);
-
     if (!fcmToken) {
       console.log('FCM token not available');
       return;
     }
 
-    // Send FCM token to backend
-    await axios.post(
-      `${BASE_URL}/auth/fcm-token`,
-      {
-        fcmToken,
-        platform: Platform.OS,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    );
-
-    console.log('FCM token saved successfully');
+    await saveFcmToken(fcmToken);
   } catch (error: any) {
     console.log(
       'FCM setup error:',
@@ -68,3 +53,38 @@ export const setupFCM = async () => {
     );
   }
 };
+
+const saveFcmToken = async (fcmToken: string) => {
+  const token = await AsyncStorage.getItem('token');
+
+  if (!token) {
+    return;
+  }
+
+  await axios.post(
+    `${BASE_URL}/auth/fcm-token`,
+    {
+      fcmToken,
+      platform: Platform.OS,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+};
+
+// Firebase can rotate the device token at any time; without this the
+// backend keeps sending to a dead token and push notifications stop.
+export const listenForTokenRefresh = () =>
+  onTokenRefresh(getMessaging(), async fcmToken => {
+    try {
+      await saveFcmToken(fcmToken);
+    } catch (error: any) {
+      console.log(
+        'FCM token refresh error:',
+        error?.response?.data || error?.message || error,
+      );
+    }
+  });

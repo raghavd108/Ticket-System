@@ -24,6 +24,7 @@ import {
 } from '@react-native-documents/picker';
 import createstyles from '../style/userManagement';
 import AttendanceHistory from '../components/AttendanceHistory';
+import DesignationPicker from '../components/DesignationPicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 
 interface AssignedEmployee {
@@ -466,7 +467,7 @@ const ClientPage = () => {
     if (cleanRole === 'employee' && !cleanDesignation) {
       Alert.alert(
         'Designation Required',
-        'Please enter designation for the employee.',
+        'Please select a designation for the employee.',
       );
       return;
     }
@@ -516,8 +517,6 @@ const ClientPage = () => {
       if (cleanRole === 'client') {
         payload.assignedEmployee = assignedEmployee;
       }
-
-      console.log('CREATE USER PAYLOAD:', payload);
 
       const res = await axios.post(
         `${Config.API_URL}/api/auth/register`,
@@ -2131,15 +2130,11 @@ const ClientPage = () => {
         <View style={styles.field}>
           <Text style={styles.label}>DESIGNATION</Text>
 
-          <TextInput
-            style={styles.input}
-            placeholder="Enter employee designation"
-            placeholderTextColor="#A1A1AA"
+          <DesignationPicker
             value={designation}
-            onChangeText={setDesignation}
-            autoCapitalize="words"
-            returnKeyType="done"
-            editable={!creating}
+            onChange={setDesignation}
+            disabled={creating}
+            allowCreate
           />
         </View>
 
@@ -3382,20 +3377,7 @@ const ClientPage = () => {
                   placeholder: '10-digit mobile number',
                   keyboard: 'phone-pad',
                 },
-                {
-                  label: 'DESIGNATION',
-                  value: editEmployeeDesignation,
-                  set: setEditEmployeeDesignation,
-                  placeholder: 'Designation',
-                  keyboard: 'default',
-                },
-              ]
-                .filter(
-                  field =>
-                    field.label !== 'DESIGNATION' ||
-                    selectedClient?.role === 'employee',
-                )
-                .map(field => (
+              ].map(field => (
                   <View key={field.label} style={{ marginBottom: 13 }}>
                     <Text
                       style={{
@@ -3436,6 +3418,28 @@ const ClientPage = () => {
                     />
                   </View>
                 ))}
+
+              {selectedClient?.role === 'employee' && (
+                <View style={{ marginBottom: 13 }}>
+                  <Text
+                    style={{
+                      color: theme.muted,
+                      fontSize: 10,
+                      fontWeight: '800',
+                      letterSpacing: 0.7,
+                      marginBottom: 6,
+                    }}
+                  >
+                    DESIGNATION
+                  </Text>
+                  <DesignationPicker
+                    value={editEmployeeDesignation}
+                    onChange={setEditEmployeeDesignation}
+                    disabled={savingEmployee}
+                    allowCreate
+                  />
+                </View>
+              )}
 
               {/* OPTIONAL PASSWORD UPDATE */}
               <View style={{ marginBottom: 14 }}>

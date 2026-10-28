@@ -21,6 +21,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFilter } from '../hooks/useFilter';
 import Filter from '../components/filter';
 import { Config } from 'react-native-config';
+import {
+  getStatusColor,
+  getStatusIcon,
+  getStatusName,
+  normalizeStatusCode,
+  useTicketStatuses,
+} from '../hooks/useTicketStatuses';
 
 interface User {
   id: string;
@@ -32,6 +39,10 @@ interface User {
     _id: string;
     orgType: string;
     name: string;
+  };
+  permissions?: {
+    canViewAllTickets: boolean;
+    canAssignTickets: boolean;
   };
 }
 
@@ -45,6 +56,8 @@ interface Complaint {
   }[];
 
   status: string;
+  statusId?: number;
+  statusName?: string | null;
   assignedEmployeeId?: string | null;
   assignedEmployee?: {
     _id?: string;
@@ -70,10 +83,11 @@ interface Complaint {
   };
 }
 
-const normalizeComplaintStatus = (status: unknown): string => {
-  if (typeof status !== 'string') return 'pending';
-  return status === 'in_progress' ? 'in-progress' : status;
-};
+const normalizeComplaintStatus = normalizeStatusCode;
+
+// Ticket statistics group the workflow into three buckets.
+const OPEN_STATUSES = ['pending', 'assigned'];
+const COMPLETED_STATUSES = ['work-completed', 'release-updated'];
 
 const normalizeComplaint = (complaint: any): Complaint => ({
   ...complaint,
@@ -124,8 +138,10 @@ const ComplainPage = () => {
       designation?: string | null;
     }>
   >([]);
+  const statuses = useTicketStatuses();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [employeesError, setEmployeesError] = useState('');
   const [assigningTicket, setAssigningTicket] = useState(false);
   const [activeTicketDropdown, setActiveTicketDropdown] = useState<
     'status' | 'employee' | null
@@ -142,6 +158,12 @@ const ComplainPage = () => {
     setStatusFilter,
     sortFilter,
     setSortFilter,
+    dateFilter,
+    setDateFilter,
+    customFrom,
+    setCustomFrom,
+    customTo,
+    setCustomTo,
     displayComplain,
     getOrganisations,
   } = useFilter(complaints);
@@ -154,9 +176,12 @@ const ComplainPage = () => {
     if (user?.role?.toLowerCase() === 'client' && user?.organisation) {
       setorganisationFilter(user.organisation?.name);
     }
-    if (user?.role?.toLowerCase() === 'admin') {
-      getEmployees();
+
+    // SP Infocom staff start with the pending queue.
+    if (['admin', 'employee'].includes(user?.role?.toLowerCase() ?? '')) {
+      setStatusFilter('pending');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   /* 
@@ -192,56 +217,42 @@ const ComplainPage = () => {
     }
   };
 
-  // Fetch employees available to the admin for ticket assignment.
-  const getEmployees = async () => {
+  // Employees who may work on the selected ticket (mapped to its client,
+  // or with access to all tickets). The backend enforces the same rule.
+  const getEmployees = async (complaintId: string) => {
     try {
       setLoadingEmployees(true);
+      setEmployees([]);
+      setEmployeesError('');
       const token = await AsyncStorage.getItem('token');
       if (!token) return;
 
-      const response = await axios.get(`${Config.API_URL}/api/auth/getUser`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await axios.get(
+        `${Config.API_URL}/api/complain/${complaintId}/assignable-employees`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
 
-      const payload = response.data;
-      const rawUsers = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.users)
-        ? payload.users
-        : Array.isArray(payload?.user)
-        ? payload.user
-        : Array.isArray(payload?.data)
-        ? payload.data
+      const rawUsers = Array.isArray(response.data?.employees)
+        ? response.data.employees
         : [];
 
-      const adminOrgId = String(
-        user?.organisation?._id ?? (user as any)?.organisationId ?? '',
+      setEmployees(
+        rawUsers
+          .map((item: any) => ({
+            id: String(item?.id ?? item?._id ?? ''),
+            userName: String(item?.userName ?? 'Unnamed employee'),
+            email: item?.email,
+            designation: item?.designation,
+          }))
+          .filter((item: any) => item.id),
       );
-      const employeeList = rawUsers
-        .filter(
-          (item: any) => String(item?.role ?? '').toLowerCase() === 'employee',
-        )
-        .filter((item: any) => {
-          const orgId = String(
-            item?.organisationId ??
-              item?.organisation?._id ??
-              item?.organisation?.id ??
-              '',
-          );
-          return !adminOrgId || !orgId || orgId === adminOrgId;
-        })
-        .map((item: any) => ({
-          id: String(item?.id ?? item?._id ?? ''),
-          userName: String(item?.userName ?? item?.name ?? 'Unnamed employee'),
-          email: item?.email,
-          designation: item?.designation,
-        }))
-        .filter((item: any) => item.id);
-
-      setEmployees(employeeList);
     } catch (error) {
       console.log('GET EMPLOYEES ERROR:', error);
       setEmployees([]);
+      setEmployeesError(
+        (error as any)?.response?.data?.message ??
+          'Unable to load employees. Check your connection and try again.',
+      );
     } finally {
       setLoadingEmployees(false);
     }
@@ -249,7 +260,11 @@ const ComplainPage = () => {
 
   const assignTicket = async () => {
     if (!selectedComplaint?._id) return;
-    if (!selectedEmployeeId) {
+    const currentAssignee =
+      selectedComplaint.assignedEmployeeId ??
+      selectedComplaint.assignedEmployee?._id ??
+      '';
+    if (!selectedEmployeeId && !currentAssignee) {
       Alert.alert(
         'Select employee',
         'Please select an employee to assign this ticket.',
@@ -267,7 +282,7 @@ const ComplainPage = () => {
 
       const response = await axios.patch(
         `${Config.API_URL}/api/complain/${selectedComplaint._id}/assign`,
-        { employeeId: selectedEmployeeId },
+        { employeeId: selectedEmployeeId || null },
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
@@ -285,15 +300,14 @@ const ComplainPage = () => {
       }
 
       Alert.alert(
-        'Ticket assigned',
-        'The ticket has been assigned successfully.',
+        selectedEmployeeId ? 'Ticket assigned' : 'Ticket unassigned',
+        response.data?.message ?? 'The ticket has been updated.',
       );
     } catch (error: any) {
       console.log('ASSIGN TICKET ERROR:', error?.response?.data ?? error);
       Alert.alert(
         'Assignment failed',
-        error?.response?.data?.message ??
-          'Unable to assign this ticket. Check that the assignment route is registered in your backend.',
+        error?.response?.data?.message ?? 'Unable to assign this ticket.',
       );
     } finally {
       setAssigningTicket(false);
@@ -335,16 +349,15 @@ const ComplainPage = () => {
      UPDATE STATUS
    */
 
-  const updateStatus = async (complaintId: string, status: string) => {
+  const updateStatus = async (complaintId: string, statusCode: string) => {
     try {
       const token = await AsyncStorage.getItem('token');
-      const normalizedStatus = normalizeComplaintStatus(status);
 
-      await axios.patch(
+      // Send the stable status code rather than a numeric ID: the IDs in
+      // the offline fallback list may not match the database.
+      const response = await axios.patch(
         `${Config.API_URL}/api/complain/update-status/${complaintId}`,
-        {
-          status: normalizedStatus,
-        },
+        { status: statusCode },
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -352,30 +365,32 @@ const ComplainPage = () => {
         },
       );
 
+      const updated = response.data?.complaint
+        ? normalizeComplaint(response.data.complaint)
+        : null;
+
+      const applyUpdate = (complaint: Complaint) =>
+        updated
+          ? { ...complaint, ...updated }
+          : { ...complaint, status: statusCode };
+
       setComplaints(prev =>
         prev.map(complaint =>
-          complaint._id === complaintId
-            ? {
-                ...complaint,
-                status: normalizedStatus,
-              }
-            : complaint,
+          complaint._id === complaintId ? applyUpdate(complaint) : complaint,
         ),
       );
 
       setSelectedComplaint(prev =>
-        prev && prev._id === complaintId
-          ? {
-              ...prev,
-              status: normalizedStatus,
-            }
-          : prev,
+        prev && prev._id === complaintId ? applyUpdate(prev) : prev,
       );
 
       Alert.alert('Updated', 'Ticket status has been updated.');
-    } catch (error) {
-      console.log(error);
-      Alert.alert('Error', 'Failed to update status');
+    } catch (error: any) {
+      console.log('UPDATE STATUS ERROR:', error?.response?.data ?? error);
+      Alert.alert(
+        'Error',
+        error?.response?.data?.message ?? 'Failed to update status',
+      );
     }
   };
 
@@ -398,6 +413,10 @@ const ComplainPage = () => {
     setSelectedEmployeeId(
       complaint.assignedEmployeeId ?? complaint.assignedEmployee?._id ?? '',
     );
+
+    if (canAssign) {
+      getEmployees(complaint._id);
+    }
   };
 
   const closeComplaintDetails = () => {
@@ -441,6 +460,20 @@ const ComplainPage = () => {
     setOpenFilter(true);
   };
 
+  const clearFilters = () => {
+    setSoftwareFilter('all');
+    setOrgTypeFilter('all');
+    setStatusFilter('all');
+    setDateFilter('all');
+    setCustomFrom(null);
+    setCustomTo(null);
+
+    // A client's organisation filter is fixed to their own organisation.
+    if (user?.role?.toLowerCase() !== 'client') {
+      setorganisationFilter('all');
+    }
+  };
+
   const handleNotification = () => {
     navigation.navigate('Notification');
   };
@@ -451,53 +484,15 @@ const ComplainPage = () => {
      STATUS
    */
 
-  const getStatusLabel = (status: string) => {
-    switch (normalizeComplaintStatus(status)?.toLowerCase()) {
-      case 'pending':
-        return 'Pending';
+  const getStatusLabel = (status: string) => getStatusName(status, statuses);
 
-      case 'in-progress':
-        return 'In Progress';
+  const getStatusStyle = (status: string) => ({
+    backgroundColor: getStatusColor(status) + '22',
+  });
 
-      case 'resolved':
-        return 'Resolved';
-
-      default:
-        return status || 'Unknown';
-    }
-  };
-
-  const getStatusStyle = (status: string) => {
-    switch (normalizeComplaintStatus(status)?.toLowerCase()) {
-      case 'pending':
-        return styles.statusPending;
-
-      case 'in-progress':
-        return styles.statusProgress;
-
-      case 'resolved':
-        return styles.statusResolved;
-
-      default:
-        return styles.statusUnknown;
-    }
-  };
-
-  const getStatusDotStyle = (status: string) => {
-    switch (normalizeComplaintStatus(status)?.toLowerCase()) {
-      case 'pending':
-        return styles.statusDotPending;
-
-      case 'in-progress':
-        return styles.statusDotProgress;
-
-      case 'resolved':
-        return styles.statusDotResolved;
-
-      default:
-        return styles.statusDotUnknown;
-    }
-  };
+  const getStatusDotStyle = (status: string) => ({
+    backgroundColor: getStatusColor(status),
+  });
 
   /* 
      MODULE ICON
@@ -574,19 +569,20 @@ const ComplainPage = () => {
      STATISTICS
    */
 
-  const totalTickets = displayComplain.length;
+  // The overview always reflects every ticket the user can access; the
+  // list filters only narrow the list below it.
+  const totalTickets = complaints.length;
 
-  const pendingTickets = displayComplain.filter(
-    item => item.status?.toLowerCase() === 'pending',
+  const pendingTickets = complaints.filter(item =>
+    OPEN_STATUSES.includes(normalizeComplaintStatus(item.status)),
   ).length;
 
-  const progressTickets = displayComplain.filter(
-    item =>
-      normalizeComplaintStatus(item.status)?.toLowerCase() === 'in-progress',
+  const progressTickets = complaints.filter(
+    item => normalizeComplaintStatus(item.status) === 'in-progress',
   ).length;
 
-  const resolvedTickets = displayComplain.filter(
-    item => item.status?.toLowerCase() === 'resolved',
+  const resolvedTickets = complaints.filter(item =>
+    COMPLETED_STATUSES.includes(normalizeComplaintStatus(item.status)),
   ).length;
 
   const resolvedPercent =
@@ -600,6 +596,7 @@ const ComplainPage = () => {
 
   const isAdmin = user?.role?.toLowerCase() === 'admin';
   const isEmployee = user?.role?.toLowerCase() === 'employee';
+  const canAssign = isAdmin || Boolean(user?.permissions?.canAssignTickets);
 
   /* 
      LOADING
@@ -840,7 +837,7 @@ const ComplainPage = () => {
 
               <View
                 accessibilityRole="image"
-                accessibilityLabel={`Ticket breakdown chart. ${pendingTickets} pending, ${progressTickets} in progress, ${resolvedTickets} resolved.`}
+                accessibilityLabel={`Ticket breakdown chart. ${pendingTickets} pending, ${progressTickets} in progress, ${resolvedTickets} completed.`}
                 style={{
                   height: 150,
                   flexDirection: 'row',
@@ -861,7 +858,7 @@ const ComplainPage = () => {
                     color: theme.blue || '#6551C9',
                   },
                   {
-                    label: 'Resolved',
+                    label: 'Completed',
                     count: resolvedTickets,
                     color: theme.green || '#23845D',
                   },
@@ -1077,7 +1074,7 @@ const ComplainPage = () => {
                       flexShrink: 1,
                     }}
                   >
-                    Resolved
+                    Completed
                   </Text>
                 </View>
                 <Text
@@ -1122,8 +1119,9 @@ const ComplainPage = () => {
               SECTION HEADER
           ================================================= */}
 
-          {/* SECTION HEADER */}
-          {displayComplain.length > 0 && (
+          {/* SECTION HEADER — kept visible whenever tickets exist so the
+              filter stays reachable even when nothing matches it. */}
+          {complaints.length > 0 && (
             <View style={styles.sectionHeader}>
               <View style={styles.sectionHeaderText}>
                 <Text style={styles.sectionTitle}>Recent Tickets</Text>
@@ -1168,10 +1166,28 @@ const ComplainPage = () => {
               <Text style={styles.emptyTitle}>No tickets found</Text>
 
               <Text style={styles.emptyText}>
-                {isAdmin
+                {complaints.length > 0
                   ? 'There are no tickets matching your current filters.'
+                  : isAdmin || isEmployee
+                  ? 'There are no tickets for you yet.'
                   : "You haven't submitted any support requests yet."}
               </Text>
+
+              {complaints.length > 0 && (
+                <TouchableOpacity
+                  style={[
+                    styles.premiumAssignButton,
+                    { marginTop: 18, paddingHorizontal: 28 },
+                  ]}
+                  activeOpacity={0.85}
+                  onPress={clearFilters}
+                  accessibilityRole="button"
+                >
+                  <Text style={styles.premiumAssignButtonText}>
+                    Clear filters
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             <View style={styles.ticketList}>
@@ -1256,7 +1272,7 @@ const ComplainPage = () => {
                   {/* META */}
 
                   <View style={styles.ticketMetaRow}>
-                    {isAdmin && (
+                    {(isAdmin || isEmployee) && (
                       <>
                         <View style={styles.metaItem}>
                           <Text style={styles.metaIcon}>●</Text>
@@ -1336,6 +1352,18 @@ const ComplainPage = () => {
               setStatusFilter={setStatusFilter}
               sortFilter={sortFilter}
               setSortFilter={setSortFilter}
+              statuses={statuses}
+              modules={[
+                ...new Set(
+                  complaints.map(item => item.module).filter(Boolean),
+                ),
+              ].sort()}
+              dateFilter={dateFilter}
+              setDateFilter={setDateFilter}
+              customFrom={customFrom}
+              setCustomFrom={setCustomFrom}
+              customTo={customTo}
+              setCustomTo={setCustomTo}
               onClose={() => setOpenFilter(false)}
               onApply={() => setOpenFilter(false)}
             />
@@ -1571,7 +1599,7 @@ const ComplainPage = () => {
                         <View
                           style={[
                             styles.premiumProgressIcon,
-                            ['in-progress', 'resolved'].includes(
+                            ['in-progress', ...COMPLETED_STATUSES].includes(
                               normalizeComplaintStatus(
                                 selectedComplaint.status,
                               ),
@@ -1580,7 +1608,7 @@ const ComplainPage = () => {
                               : styles.premiumProgressPending,
                           ]}
                         >
-                          {['in-progress', 'resolved'].includes(
+                          {['in-progress', ...COMPLETED_STATUSES].includes(
                             normalizeComplaintStatus(selectedComplaint.status),
                           ) && (
                             <Ionicons
@@ -1606,16 +1634,12 @@ const ComplainPage = () => {
                         <View
                           style={[
                             styles.premiumProgressIcon,
-                            normalizeComplaintStatus(
-                              selectedComplaint.status,
-                            ) === 'resolved'
+                            COMPLETED_STATUSES.includes(normalizeComplaintStatus(selectedComplaint.status))
                               ? styles.premiumProgressDone
                               : styles.premiumProgressPending,
                           ]}
                         >
-                          {normalizeComplaintStatus(
-                            selectedComplaint.status,
-                          ) === 'resolved' && (
+                          {COMPLETED_STATUSES.includes(normalizeComplaintStatus(selectedComplaint.status)) && (
                             <Ionicons
                               name="checkmark"
                               size={15}
@@ -1625,10 +1649,18 @@ const ComplainPage = () => {
                         </View>
                         <View style={styles.premiumProgressCopy}>
                           <Text style={styles.premiumProgressTitle}>
-                            Resolved
+                            {normalizeComplaintStatus(
+                              selectedComplaint.status,
+                            ) === 'cancelled'
+                              ? 'Cancelled'
+                              : 'Completed'}
                           </Text>
                           <Text style={styles.premiumSectionHint}>
-                            Issue completed
+                            {[...COMPLETED_STATUSES, 'cancelled'].includes(
+                              normalizeComplaintStatus(selectedComplaint.status),
+                            )
+                              ? getStatusLabel(selectedComplaint.status)
+                              : 'Issue completed'}
                           </Text>
                         </View>
                       </View>
@@ -1691,7 +1723,7 @@ const ComplainPage = () => {
                   )}
 
                   {/* ASSIGNMENT */}
-                  {isAdmin && (
+                  {canAssign && (
                     <View style={styles.premiumSection}>
                       <View style={styles.premiumSectionHeading}>
                         <View>
@@ -1788,8 +1820,10 @@ const ComplainPage = () => {
                               <ActivityIndicator color="#FFFFFF" />
                             ) : (
                               <Text style={styles.premiumAssignButtonText}>
-                                {selectedComplaint.assignedEmployeeId ||
-                                selectedComplaint.assignedEmployee
+                                {!selectedEmployeeId
+                                  ? 'Remove assignment'
+                                  : selectedComplaint.assignedEmployeeId ||
+                                    selectedComplaint.assignedEmployee
                                   ? 'Reassign employee'
                                   : 'Assign employee'}
                               </Text>
@@ -1799,11 +1833,11 @@ const ComplainPage = () => {
                       ) : (
                         <View style={styles.premiumEmpty}>
                           <Text style={styles.premiumSectionHint}>
-                            No employees were returned by /api/auth/getUser.
-                            Check that this endpoint returns users to admins.
+                            {employeesError ||
+                              'No employees are mapped to this client yet. Map employees to the client in User Management.'}
                           </Text>
                           <TouchableOpacity
-                            onPress={getEmployees}
+                            onPress={() => getEmployees(selectedComplaint._id)}
                             style={{ marginTop: 10 }}
                           >
                             <Text style={styles.premiumRetry}>Try again</Text>
@@ -1938,19 +1972,13 @@ const ComplainPage = () => {
               showsVerticalScrollIndicator={false}
             >
               {activeTicketDropdown === 'status' ? (
-                [
-                  { label: 'Pending', value: 'pending', icon: 'time-outline' },
-                  {
-                    label: 'In Progress',
-                    value: 'in-progress',
-                    icon: 'sync-outline',
-                  },
-                  {
-                    label: 'Resolved',
-                    value: 'resolved',
-                    icon: 'checkmark-circle-outline',
-                  },
-                ].map(option => {
+                statuses
+                  .map(item => ({
+                    label: item.name,
+                    value: item.code,
+                    icon: getStatusIcon(item.code),
+                  }))
+                  .map(option => {
                   const selected =
                     normalizeComplaintStatus(selectedComplaint?.status) ===
                     option.value;

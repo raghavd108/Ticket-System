@@ -22,6 +22,7 @@ import createStyles from '../style/profilePage';
 import { useTheme } from '../context/ThemeContext';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import AttendanceHistory from '../components/AttendanceHistory';
+import AttendanceReport from '../components/AttendanceReport';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
@@ -135,7 +136,6 @@ const ProfilePage = () => {
 
   useEffect(() => {
     getUser();
-    getDocuments();
   }, []);
 
   // GET USER
@@ -159,6 +159,11 @@ const ProfilePage = () => {
       setUser(loggedInUser);
       setEditUserName(loggedInUser.userName || '');
       setEditEmail(loggedInUser.email || '');
+
+      // Documents are issued to employees only.
+      if (loggedInUser?.role?.toLowerCase() === 'employee') {
+        getDocuments();
+      }
     } catch (error) {
       console.log('GET USER ERROR:', error);
       Alert.alert('Error', 'Unable to load your profile.');
@@ -300,9 +305,12 @@ const ProfilePage = () => {
       setConfirmPassword('');
       setPasswordModalVisible(false);
 
+      // The server ends every session after a password change.
       Alert.alert(
         'Password Updated',
-        'Your password has been changed successfully.',
+        'Your password has been changed. Please log in again with your new password.',
+        [{ text: 'OK', onPress: () => logout() }],
+        { cancelable: false },
       );
     } catch (error: any) {
       console.log('UPDATE PASSWORD ERROR:', error?.response?.data || error);
@@ -333,8 +341,6 @@ const ProfilePage = () => {
           },
         },
       );
-
-      console.log('DOCUMENTS RESPONSE:', response.data);
 
       setDocuments(response.data.documents || []);
     } catch (error: any) {
@@ -638,6 +644,37 @@ const ProfilePage = () => {
 
                     <Text style={styles.settingArrow}>›</Text>
                   </TouchableOpacity>
+                )}
+
+                {/* ATTENDANCE REPORTS (admin) */}
+                {isAdmin && (
+                  <>
+                    <View style={styles.divider} />
+                    <TouchableOpacity
+                      style={styles.settingItem}
+                      activeOpacity={0.7}
+                      onPress={() => setEmployeeModal('attendance')}
+                    >
+                      <View style={styles.settingIcon}>
+                        <Ionicons
+                          name="stats-chart-outline"
+                          size={22}
+                          color={theme.primary}
+                        />
+                      </View>
+
+                      <View style={styles.settingContent}>
+                        <Text style={styles.settingTitle}>
+                          Attendance Reports
+                        </Text>
+                        <Text style={styles.settingDescription}>
+                          Daily and monthly attendance for all employees
+                        </Text>
+                      </View>
+
+                      <Text style={styles.settingArrow}>›</Text>
+                    </TouchableOpacity>
+                  </>
                 )}
 
                 <View style={styles.divider} />
@@ -1300,7 +1337,7 @@ const ProfilePage = () => {
                     fontWeight: '700',
                   }}
                 >
-                  Attendance History
+                  {isAdmin ? 'Attendance Reports' : 'Attendance History'}
                 </Text>
 
                 <Text
@@ -1311,7 +1348,9 @@ const ProfilePage = () => {
                     marginTop: 4,
                   }}
                 >
-                  View your attendance records
+                  {isAdmin
+                    ? 'All employees, by day or month'
+                    : 'View your attendance records'}
                 </Text>
               </View>
 
@@ -1341,7 +1380,7 @@ const ProfilePage = () => {
 
             {/* ATTENDANCE COMPONENT */}
             <View style={{ flex: 1 }}>
-              <AttendanceHistory />
+              {isAdmin ? <AttendanceReport /> : <AttendanceHistory />}
             </View>
           </View>
         </View>
