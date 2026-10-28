@@ -370,7 +370,7 @@ const AttendanceToggle = () => {
             </View>
 
             <View style={styles.detailInfo}>
-              <Text style={styles.detailLabel}>CHECK-IN</Text>
+              <Text style={styles.detailLabel}>IN</Text>
               <Text style={styles.timeText}>{formatTime(inTime)}</Text>
             </View>
           </View>
@@ -390,7 +390,7 @@ const AttendanceToggle = () => {
             </View>
 
             <View style={styles.detailInfo}>
-              <Text style={styles.detailLabel}>CHECK-OUT</Text>
+              <Text style={styles.detailLabel}>OUT</Text>
               <Text style={styles.timeText}>{formatTime(outTime)}</Text>
             </View>
           </View>

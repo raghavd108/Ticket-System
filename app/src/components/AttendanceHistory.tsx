@@ -709,7 +709,7 @@ const AttendanceHistory = ({
 
                         <View style={styles.timesRow}>
                           <View style={styles.timeBlock}>
-                            <Text style={styles.timeLabel}>CHECK-IN</Text>
+                            <Text style={styles.timeLabel}>IN</Text>
 
                             <Text style={styles.timeValue}>
                               {formatTime(item.inTime)}
@@ -719,7 +719,7 @@ const AttendanceHistory = ({
                           <View style={styles.timeSeparator} />
 
                           <View style={styles.timeBlock}>
-                            <Text style={styles.timeLabel}>CHECK-OUT</Text>
+                            <Text style={styles.timeLabel}>OUT</Text>
 
                             <Text style={styles.timeValue}>
                               {formatTime(item.outTime)}
