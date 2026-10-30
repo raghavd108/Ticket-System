@@ -4,26 +4,80 @@ const { DateTime } = require("luxon");
 const {
   TIMEZONE,
   getAttendanceDate,
-  normalizeDay,
   isRegularHoliday,
 } = require("../utils/attendanceUtils.js");
 
+// =====================================================
+// COMMON HELPERS
+// =====================================================
+
 function sendError(res, status, message) {
-  return res.status(status).json({ message });
+  return res.status(status).json({ success: false, message });
+}
+
+function getAuthenticatedUserId(user) {
+  const id = user?.id ?? user?.userId ?? user?._id ?? user?.sub;
+  return id ? String(id) : null;
+}
+
+// Only Admin, CEO and CTO can modify the company calendar.
+// Permission is verified using the database, not just JWT data.
+async function getCalendarManager(req) {
+  const userId = getAuthenticatedUserId(req.user);
+
+  if (!userId) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      role: true,
+      designation: true,
+      organisationId: true,
+      isRevoked: true,
+    },
+  });
+
+  if (!user || user.isRevoked) return null;
+
+  const designation = String(user.designation || "")
+    .trim()
+    .toLowerCase();
+
+  const isAuthorized =
+    user.role === "admin" ||
+    (user.role === "employee" && ["ceo", "cto"].includes(designation));
+
+  return isAuthorized ? user : null;
+}
+
+async function requireCalendarManager(req, res) {
+  const manager = await getCalendarManager(req);
+
+  if (!manager) {
+    sendError(
+      res,
+      403,
+      "Only Admin, CEO and CTO can manage the company calendar.",
+    );
+    return null;
+  }
+
+  return manager;
 }
 
 function parseCalendarDate(value) {
   if (typeof value !== "string") return null;
 
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
   const parsed = DateTime.fromISO(value, {
     zone: TIMEZONE,
   });
 
-  if (
-    !parsed.isValid ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(value) ||
-    parsed.toISODate() !== value
-  ) {
+  if (!parsed.isValid || parsed.toISODate() !== value) {
     return null;
   }
 
@@ -39,7 +93,11 @@ function serializeEntry(entry) {
   };
 }
 
+// =====================================================
+// GET COMPANY CALENDAR
 // GET /api/company-calendar
+// =====================================================
+
 exports.getCalendar = async (req, res) => {
   try {
     const { month, year } = req.query;
@@ -79,50 +137,60 @@ exports.getCalendar = async (req, res) => {
           lt: getAttendanceDate(nextMonth),
         },
       },
-      orderBy: { date: "asc" },
+      orderBy: {
+        date: "asc",
+      },
     });
 
-    const entryDates = new Set(
-      entries.map((entry) =>
+    // Create a date-to-entry map for faster lookup.
+    const entriesByDate = new Map(
+      entries.map((entry) => [
         DateTime.fromJSDate(entry.date, {
           zone: "utc",
         }).toISODate(),
-      ),
+        entry,
+      ]),
     );
 
-    // Include normal weekly holidays in the calendar response.
     const calendar = [];
+
+    // Include default weekly holidays.
     for (
       let day = start;
       day.toMillis() < nextMonth.toMillis();
       day = day.plus({ days: 1 })
     ) {
       const date = day.toISODate();
-      const entry = entries.find(
-        (item) =>
-          DateTime.fromJSDate(item.date, {
-            zone: "utc",
-          }).toISODate() === date,
-      );
+
+      const entry = entriesByDate.get(date);
+
+      const defaultHoliday = isRegularHoliday(day);
 
       calendar.push({
         date,
-        name: entry?.name ?? (isRegularHoliday(day) ? "Weekly Holiday" : null),
+
+        name: entry?.name ?? (defaultHoliday ? "Weekly Holiday" : null),
+
         description: entry?.description ?? null,
-        type:
-          entry?.type ?? (isRegularHoliday(day) ? "HOLIDAY" : "WORKING_DAY"),
-        isDefaultHoliday: !entry && isRegularHoliday(day),
+
+        type: entry?.type ?? (defaultHoliday ? "HOLIDAY" : "WORKING_DAY"),
+
+        isDefaultHoliday: !entry && defaultHoliday,
+
         isCustom: Boolean(entry),
       });
     }
 
     return res.status(200).json({
       success: true,
+
       period: {
         year: selectedYear,
         month: selectedMonth,
       },
+
       entries: entries.map(serializeEntry),
+
       calendar,
     });
   } catch (error) {
@@ -132,10 +200,20 @@ exports.getCalendar = async (req, res) => {
   }
 };
 
+// =====================================================
+// CREATE COMPANY CALENDAR DAY
 // POST /api/company-calendar
+// ADMIN / CEO / CTO
+// =====================================================
+
 exports.createCalendarDay = async (req, res) => {
   try {
+    const manager = await requireCalendarManager(req, res);
+
+    if (!manager) return;
+
     const day = parseCalendarDate(req.body?.date);
+
     const { type, name, description } = req.body ?? {};
 
     if (!day) {
@@ -165,15 +243,21 @@ exports.createCalendarDay = async (req, res) => {
     const entry = await prisma.companyCalendarDay.create({
       data: {
         date: getAttendanceDate(day),
+
         type,
+
         name: name.trim(),
-        description: description?.trim() || null,
+
+        description:
+          typeof description === "string" ? description.trim() || null : null,
       },
     });
 
     return res.status(201).json({
       success: true,
+
       message: "Company calendar entry created successfully.",
+
       entry: serializeEntry(entry),
     });
   } catch (error) {
@@ -191,11 +275,25 @@ exports.createCalendarDay = async (req, res) => {
   }
 };
 
+// =====================================================
+// UPDATE COMPANY CALENDAR DAY
 // PATCH /api/company-calendar/:id
+// ADMIN / CEO / CTO
+// =====================================================
+
 exports.updateCalendarDay = async (req, res) => {
   try {
+    const manager = await requireCalendarManager(req, res);
+
+    if (!manager) return;
+
     const { id } = req.params;
+
     const { date, type, name, description } = req.body ?? {};
+
+    if (!id || typeof id !== "string") {
+      return sendError(res, 400, "Invalid calendar entry ID.");
+    }
 
     const existing = await prisma.companyCalendarDay.findUnique({
       where: { id },
@@ -207,6 +305,7 @@ exports.updateCalendarDay = async (req, res) => {
 
     const data = {};
 
+    // Update date.
     if (date !== undefined) {
       const day = parseCalendarDate(date);
 
@@ -217,6 +316,7 @@ exports.updateCalendarDay = async (req, res) => {
       data.date = getAttendanceDate(day);
     }
 
+    // Update calendar type.
     if (type !== undefined) {
       if (!["HOLIDAY", "WORKING_DAY"].includes(type)) {
         return sendError(res, 400, "Type must be HOLIDAY or WORKING_DAY.");
@@ -225,6 +325,7 @@ exports.updateCalendarDay = async (req, res) => {
       data.type = type;
     }
 
+    // Update name.
     if (name !== undefined) {
       if (
         typeof name !== "string" ||
@@ -241,12 +342,22 @@ exports.updateCalendarDay = async (req, res) => {
       data.name = name.trim();
     }
 
+    // Update description.
     if (description !== undefined) {
       if (description !== null && typeof description !== "string") {
         return sendError(res, 400, "Description must be text.");
       }
 
-      data.description = description?.trim() || null;
+      data.description =
+        typeof description === "string" ? description.trim() || null : null;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return sendError(
+        res,
+        400,
+        "Please provide at least one field to update.",
+      );
     }
 
     const entry = await prisma.companyCalendarDay.update({
@@ -256,7 +367,9 @@ exports.updateCalendarDay = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+
       message: "Company calendar entry updated successfully.",
+
       entry: serializeEntry(entry),
     });
   } catch (error) {
@@ -274,10 +387,23 @@ exports.updateCalendarDay = async (req, res) => {
   }
 };
 
+// =====================================================
+// DELETE COMPANY CALENDAR DAY
 // DELETE /api/company-calendar/:id
+// ADMIN / CEO / CTO
+// =====================================================
+
 exports.deleteCalendarDay = async (req, res) => {
   try {
+    const manager = await requireCalendarManager(req, res);
+
+    if (!manager) return;
+
     const { id } = req.params;
+
+    if (!id || typeof id !== "string") {
+      return sendError(res, 400, "Invalid calendar entry ID.");
+    }
 
     const existing = await prisma.companyCalendarDay.findUnique({
       where: { id },
@@ -293,6 +419,7 @@ exports.deleteCalendarDay = async (req, res) => {
 
     return res.status(200).json({
       success: true,
+
       message:
         "Calendar entry deleted. The date now follows the default weekend rules.",
     });

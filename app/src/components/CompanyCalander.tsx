@@ -26,6 +26,7 @@ type CalendarDayType = 'HOLIDAY' | 'WORKING_DAY';
 type CalendarUser = {
   id?: string;
   role?: string;
+  designation?: string;
 };
 
 type CalendarEntry = {
@@ -198,7 +199,17 @@ export default function CompanyCalendarScreen({
   const styles = useMemo(() => createStyles(COLORS), [COLORS]);
   // Pass the logged-in user from your existing navigation if available.
   const user = route?.params?.user;
-  const isAdmin = String(user?.role || '').toLowerCase() === 'admin';
+  const userRole = String(user?.role || '')
+    .trim()
+    .toLowerCase();
+  const userDesignation = String(user?.designation || '')
+    .trim()
+    .toLowerCase();
+
+  // Admins and employees designated as CEO or CTO can manage the calendar.
+  const canManageCalendar =
+    userRole === 'admin' ||
+    (userRole === 'employee' && ['ceo', 'cto'].includes(userDesignation));
 
   const [year, setYear] = useState<number>(new Date().getFullYear());
   const [monthIndex, setMonthIndex] = useState<number>(new Date().getMonth());
@@ -362,7 +373,7 @@ export default function CompanyCalendarScreen({
   };
 
   const openCreateModal = (date: string): void => {
-    if (!isAdmin) return;
+    if (!canManageCalendar) return;
 
     const existing = entries.find(entry => entry.date === date);
 
@@ -501,7 +512,7 @@ export default function CompanyCalendarScreen({
       <Pressable
         key={cell.date}
         onPress={() => setSelectedDate(cell.date)}
-        onLongPress={() => isAdmin && openCreateModal(cell.date)}
+        onLongPress={() => canManageCalendar && openCreateModal(cell.date)}
         style={[
           styles.dayCell,
           {
@@ -535,7 +546,7 @@ export default function CompanyCalendarScreen({
           />
         )}
 
-        {isAdmin && isSelected && (
+        {canManageCalendar && isSelected && (
           <Text style={styles.cellEditHint}>Selected</Text>
         )}
       </Pressable>
@@ -612,7 +623,7 @@ export default function CompanyCalendarScreen({
           </Text>
         )}
 
-        {isAdmin && (
+        {canManageCalendar && (
           <View style={styles.detailActions}>
             <TouchableOpacity
               style={styles.secondaryButton}
@@ -626,7 +637,7 @@ export default function CompanyCalendarScreen({
           </View>
         )}
 
-        {!isCustom && !isAdmin && (
+        {!isCustom && !canManageCalendar && (
           <Text style={styles.defaultNote}>
             {item?.isDefaultHoliday
               ? 'Regular company weekend holiday.'
@@ -764,7 +775,7 @@ export default function CompanyCalendarScreen({
 
         {renderSelectedDetails()}
 
-        {isAdmin && (
+        {canManageCalendar && (
           <TouchableOpacity
             style={styles.primaryButton}
             onPress={() =>

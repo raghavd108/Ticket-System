@@ -10,12 +10,32 @@ const {
   deleteCalendarDay,
 } = require("../controller/companyCalendar.controller");
 
+// =====================================================
+// VIEW COMPANY CALENDAR
+// All authenticated users
+// =====================================================
+
 router.get("/", auth.verifyToken, getCalendar);
 
-router.post("/", auth.verifyAdmin, createCalendarDay);
+// =====================================================
+// CREATE CALENDAR DAY
+// Admin + CEO + CTO
+// =====================================================
 
-router.patch("/:id", auth.verifyAdmin, updateCalendarDay);
+router.post("/", auth.verifyManagementAccess, createCalendarDay);
 
-router.delete("/:id", auth.verifyAdmin, deleteCalendarDay);
+// =====================================================
+// UPDATE CALENDAR DAY
+// Admin + CEO + CTO
+// =====================================================
+
+router.patch("/:id", auth.verifyManagementAccess, updateCalendarDay);
+
+// =====================================================
+// DELETE CALENDAR DAY
+// Admin + CEO + CTO
+// =====================================================
+
+router.delete("/:id", auth.verifyManagementAccess, deleteCalendarDay);
 
 module.exports = router;

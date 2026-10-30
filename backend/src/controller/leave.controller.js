@@ -1,6 +1,6 @@
 const prisma = require("../config/prisma.js");
 const { DateTime } = require("luxon");
-const { sendNotification } = require("../services/fcmService.js");
+const { notifyUsers } = require("../services/fcmService.js");
 
 const {
   TIMEZONE,
@@ -15,12 +15,39 @@ const {
 const MAX_BACKDATED_LEAVE_DAYS = 30;
 const MAX_LEAVE_SPAN_DAYS = 90;
 
-function getOrganisationId(user) {
-  if (!user?.organisation) return null;
+function getAuthenticatedUserId(user) {
+  const id = user?.id ?? user?.userId ?? user?._id ?? user?.sub;
+  return id ? String(id) : null;
+}
 
-  return typeof user.organisation === "object"
-    ? user.organisation.id || user.organisation._id
-    : user.organisation;
+// CEO and CTO remain employees in the existing Role enum.
+async function getLeaveApprover(req) {
+  const userId = getAuthenticatedUserId(req.user);
+
+  if (!userId) return null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      role: true,
+      designation: true,
+      organisationId: true,
+      isRevoked: true,
+    },
+  });
+
+  if (!user || user.isRevoked) return null;
+
+  const designation = String(user.designation || "")
+    .trim()
+    .toLowerCase();
+
+  const isApprover =
+    user.role === "admin" ||
+    (user.role === "employee" && ["ceo", "cto"].includes(designation));
+
+  return isApprover ? user : null;
 }
 
 function isValidDateString(value) {
@@ -81,49 +108,39 @@ const employeeSelect = {
 // LEAVE NOTIFICATION HELPER
 // =====================================================
 
-// Notifications are stored in MySQL first.
-// Push failures must not undo a leave operation.
-async function notifyUser({
-  userId,
-  fcmToken,
-  title,
-  body,
-  pushType,
-  targetRole,
-  leaveId,
-}) {
+async function notifyLeaveRecipients(
+  recipients,
+  { title, body, pushType, leaveId },
+) {
+  const uniqueRecipients = [
+    ...new Map(
+      (recipients || [])
+        .filter((recipient) => recipient?.id)
+        .map((recipient) => [String(recipient.id), recipient]),
+    ).values(),
+  ];
+
+  if (uniqueRecipients.length === 0) return;
+
   try {
-    await prisma.notification.create({
+    await notifyUsers(uniqueRecipients, {
+      title,
+      body: `${body} (Leave ID: ${leaveId})`,
+
+      // The notification database stores leave notifications
+      // as CUSTOM, while FCM receives the actual leave type.
+      type: pushType,
+
       data: {
-        userId,
-        title,
-        body: `${body} (Leave ID: ${leaveId})`,
-        type: "CUSTOM",
-        read: false,
+        leaveId: String(leaveId),
       },
     });
   } catch (error) {
-    console.error("Leave notification database error:", error);
-  }
-
-  if (!fcmToken) {
-    console.log(`No FCM token for leave notification recipient ${userId}`);
-    return;
-  }
-
-  try {
-    await sendNotification({
-      fcmToken,
-      title,
-      body,
+    console.error("Leave notification delivery failed:", {
+      leaveId,
       type: pushType,
-      targetRole,
-    });
-  } catch (error) {
-    console.error("Leave push notification failed:", {
-      userId,
-      code: error.code,
       message: error.message,
+      code: error.code,
     });
   }
 }
@@ -136,6 +153,7 @@ function formatDate(date) {
 
 // =====================================================
 // APPLY FOR LEAVE
+// POST /api/leave/apply
 // =====================================================
 
 exports.applyLeave = async (req, res) => {
@@ -177,8 +195,7 @@ exports.applyLeave = async (req, res) => {
       });
     }
 
-    // Allow recent back-dated leave (e.g. sick leave) but not arbitrary
-    // historic dates that would rewrite old attendance.
+    // Allow recent back-dated leave for cases like sick leave.
     const earliestStart = DateTime.now()
       .setZone(TIMEZONE)
       .minus({ days: MAX_BACKDATED_LEAVE_DAYS })
@@ -199,10 +216,12 @@ exports.applyLeave = async (req, res) => {
       });
     }
 
+    // Get employee from database.
     const employee = await prisma.user.findFirst({
       where: {
-        id: req.user.id,
+        id: getAuthenticatedUserId(req.user),
         role: "employee",
+        isRevoked: false,
       },
       select: {
         id: true,
@@ -245,6 +264,7 @@ exports.applyLeave = async (req, res) => {
       });
     }
 
+    // Create leave request.
     const leave = await prisma.leave.create({
       data: {
         employeeId: employee.id,
@@ -261,44 +281,64 @@ exports.applyLeave = async (req, res) => {
       },
     });
 
-    // Find admins belonging to the employee's organisation.
-    const admins = employee.organisationId
-      ? await prisma.user.findMany({
-          where: {
-            role: "admin",
-            organisationId: employee.organisationId,
-          },
-          select: {
-            id: true,
-            fcmToken: true,
-          },
-        })
-      : [];
+    // =================================================
+    // FIND ADMIN, CEO AND CTO
+    // =================================================
 
-    if (admins.length === 0) {
-      console.warn(`No admins found for leave request ${leave.id}`);
+    let approvers = [];
+
+    if (employee.organisationId) {
+      const organisationUsers = await prisma.user.findMany({
+        where: {
+          organisationId: employee.organisationId,
+          isRevoked: false,
+          role: {
+            in: ["admin", "employee"],
+          },
+          NOT: {
+            id: employee.id,
+          },
+        },
+        select: {
+          id: true,
+          role: true,
+          designation: true,
+          fcmToken: true,
+        },
+      });
+
+      // Admins are included by role.
+      // CEO and CTO are included by designation.
+      approvers = organisationUsers.filter((user) => {
+        if (user.role === "admin") {
+          return true;
+        }
+
+        const designation = String(user.designation || "")
+          .trim()
+          .toLowerCase();
+
+        return designation === "ceo" || designation === "cto";
+      });
+    }
+
+    if (approvers.length === 0) {
+      console.warn(`No leave approvers found for leave request ${leave.id}`);
     }
 
     const title = "New Leave Request";
+
     const body =
       `${employee.userName || "An employee"} has requested ` +
       `${leave.leaveType} leave from ${startDate} to ${endDate}.`;
 
-    // Await notification attempts, but notification failures do not
-    // undo the successfully created leave request.
-    await Promise.allSettled(
-      admins.map((admin) =>
-        notifyUser({
-          userId: admin.id,
-          fcmToken: admin.fcmToken,
-          title,
-          body,
-          pushType: "LEAVE_REQUEST",
-          targetRole: "admin",
-          leaveId: leave.id,
-        }),
-      ),
-    );
+    // Send notifications to Admin, CEO and CTO.
+    await notifyLeaveRecipients(approvers, {
+      title,
+      body,
+      pushType: "LEAVE_REQUEST",
+      leaveId: leave.id,
+    });
 
     return res.status(201).json({
       success: true,
@@ -316,6 +356,7 @@ exports.applyLeave = async (req, res) => {
 
 // =====================================================
 // GET MY LEAVES
+// GET /api/leave/my-leaves
 // =====================================================
 
 exports.getMyLeaves = async (req, res) => {
@@ -326,9 +367,11 @@ exports.getMyLeaves = async (req, res) => {
       });
     }
 
+    const employeeId = getAuthenticatedUserId(req.user);
+
     const leaves = await prisma.leave.findMany({
       where: {
-        employeeId: req.user.id,
+        employeeId,
       },
       orderBy: {
         createdAt: "desc",
@@ -351,18 +394,23 @@ exports.getMyLeaves = async (req, res) => {
 
 // =====================================================
 // GET ALL ORGANISATION LEAVES
+// GET /api/leave/admin/all
 // =====================================================
 
 exports.getAllLeaves = async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    // Admin, CEO and CTO authorization.
+    const approver = await getLeaveApprover(req);
+
+    if (!approver) {
       return res.status(403).json({
-        message: "Only admins can view organisation leave requests.",
+        success: false,
+        message: "You are not authorized to view leave requests.",
       });
     }
 
     const { status } = req.query;
-    const organisationId = getOrganisationId(req.user);
+    const organisationId = approver.organisationId;
 
     const allowedStatuses = ["pending", "approved", "rejected"];
 
@@ -383,6 +431,7 @@ exports.getAllLeaves = async (req, res) => {
         employee: {
           role: "employee",
           organisationId,
+          isRevoked: false,
         },
         ...(status ? { status } : {}),
       },
@@ -412,19 +461,25 @@ exports.getAllLeaves = async (req, res) => {
 
 // =====================================================
 // APPROVE OR REJECT LEAVE
+// PATCH /api/leave/admin/:leaveId/status
 // =====================================================
 
 exports.updateLeaveStatus = async (req, res) => {
   try {
-    if (req.user.role !== "admin") {
+    // Admin, CEO and CTO authorization.
+    const approver = await getLeaveApprover(req);
+
+    if (!approver) {
       return res.status(403).json({
-        message: "Only admins can approve or reject leave.",
+        success: false,
+        message: "You are not authorized to approve or reject leave.",
       });
     }
 
     const { leaveId } = req.params;
     const { status } = req.body;
-    const organisationId = getOrganisationId(req.user);
+
+    const organisationId = approver.organisationId;
 
     if (!leaveId || typeof leaveId !== "string") {
       return res.status(400).json({
@@ -444,13 +499,15 @@ exports.updateLeaveStatus = async (req, res) => {
       });
     }
 
-    // Verify that the request belongs to an employee in this organisation.
+    // Verify request belongs to an employee
+    // in the approver's organisation.
     const leave = await prisma.leave.findFirst({
       where: {
         id: leaveId,
         employee: {
           organisationId,
           role: "employee",
+          isRevoked: false,
         },
       },
       include: {
@@ -466,29 +523,31 @@ exports.updateLeaveStatus = async (req, res) => {
       });
     }
 
+    // Only pending requests can be processed.
     if (leave.status !== "pending") {
       return res.status(409).json({
         message: `This leave request has already been ${leave.status}.`,
       });
     }
 
-    // Build the requested date range using calendar dates.
+    // =================================================
+    // BUILD REQUESTED DATE RANGE
+    // =================================================
+
     const startDay = DateTime.fromJSDate(new Date(leave.startDate), {
       zone: "utc",
     })
       .setZone(TIMEZONE)
       .startOf("day");
 
-    const endDay = DateTime.fromJSDate(new Date(leave.endDate), {
-      zone: "utc",
-    })
+    const endDay = DateTime.fromJSDate(new Date(leave.endDate), { zone: "utc" })
       .setZone(TIMEZONE)
       .startOf("day");
 
     const startDate = getAttendanceDate(startDay);
     const endDate = getAttendanceDate(endDay);
 
-    // Load company calendar overrides for this leave period.
+    // Load company calendar overrides.
     const calendarEntries = await prisma.companyCalendarDay.findMany({
       where: {
         date: {
@@ -504,9 +563,7 @@ exports.updateLeaveStatus = async (req, res) => {
 
     const calendarByDate = new Map(
       calendarEntries.map((entry) => [
-        DateTime.fromJSDate(new Date(entry.date), {
-          zone: "utc",
-        }).toISODate(),
+        DateTime.fromJSDate(new Date(entry.date), { zone: "utc" }).toISODate(),
         entry.type,
       ]),
     );
@@ -514,7 +571,8 @@ exports.updateLeaveStatus = async (req, res) => {
     const attendanceDates = [];
 
     // Include working days only.
-    // Company calendar overrides take precedence over regular holidays.
+    // Custom company calendar takes priority
+    // over regular weekend holidays.
     for (
       let day = startDay;
       day.toMillis() <= endDay.toMillis();
@@ -533,9 +591,14 @@ exports.updateLeaveStatus = async (req, res) => {
       }
     }
 
-    // Update leave and create attendance records in one transaction.
-    // Existing attendance records are never overwritten.
+    // =================================================
+    // TRANSACTION
+    // UPDATE LEAVE + ATTENDANCE
+    // =================================================
+
     const updatedLeave = await prisma.$transaction(async (tx) => {
+      // Conditional update prevents two approvers
+      // from processing the same pending request.
       const result = await tx.leave.updateMany({
         where: {
           id: leaveId,
@@ -554,11 +617,13 @@ exports.updateLeaveStatus = async (req, res) => {
         const error = new Error(
           "This leave request has already been processed.",
         );
+
         error.code = "LEAVE_ALREADY_PROCESSED";
+
         throw error;
       }
 
-      // Only approval creates attendance records.
+      // Only approved leave updates attendance.
       if (status === "approved" && attendanceDates.length > 0) {
         await tx.attendance.createMany({
           data: attendanceDates.map((date) => ({
@@ -569,6 +634,8 @@ exports.updateLeaveStatus = async (req, res) => {
             outTime: null,
             location: "",
           })),
+
+          // Do not overwrite existing attendance.
           skipDuplicates: true,
         });
       }
@@ -585,13 +652,18 @@ exports.updateLeaveStatus = async (req, res) => {
       });
     });
 
-    // Notify the employee only after the transaction succeeds.
+    // =================================================
+    // NOTIFY EMPLOYEE
+    // =================================================
+
+    // Notification happens after the transaction succeeds.
     const employeeRecipient = await prisma.user.findUnique({
       where: {
         id: leave.employeeId,
       },
       select: {
         id: true,
+        role: true,
         fcmToken: true,
       },
     });
@@ -611,16 +683,17 @@ exports.updateLeaveStatus = async (req, res) => {
         )} to ${formatDate(leave.endDate)} has been rejected.`;
 
     if (employeeRecipient) {
-      await notifyUser({
-        userId: employeeRecipient.id,
-        fcmToken: employeeRecipient.fcmToken,
+      await notifyLeaveRecipients([employeeRecipient], {
         title,
         body,
         pushType: approved ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
-        targetRole: "employee",
         leaveId: leave.id,
       });
     }
+
+    // =================================================
+    // RESPONSE
+    // =================================================
 
     return res.status(200).json({
       success: true,
@@ -639,7 +712,7 @@ exports.updateLeaveStatus = async (req, res) => {
     console.error("UPDATE LEAVE STATUS ERROR:", error);
 
     return res.status(500).json({
-      message: "Unable to update leave status.",
+      message: "Unable to update leave request.",
     });
   }
 };

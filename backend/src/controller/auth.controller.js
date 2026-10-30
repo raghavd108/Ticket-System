@@ -10,7 +10,10 @@ const COOKIE_OPTIONS = {
   maxAge: 24 * 60 * 60 * 1000,
 };
 
-// Employees must use a designation that exists in the Designation table.
+// =====================================================
+// DESIGNATION HELPER
+// =====================================================
+
 async function findDesignation(name) {
   const value = String(name || "").trim();
 
@@ -23,7 +26,29 @@ async function findDesignation(name) {
   });
 }
 
-// SuperAdmins manage every client and every SP Infocom employee.
+// =====================================================
+// MANAGEMENT ACCESS HELPER
+// Admin + CEO + CTO
+// =====================================================
+
+function isManagementUser(user) {
+  const role = String(user?.role || "")
+    .trim()
+    .toLowerCase();
+  const designation = String(user?.designation || "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    role === "admin" ||
+    (role === "employee" && ["ceo", "cto"].includes(designation))
+  );
+}
+
+// =====================================================
+// MANAGEABLE USERS QUERY
+// =====================================================
+
 function manageableUserWhere(adminOrganisationId) {
   return {
     OR: [
@@ -98,6 +123,7 @@ function serializeUser(user) {
 
 // =====================================================
 // REGISTER USER
+// Admin + CEO + CTO
 // =====================================================
 
 async function register(req, res) {
@@ -157,7 +183,7 @@ async function register(req, res) {
       });
     }
 
-    const isAuthenticatedAdmin = req.user?.role === "admin";
+    const isAuthenticatedManagementUser = isManagementUser(req.user);
 
     const adminOrganisationId = String(
       req.user?.organisation?.id ||
@@ -166,19 +192,19 @@ async function register(req, res) {
         "",
     );
 
-    if (isAuthenticatedAdmin && role === "admin") {
+    if (isAuthenticatedManagementUser && role === "admin") {
       return res.status(403).json({
-        message: "An admin cannot create another admin account",
+        message: "Management users cannot create another admin account",
       });
     }
 
     let targetOrganisationId = organisation ? String(organisation) : "";
 
-    if (isAuthenticatedAdmin && role === "employee") {
+    if (isAuthenticatedManagementUser && role === "employee") {
       targetOrganisationId = adminOrganisationId;
     }
 
-    if (isAuthenticatedAdmin && !adminOrganisationId) {
+    if (isAuthenticatedManagementUser && !adminOrganisationId) {
       return res.status(400).json({
         message: "Your account is not linked to an organisation",
       });
@@ -207,7 +233,7 @@ async function register(req, res) {
     }
 
     if (
-      isAuthenticatedAdmin &&
+      isAuthenticatedManagementUser &&
       role !== "client" &&
       targetOrganisationId !== adminOrganisationId
     ) {
@@ -253,7 +279,7 @@ async function register(req, res) {
         });
       }
 
-      const employeeOrganisationId = isAuthenticatedAdmin
+      const employeeOrganisationId = isAuthenticatedManagementUser
         ? adminOrganisationId
         : org.id;
 
@@ -278,7 +304,7 @@ async function register(req, res) {
 
       if (employees.length !== employeeIds.length) {
         return res.status(400).json({
-          message: isAuthenticatedAdmin
+          message: isAuthenticatedManagementUser
             ? "One or more selected employees do not belong to your organisation"
             : "One or more selected employees are invalid or do not belong to this organisation",
         });
@@ -360,7 +386,7 @@ async function register(req, res) {
 }
 
 // =====================================================
-// LOGIN — REVOKED ACCOUNTS CANNOT LOG IN
+// LOGIN
 // =====================================================
 
 async function login(req, res) {
@@ -413,7 +439,6 @@ async function login(req, res) {
       });
     }
 
-    // Only reveal revocation to someone who knows the password.
     if (user.isRevoked) {
       return res.status(403).json({
         success: false,
@@ -476,7 +501,7 @@ async function login(req, res) {
 }
 
 // =====================================================
-// LOGOUT — INVALIDATE EXISTING SESSIONS
+// LOGOUT
 // =====================================================
 
 async function logout(req, res) {
@@ -696,7 +721,7 @@ async function updateProfile(req, res) {
 }
 
 // =====================================================
-// UPDATE PASSWORD — INVALIDATE EXISTING SESSIONS
+// UPDATE PASSWORD
 // =====================================================
 
 async function updatePassword(req, res) {
@@ -767,13 +792,15 @@ async function updatePassword(req, res) {
 
 // =====================================================
 // GET CLIENTS AND EMPLOYEES
+// Admin + CEO + CTO
 // =====================================================
 
 async function getUser(req, res) {
   try {
-    if (req.user?.role !== "admin") {
+    if (!isManagementUser(req.user)) {
       return res.status(403).json({
-        message: "Only admins can view client and employee management",
+        message:
+          "Only Admin, CEO and CTO can view employee and client management",
       });
     }
 
@@ -786,7 +813,7 @@ async function getUser(req, res) {
 
     if (!adminOrganisationId) {
       return res.status(400).json({
-        message: "Your admin account is not linked to an organisation",
+        message: "Your account is not linked to an organisation",
       });
     }
 
@@ -841,15 +868,17 @@ async function getUser(req, res) {
 }
 
 // =====================================================
-// ADMIN UPDATE USER — EMPLOYEES AND CLIENTS
+// UPDATE EMPLOYEE OR CLIENT
+// Admin + CEO + CTO
 // PATCH /api/auth/update-user/:userId
 // =====================================================
 
 async function updateUser(req, res) {
   try {
-    if (req.user?.role !== "admin") {
+    if (!isManagementUser(req.user)) {
       return res.status(403).json({
-        message: "Only admins can update employee and client details",
+        message:
+          "Only Admin, CEO and CTO can update employee and client details",
       });
     }
 
@@ -870,7 +899,7 @@ async function updateUser(req, res) {
 
     if (!adminOrganisationId) {
       return res.status(400).json({
-        message: "Your admin account is not linked to an organisation",
+        message: "Your account is not linked to an organisation",
       });
     }
 
@@ -1124,7 +1153,7 @@ async function updateUser(req, res) {
       user: serializeUser(updatedUser),
     });
   } catch (error) {
-    console.error("ADMIN UPDATE USER ERROR:", error);
+    console.error("UPDATE USER ERROR:", error);
 
     if (error.code === "P2002") {
       return res.status(409).json({
@@ -1183,11 +1212,18 @@ async function saveFcmToken(req, res) {
 }
 
 // =====================================================
-// GET EMPLOYEES OF LOGGED-IN ADMIN'S ORGANISATION
+// GET EMPLOYEES
+// Admin + CEO + CTO
 // =====================================================
 
 async function getEmployees(req, res) {
   try {
+    if (!isManagementUser(req.user)) {
+      return res.status(403).json({
+        message: "Only Admin, CEO and CTO can view employee records",
+      });
+    }
+
     const organisationId = String(
       req.user?.organisation?.id ||
         req.user?.organisationId ||
@@ -1238,7 +1274,7 @@ async function getEmployees(req, res) {
 }
 
 // =====================================================
-// ADMIN ACCOUNT ACCESS REVOCATION
+// ADMIN-ONLY ACCOUNT ACCESS REVOCATION
 // =====================================================
 
 function getAdminOrganisationId(req) {
@@ -1269,7 +1305,7 @@ async function findManageableUser(userId, adminOrganisationId) {
 
 // =====================================================
 // REVOKE USER ACCESS
-// PATCH /api/auth/revoke-user/:userId
+// Admin only
 // =====================================================
 
 async function revokeUser(req, res) {
@@ -1364,7 +1400,7 @@ async function revokeUser(req, res) {
 
 // =====================================================
 // RESTORE USER ACCESS
-// PATCH /api/auth/restore-user/:userId
+// Admin only
 // =====================================================
 
 async function restoreUser(req, res) {

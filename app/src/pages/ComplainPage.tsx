@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import createStyles from '../style/complainStyle';
 import { useTheme } from '../context/ThemeContext';
 import { useNavigation } from '@react-navigation/native';
@@ -120,6 +120,14 @@ const ComplainPage = () => {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Infinite-scroll pagination
+  const PAGE_SIZE = 10;
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreComplaints, setHasMoreComplaints] = useState(true);
+  const currentPageRef = useRef(1);
+  const hasMoreComplaintsRef = useRef(true);
+  const loadingMoreRef = useRef(false);
 
   const [attachmentImages, setAttachmentImages] = useState<string[]>([]);
   const [attachmentModalVisible, setAttachmentModalVisible] = useState(false);
@@ -318,13 +326,36 @@ const ComplainPage = () => {
      COMPLAINTS
    */
 
-  const getComplaints = async () => {
+  const getComplaints = async (page = 1, append = false) => {
+    // Prevent duplicate requests when the scroll event fires repeatedly.
+    if (append && (loadingMoreRef.current || !hasMoreComplaintsRef.current)) {
+      return;
+    }
+
+    if (append) {
+      loadingMoreRef.current = true;
+      setLoadingMore(true);
+    } else {
+      currentPageRef.current = 1;
+      hasMoreComplaintsRef.current = true;
+      setHasMoreComplaints(true);
+    }
+
     try {
       const token = await AsyncStorage.getItem('token');
+
+      if (!token) {
+        setMessage('Authentication token not found');
+        return;
+      }
 
       const response = await axios.get(
         `${Config.API_URL}/api/complain/getcomplain`,
         {
+          params: {
+            page,
+            limit: PAGE_SIZE,
+          },
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -333,15 +364,67 @@ const ComplainPage = () => {
 
       const responseComplaints =
         response.data?.complains ?? response.data?.complaint ?? [];
-      setComplaints(
-        Array.isArray(responseComplaints)
-          ? responseComplaints.map(normalizeComplaint)
-          : [],
-      );
+
+      const normalizedComplaints = Array.isArray(responseComplaints)
+        ? responseComplaints.map(normalizeComplaint)
+        : [];
+
+      if (append) {
+        // Merge by ticket ID so repeated page requests cannot duplicate cards.
+        setComplaints(previous => {
+          const existingIds = new Set(previous.map(item => item._id));
+          const newItems = normalizedComplaints.filter(
+            item => !existingIds.has(item._id),
+          );
+          return [...previous, ...newItems];
+        });
+      } else {
+        setComplaints(normalizedComplaints);
+      }
+
+      const pagination = response.data?.pagination;
+      const nextPageExists =
+        typeof pagination?.hasNextPage === 'boolean'
+          ? pagination.hasNextPage
+          : normalizedComplaints.length === PAGE_SIZE;
+
+      currentPageRef.current = page;
+      hasMoreComplaintsRef.current = nextPageExists;
+      setHasMoreComplaints(nextPageExists);
       setMessage('');
     } catch (error) {
       console.log('GET COMPLAINTS ERROR:', error);
-      setMessage('Unable to fetch complaints');
+
+      // Keep already-loaded tickets visible if a later page fails.
+      if (!append) {
+        setMessage('Unable to fetch complaints');
+      } else {
+        Alert.alert(
+          'Unable to load more tickets',
+          'Please check your connection and try scrolling again.',
+        );
+      }
+    } finally {
+      if (append) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
+    }
+  };
+
+  // Fetch the next page when the user approaches the bottom of the list.
+  const handleComplaintScroll = ({ nativeEvent }: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+
+    const isNearBottom =
+      layoutMeasurement.height + contentOffset.y >= contentSize.height - 300;
+
+    if (
+      isNearBottom &&
+      hasMoreComplaintsRef.current &&
+      !loadingMoreRef.current
+    ) {
+      getComplaints(currentPageRef.current + 1, true);
     }
   };
 
@@ -400,8 +483,11 @@ const ComplainPage = () => {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await getComplaints();
-    setRefreshing(false);
+    try {
+      await getComplaints(1, false);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   /* 
@@ -640,6 +726,8 @@ const ComplainPage = () => {
             isAdmin ? styles.adminContent : styles.clientContent
           }
           showsVerticalScrollIndicator={false}
+          onScroll={handleComplaintScroll}
+          scrollEventThrottle={400}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -1321,6 +1409,52 @@ const ComplainPage = () => {
               ))}
             </View>
           )}
+
+          {/* INFINITE SCROLL FOOTER */}
+          {displayComplain.length > 0 && (
+            <View
+              style={{
+                minHeight: 58,
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingVertical: 14,
+              }}
+            >
+              {loadingMore ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <Text
+                    style={{
+                      marginLeft: 9,
+                      color: theme.muted || theme.text,
+                      fontSize: 12,
+                      fontWeight: '600',
+                    }}
+                  >
+                    Loading more tickets...
+                  </Text>
+                </View>
+              ) : hasMoreComplaints ? (
+                <Text
+                  style={{
+                    color: theme.muted || theme.text,
+                    fontSize: 11,
+                  }}
+                >
+                  Scroll down to load more
+                </Text>
+              ) : complaints.length > 0 ? (
+                <Text
+                  style={{
+                    color: theme.muted || theme.text,
+                    fontSize: 11,
+                  }}
+                >
+                  You have reached the end
+                </Text>
+              ) : null}
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
 
@@ -1354,9 +1488,7 @@ const ComplainPage = () => {
               setSortFilter={setSortFilter}
               statuses={statuses}
               modules={[
-                ...new Set(
-                  complaints.map(item => item.module).filter(Boolean),
-                ),
+                ...new Set(complaints.map(item => item.module).filter(Boolean)),
               ].sort()}
               dateFilter={dateFilter}
               setDateFilter={setDateFilter}
@@ -1634,12 +1766,18 @@ const ComplainPage = () => {
                         <View
                           style={[
                             styles.premiumProgressIcon,
-                            COMPLETED_STATUSES.includes(normalizeComplaintStatus(selectedComplaint.status))
+                            COMPLETED_STATUSES.includes(
+                              normalizeComplaintStatus(
+                                selectedComplaint.status,
+                              ),
+                            )
                               ? styles.premiumProgressDone
                               : styles.premiumProgressPending,
                           ]}
                         >
-                          {COMPLETED_STATUSES.includes(normalizeComplaintStatus(selectedComplaint.status)) && (
+                          {COMPLETED_STATUSES.includes(
+                            normalizeComplaintStatus(selectedComplaint.status),
+                          ) && (
                             <Ionicons
                               name="checkmark"
                               size={15}
@@ -1657,7 +1795,9 @@ const ComplainPage = () => {
                           </Text>
                           <Text style={styles.premiumSectionHint}>
                             {[...COMPLETED_STATUSES, 'cancelled'].includes(
-                              normalizeComplaintStatus(selectedComplaint.status),
+                              normalizeComplaintStatus(
+                                selectedComplaint.status,
+                              ),
                             )
                               ? getStatusLabel(selectedComplaint.status)
                               : 'Issue completed'}
@@ -1979,59 +2119,59 @@ const ComplainPage = () => {
                     icon: getStatusIcon(item.code),
                   }))
                   .map(option => {
-                  const selected =
-                    normalizeComplaintStatus(selectedComplaint?.status) ===
-                    option.value;
-                  return (
-                    <TouchableOpacity
-                      key={option.value}
-                      activeOpacity={0.75}
-                      onPress={() => {
-                        if (selectedComplaint) {
-                          updateStatus(selectedComplaint._id, option.value);
-                        }
-                        setActiveTicketDropdown(null);
-                      }}
-                      style={{
-                        minHeight: 54,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        paddingHorizontal: 12,
-                        marginBottom: 5,
-                        borderRadius: 12,
-                        backgroundColor: selected
-                          ? theme.primarySoft || '#F1E7D9'
-                          : 'transparent',
-                      }}
-                    >
-                      <Ionicons
-                        name={option.icon as any}
-                        size={20}
-                        color={selected ? theme.primary : '#8A8494'}
-                      />
-                      <Text
+                    const selected =
+                      normalizeComplaintStatus(selectedComplaint?.status) ===
+                      option.value;
+                    return (
+                      <TouchableOpacity
+                        key={option.value}
+                        activeOpacity={0.75}
+                        onPress={() => {
+                          if (selectedComplaint) {
+                            updateStatus(selectedComplaint._id, option.value);
+                          }
+                          setActiveTicketDropdown(null);
+                        }}
                         style={{
-                          flex: 1,
-                          marginLeft: 12,
-                          fontSize: 15,
-                          lineHeight: 22,
-                          fontWeight: selected ? '700' : '500',
-                          color: theme.text,
-                          includeFontPadding: true,
+                          minHeight: 54,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          paddingHorizontal: 12,
+                          marginBottom: 5,
+                          borderRadius: 12,
+                          backgroundColor: selected
+                            ? theme.primarySoft || '#F1E7D9'
+                            : 'transparent',
                         }}
                       >
-                        {option.label}
-                      </Text>
-                      {selected && (
                         <Ionicons
-                          name="checkmark"
-                          size={19}
-                          color={theme.primary}
+                          name={option.icon as any}
+                          size={20}
+                          color={selected ? theme.primary : '#8A8494'}
                         />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })
+                        <Text
+                          style={{
+                            flex: 1,
+                            marginLeft: 12,
+                            fontSize: 15,
+                            lineHeight: 22,
+                            fontWeight: selected ? '700' : '500',
+                            color: theme.text,
+                            includeFontPadding: true,
+                          }}
+                        >
+                          {option.label}
+                        </Text>
+                        {selected && (
+                          <Ionicons
+                            name="checkmark"
+                            size={19}
+                            color={theme.primary}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
               ) : (
                 <>
                   <TouchableOpacity

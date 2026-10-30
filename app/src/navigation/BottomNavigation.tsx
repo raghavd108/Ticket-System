@@ -19,7 +19,8 @@ interface User {
   userName: string;
   email: string;
   role: string;
-  Hospital: string;
+  designation?: string;
+  Hospital?: string;
 }
 
 const BottomNavigation = () => {
@@ -53,6 +54,15 @@ const BottomNavigation = () => {
     }
   };
 
+  // Normalize role and designation
+  const role = user?.role?.trim().toLowerCase();
+  const designation = user?.designation?.trim().toLowerCase();
+
+  // Admin, CEO and CTO can access User Management
+  const canManageUsers =
+    role === 'admin' ||
+    (role === 'employee' && ['ceo', 'cto'].includes(designation || ''));
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -64,7 +74,6 @@ const BottomNavigation = () => {
 
         tabBarStyle: {
           height: 64,
-
           paddingBottom: 8,
           paddingTop: 6,
 
@@ -113,6 +122,22 @@ const BottomNavigation = () => {
         }}
       />
 
+      {role === 'client' && (
+        <Tab.Screen
+          name="New Ticket"
+          component={ReportPage}
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <Ionicons
+                name={focused ? 'ticket' : 'ticket-outline'}
+                size={24}
+                color={focused ? theme.primary : theme.muted}
+              />
+            ),
+          }}
+        />
+      )}
+
       <Tab.Screen
         name="Search"
         component={SearchPage}
@@ -127,30 +152,14 @@ const BottomNavigation = () => {
         }}
       />
 
-      {user?.role === 'client' && (
-        <Tab.Screen
-          name="Report"
-          component={ReportPage}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <Ionicons
-                name={focused ? 'bar-chart' : 'bar-chart-outline'}
-                size={24}
-                color={focused ? theme.primary : theme.muted}
-              />
-            ),
-          }}
-        />
-      )}
-
-      {user?.role === 'admin' && (
+      {canManageUsers && (
         <Tab.Screen
           name="User Management"
           component={ClientPage}
           options={{
             tabBarIcon: ({ focused }) => (
               <Ionicons
-                name={focused ? 'person-add' : 'person-add-outline'}
+                name={focused ? 'people' : 'people-outline'}
                 size={24}
                 color={focused ? theme.primary : theme.muted}
               />

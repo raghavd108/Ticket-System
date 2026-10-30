@@ -7,12 +7,15 @@ const { notifyUsers } = require("../services/fcmService");
 // ACCESS RULES
 // -----------------------------------------------------
 // admin                         : every ticket
-// employee, canViewAllTickets   : every ticket (CEO, CTO, Customer Care,
-//                                 Business Development Manager, Sales
-//                                 Executive, ...)
-// employee, other designations  : tickets assigned to them AND raised by
+// employee, canViewAllTickets   : every ticket (CEO, CTO, etc.)
+// employee, other designations  : tickets assigned to them OR raised by
 //                                 a client they are mapped to
 // client                        : tickets they raised
+//
+// Assignment permissions:
+// admin                         : can assign/unassign
+// employee, canAssignTickets    : can assign/unassign (CEO/CTO)
+// other employees               : cannot assign/unassign
 // =====================================================
 
 const complaintInclude = {
@@ -75,34 +78,55 @@ function getUserId(user) {
 }
 
 function canViewAllTickets(user) {
-  return user?.role === "admin" || Boolean(user?.permissions?.canViewAllTickets);
+  return (
+    user?.role === "admin" || Boolean(user?.permissions?.canViewAllTickets)
+  );
 }
 
 function canAssignTickets(user) {
   return user?.role === "admin" || Boolean(user?.permissions?.canAssignTickets);
 }
 
-// Prisma filter for the tickets the user may see.
+// =====================================================
+// TICKET ACCESS FILTER
+// =====================================================
+
 function getAccessWhere(user) {
   const userId = getUserId(user);
 
+  if (!userId) {
+    return null;
+  }
+
+  // Admin, CEO, CTO and other permitted designations
+  // can view every ticket.
   if (canViewAllTickets(user)) {
     return {};
   }
 
+  // Employees can see:
+  // 1. Tickets directly assigned to them.
+  // 2. Tickets raised by clients mapped to them.
   if (user?.role === "employee") {
     return {
-      assignedEmployeeId: userId,
-      user: {
-        assignedEmployees: {
-          some: {
-            employeeId: userId,
+      OR: [
+        {
+          assignedEmployeeId: userId,
+        },
+        {
+          user: {
+            assignedEmployees: {
+              some: {
+                employeeId: userId,
+              },
+            },
           },
         },
-      },
+      ],
     };
   }
 
+  // Clients can see only tickets created by themselves.
   if (user?.role === "client") {
     return {
       userId,
@@ -112,10 +136,13 @@ function getAccessWhere(user) {
   return null;
 }
 
+// Find a ticket only if the logged-in user has access to it.
 async function findAccessibleComplaint(user, id) {
   const accessWhere = getAccessWhere(user);
 
-  if (!accessWhere) return null;
+  if (!accessWhere) {
+    return null;
+  }
 
   return prisma.complaint.findFirst({
     where: {
@@ -124,6 +151,10 @@ async function findAccessibleComplaint(user, id) {
     include: complaintInclude,
   });
 }
+
+// =====================================================
+// DATE FILTER HELPERS
+// =====================================================
 
 function isValidDateString(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -137,7 +168,9 @@ function isValidDateString(value) {
   );
 }
 
-// Optional list filters: ?status=pending&from=2026-10-01&to=2026-10-31&clientId=...
+// Optional list filters:
+// ?status=pending&from=2026-10-01&to=2026-10-31&clientId=...
+//
 // Dates are calendar days in IST.
 function getListFilters(query) {
   const filters = [];
@@ -176,13 +209,21 @@ function getListFilters(query) {
   return filters;
 }
 
+// =====================================================
+// STATUS HELPER
+// =====================================================
+
 async function findStatus({ statusId, status }) {
   if (statusId !== undefined && statusId !== null && statusId !== "") {
     const id = Number(statusId);
 
-    if (!Number.isInteger(id)) return null;
+    if (!Number.isInteger(id)) {
+      return null;
+    }
 
-    return prisma.ticketStatus.findUnique({ where: { id } });
+    return prisma.ticketStatus.findUnique({
+      where: { id },
+    });
   }
 
   if (typeof status === "string" && status.trim()) {
@@ -198,7 +239,10 @@ async function findStatus({ statusId, status }) {
   return null;
 }
 
-// Employees mapped to a client (active accounts only).
+// =====================================================
+// GET EMPLOYEES MAPPED TO A CLIENT
+// =====================================================
+
 async function getClientEmployees(clientId) {
   const assignments = await prisma.userAssignment.findMany({
     where: {
@@ -218,9 +262,14 @@ async function getClientEmployees(clientId) {
   return assignments.map((assignment) => assignment.employee);
 }
 
-// Convert Prisma complaint records into the existing API response format.
+// =====================================================
+// FORMAT COMPLAINT RESPONSE
+// =====================================================
+
 async function formatComplaint(complaint) {
-  if (!complaint) return null;
+  if (!complaint) {
+    return null;
+  }
 
   const {
     userId,
@@ -245,10 +294,12 @@ async function formatComplaint(complaint) {
 
   return {
     ...rest,
+
     _id: complaint.id,
 
-    // `status` stays a string code for compatibility with existing clients.
+    // Status remains a string code for compatibility.
     status: status?.code ?? null,
+
     statusId,
     statusName: status?.name ?? null,
     statusDetails: status || null,
@@ -280,18 +331,26 @@ async function formatComplaint(complaint) {
   };
 }
 
-// Notify everyone involved in a ticket about a status change, except the
-// person who made the change.
+// =====================================================
+// STATUS CHANGE NOTIFICATION
+// =====================================================
+
 async function notifyStatusChange({ complaint, statusName, actorId }) {
   const [clientEmployees, client, assignee] = await Promise.all([
     getClientEmployees(complaint.userId),
+
     prisma.user.findUnique({
-      where: { id: complaint.userId },
+      where: {
+        id: complaint.userId,
+      },
       select: recipientSelect,
     }),
+
     complaint.assignedEmployeeId
       ? prisma.user.findUnique({
-          where: { id: complaint.assignedEmployeeId },
+          where: {
+            id: complaint.assignedEmployeeId,
+          },
           select: recipientSelect,
         })
       : null,
@@ -380,6 +439,7 @@ async function complain(req, res) {
           organisationId: true,
         },
       }),
+
       prisma.ticketStatus.findUnique({
         where: {
           code: "pending",
@@ -397,7 +457,8 @@ async function complain(req, res) {
       throw new Error("Ticket status 'pending' is not seeded");
     }
 
-    // Attachments are optional. Store file names, not permanent public URLs.
+    // Attachments are optional.
+    // Store file names instead of permanent public URLs.
     const uploadedImages = [];
 
     for (const file of req.files || []) {
@@ -433,6 +494,7 @@ async function complain(req, res) {
         userId,
         organisationId: user.organisationId,
         statusId: pendingStatus.id,
+
         images: {
           create: uploadedImages,
         },
@@ -440,10 +502,16 @@ async function complain(req, res) {
       include: complaintInclude,
     });
 
-    // Notify every employee mapped to this client, plus SuperAdmins.
+    // =====================================================
+    // NOTIFY MAPPED EMPLOYEES, ADMINS, CEO AND CTO
+    // =====================================================
+
     try {
-      const [clientEmployees, admins] = await Promise.all([
+      const [clientEmployees, admins, management] = await Promise.all([
+        // Employees mapped to this client
         getClientEmployees(userId),
+
+        // All active admins
         prisma.user.findMany({
           where: {
             role: "admin",
@@ -451,12 +519,35 @@ async function complain(req, res) {
           },
           select: recipientSelect,
         }),
+
+        // CEO, CTO and other employees
+        // having permission to view all tickets
+        prisma.user.findMany({
+          where: {
+            role: "employee",
+            isRevoked: false,
+
+            designationRef: {
+              is: {
+                canViewAllTickets: true,
+              },
+            },
+          },
+          select: recipientSelect,
+        }),
       ]);
 
-      await notifyUsers([...clientEmployees, ...admins], {
+      // Combine all recipients.
+      // notifyUsers already removes duplicate user IDs.
+      await notifyUsers([...clientEmployees, ...admins, ...management], {
         title: "New Ticket Created",
-        body: `${user.userName || "A client"} raised a ticket: ${complaint.module}`,
+
+        body: `${
+          user.userName || "A client"
+        } raised a ticket: ${complaint.module}`,
+
         type: "NEW_TICKET",
+
         complaintId: complaint.id,
       });
     } catch (notificationError) {
@@ -495,7 +586,9 @@ async function getComplain(req, res) {
       where: {
         AND: [accessWhere, ...getListFilters(req.query)],
       },
+
       include: complaintInclude,
+
       orderBy: {
         createdAt: "desc",
       },
@@ -519,7 +612,8 @@ async function getComplain(req, res) {
 
 // =====================================================
 // UPDATE COMPLAINT STATUS
-// PATCH /complain/update-status/:id   { statusId } or { status: code }
+// PATCH /complain/update-status/:id
+// { statusId } or { status: code }
 // =====================================================
 
 async function updateComplaintStatus(req, res) {
@@ -560,9 +654,11 @@ async function updateComplaintStatus(req, res) {
       where: {
         id,
       },
+
       data: {
         statusId: status.id,
       },
+
       include: complaintInclude,
     });
 
@@ -594,13 +690,15 @@ async function updateComplaintStatus(req, res) {
 // GET /complain/:id/assignable-employees
 // =====================================================
 
-// An employee can work on a ticket when they are mapped to the client, or
-// when their designation already grants access to every ticket.
+// An employee can work on a ticket when they are mapped
+// to the client, or when their designation already grants
+// access to every ticket.
 async function getAssignableEmployees(complaint) {
   return prisma.user.findMany({
     where: {
       role: "employee",
       isRevoked: false,
+
       OR: [
         {
           assignedToClients: {
@@ -609,6 +707,7 @@ async function getAssignableEmployees(complaint) {
             },
           },
         },
+
         {
           designationRef: {
             is: {
@@ -618,20 +717,24 @@ async function getAssignableEmployees(complaint) {
         },
       ],
     },
+
     select: {
       id: true,
       userName: true,
       email: true,
       designation: true,
+
       assignedToClients: {
         where: {
           clientId: complaint.userId,
         },
+
         select: {
           clientId: true,
         },
       },
     },
+
     orderBy: {
       userName: "asc",
     },
@@ -674,7 +777,9 @@ async function listAssignableEmployees(req, res) {
 
 // =====================================================
 // ASSIGN COMPLAINT TO EMPLOYEE
-// PATCH /complain/:id/assign   { employeeId }  (null to unassign)
+// PATCH /complain/:id/assign
+// { employeeId } (null to unassign)
+//
 // Admins and designations with canAssignTickets
 // =====================================================
 
@@ -690,7 +795,10 @@ async function assignComplaint(req, res) {
       });
     }
 
-    if (employeeId !== null && (typeof employeeId !== "string" || !employeeId)) {
+    if (
+      employeeId !== null &&
+      (typeof employeeId !== "string" || !employeeId)
+    ) {
       return res.status(400).json({
         message: "employeeId is required",
       });
@@ -708,6 +816,7 @@ async function assignComplaint(req, res) {
 
     if (employeeId) {
       const assignable = await getAssignableEmployees(complaint);
+
       employee = assignable.find((item) => item.id === employeeId);
 
       if (!employee) {
@@ -718,17 +827,22 @@ async function assignComplaint(req, res) {
       }
     }
 
-    // Moving between Pending and Assigned follows the assignment.
+    // Moving between Pending and Assigned follows
+    // the assignment.
     const statusCode = complaint.status?.code;
     let nextStatus = null;
 
     if (employee && statusCode === "pending") {
       nextStatus = await prisma.ticketStatus.findUnique({
-        where: { code: "assigned" },
+        where: {
+          code: "assigned",
+        },
       });
     } else if (!employee && statusCode === "assigned") {
       nextStatus = await prisma.ticketStatus.findUnique({
-        where: { code: "pending" },
+        where: {
+          code: "pending",
+        },
       });
     }
 
@@ -736,17 +850,24 @@ async function assignComplaint(req, res) {
       where: {
         id,
       },
+
       data: {
         assignedEmployeeId: employee ? employee.id : null,
+
         ...(nextStatus ? { statusId: nextStatus.id } : {}),
       },
+
       include: complaintInclude,
     });
 
+    // Send assignment and status notifications.
     try {
       if (employee && employee.id !== actorId) {
         const recipient = await prisma.user.findUnique({
-          where: { id: employee.id },
+          where: {
+            id: employee.id,
+          },
+
           select: recipientSelect,
         });
 
@@ -776,6 +897,7 @@ async function assignComplaint(req, res) {
       message: employee
         ? "Complaint assigned successfully"
         : "Complaint unassigned successfully",
+
       complaint: await formatComplaint(updatedComplaint),
     });
   } catch (error) {
@@ -815,6 +937,7 @@ async function searchComplaint(req, res) {
       where: {
         AND: [
           accessWhere,
+
           {
             OR: [
               {
@@ -822,6 +945,7 @@ async function searchComplaint(req, res) {
                   contains: searchText,
                 },
               },
+
               {
                 problem: {
                   contains: searchText,
@@ -831,10 +955,13 @@ async function searchComplaint(req, res) {
           },
         ],
       },
+
       include: complaintInclude,
+
       orderBy: {
         createdAt: "desc",
       },
+
       take: 100,
     });
 

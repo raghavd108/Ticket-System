@@ -390,8 +390,20 @@ const ProfilePage = () => {
     ]);
   };
 
-  const isEmployee = user?.role?.toLowerCase() === 'employee';
-  const isAdmin = user?.role?.toLowerCase() === 'admin';
+  const normalizedRole = String(user?.role || '')
+    .trim()
+    .toLowerCase();
+  const normalizedDesignation = String(user?.designation || '')
+    .trim()
+    .toLowerCase();
+
+  const isEmployee = normalizedRole === 'employee';
+  const isAdmin = normalizedRole === 'admin';
+
+  // Admin, CEO and CTO can manage employee leave requests.
+  // CEO and CTO are employee accounts identified by designation.
+  const isLeaveManager =
+    isAdmin || (isEmployee && ['ceo', 'cto'].includes(normalizedDesignation));
 
   // LOADING
   if (loading) {
@@ -632,11 +644,11 @@ const ProfilePage = () => {
 
                     <View style={styles.settingContent}>
                       <Text style={styles.settingTitle}>
-                        {isAdmin ? 'Leave Management' : 'Leave Request'}
+                        {isLeaveManager ? 'Leave Management' : 'Leave Request'}
                       </Text>
 
                       <Text style={styles.settingDescription}>
-                        {isAdmin
+                        {isLeaveManager
                           ? 'Review, approve, or reject employee leave requests'
                           : 'Submit a leave request and track its status'}
                       </Text>
@@ -941,9 +953,7 @@ const ProfilePage = () => {
                     fontWeight: '700',
                   }}
                 >
-                  {user?.role?.toLowerCase() === 'admin'
-                    ? 'Leave Management'
-                    : 'Leave Request'}
+                  {isLeaveManager ? 'Leave Management' : 'Leave Request'}
                 </Text>
 
                 <Text
@@ -954,7 +964,7 @@ const ProfilePage = () => {
                     marginTop: 4,
                   }}
                 >
-                  {user?.role?.toLowerCase() === 'admin'
+                  {isLeaveManager
                     ? 'Review and manage employee leave requests'
                     : 'Submit a new leave request and track its status'}
                 </Text>
@@ -987,12 +997,11 @@ const ProfilePage = () => {
 
             {/* ROLE-BASED CONTENT */}
             <View style={{ flex: 1 }}>
-              {user?.role?.toLowerCase() === 'employee' &&
-                (user?._id || user?.id) && (
-                  <LeaveRequest employeeId={user._id || user.id} />
-                )}
+              {isLeaveManager && <LeaveManagement />}
 
-              {user?.role?.toLowerCase() === 'admin' && <LeaveManagement />}
+              {isEmployee && !isLeaveManager && (user?._id || user?.id) && (
+                <LeaveRequest employeeId={user._id || user.id} />
+              )}
 
               {!user && (
                 <View

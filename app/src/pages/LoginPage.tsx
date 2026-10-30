@@ -12,14 +12,15 @@ import {
   Keyboard,
   Image,
 } from 'react-native';
+
 import axios from 'axios';
 import Config from 'react-native-config';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import createStyles from '../style/LoginStyle';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 
-// Update this path if your assets folder is in a different location.
 const companyIcon = require('../assets/icon.png');
 
 const LoginPage = () => {
@@ -27,12 +28,18 @@ const LoginPage = () => {
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const passwordInputRef = useRef<React.ElementRef<typeof TextInput>>(null);
 
   const { theme } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
+
   const { login } = useAuth();
+
+  // =====================================================
+  // LOGIN
+  // =====================================================
 
   const handleLogin = async (): Promise<void> => {
     if (loading) return;
@@ -86,8 +93,12 @@ const LoginPage = () => {
     }
   };
 
+  // =====================================================
+  // RENDER
+  // =====================================================
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { flex: 1 }]}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -106,7 +117,8 @@ const LoginPage = () => {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.card}>
-            {/* Company Icon */}
+            {/* COMPANY LOGO */}
+
             <View
               style={{
                 alignItems: 'center',
@@ -130,7 +142,8 @@ const LoginPage = () => {
 
             <Text style={styles.subtitle}>Login to your account</Text>
 
-            {/* Username */}
+            {/* USERNAME */}
+
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Username / Email / Mobile Number</Text>
 
@@ -139,42 +152,85 @@ const LoginPage = () => {
                 placeholder="Enter username, email or mobile"
                 placeholderTextColor="#9ca3af"
                 value={userName}
-                onChangeText={setUserName}
+                onChangeText={value => {
+                  setUserName(value);
+                  if (message) setMessage('');
+                }}
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="default"
                 returnKeyType="next"
                 blurOnSubmit={false}
+                editable={!loading}
                 onSubmitEditing={() => {
                   passwordInputRef.current?.focus();
                 }}
               />
             </View>
 
-            {/* Password */}
+            {/* PASSWORD */}
+
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Password</Text>
 
-              <TextInput
-                ref={passwordInputRef}
-                style={styles.input}
-                placeholder="Enter password"
-                placeholderTextColor="#9ca3af"
-                value={password}
-                onChangeText={value => {
-                  setPassword(value);
-                  if (message) setMessage('');
+              <View
+                style={{
+                  position: 'relative',
+                  justifyContent: 'center',
                 }}
-                secureTextEntry
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="go"
-                onSubmitEditing={handleLogin}
-                accessibilityLabel="Password"
-              />
+              >
+                <TextInput
+                  ref={passwordInputRef}
+                  style={[
+                    styles.input,
+                    {
+                      paddingRight: 48,
+                    },
+                  ]}
+                  placeholder="Enter password"
+                  placeholderTextColor="#9ca3af"
+                  value={password}
+                  onChangeText={value => {
+                    setPassword(value);
+                    if (message) setMessage('');
+                  }}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="go"
+                  editable={!loading}
+                  onSubmitEditing={handleLogin}
+                  accessibilityLabel="Password"
+                />
+
+                <TouchableOpacity
+                  style={{
+                    position: 'absolute',
+                    right: 14,
+                    height: '100%',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    paddingHorizontal: 5,
+                  }}
+                  onPress={() => setShowPassword(previous => !previous)}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    showPassword ? 'Hide password' : 'Show password'
+                  }
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={21}
+                    color={theme.muted}
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
 
-            {/* Status message */}
+            {/* STATUS MESSAGE */}
+
             {message ? (
               <View
                 style={{
@@ -197,7 +253,8 @@ const LoginPage = () => {
               </View>
             ) : null}
 
-            {/* Login button */}
+            {/* LOGIN BUTTON */}
+
             <TouchableOpacity
               style={[styles.loginButton, loading && { opacity: 0.7 }]}
               onPress={handleLogin}

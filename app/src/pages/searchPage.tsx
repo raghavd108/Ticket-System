@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -40,39 +40,82 @@ interface Complaint {
   user?: User | null;
 }
 
+interface Pagination {
+  currentPage: number;
+  limit: number;
+  totalRecords: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPreviousPage: boolean;
+}
+
+const PAGE_SIZE = 10;
+
 const SearchPage = () => {
   const [search, setSearch] = useState('');
   const [result, setResult] = useState<Complaint[]>([]);
+
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [searched, setSearched] = useState(false);
+
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  const currentPageRef = useRef(1);
+  const hasMoreRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const searchRequestRef = useRef(0);
 
   const { theme } = useTheme();
 
   const styles = useMemo(() => createStyles(theme), [theme]);
 
   // =====================================================
-  // SEARCH
+  // RESET PAGINATION
   // =====================================================
 
-  const onSearch = async () => {
-    const query = search.trim();
+  const resetPagination = () => {
+    currentPageRef.current = 1;
+    hasMoreRef.current = false;
+    loadingMoreRef.current = false;
 
-    if (!query) {
-      setResult([]);
-      setSearched(false);
-      return;
-    }
+    setHasMore(false);
+    setLoadingMore(false);
+    setTotalRecords(0);
+  };
 
+  // =====================================================
+  // FETCH SEARCH RESULTS
+  // =====================================================
+
+  const fetchSearchResults = async (
+    page: number,
+    query: string,
+    append: boolean = false,
+    requestId?: number,
+  ) => {
     try {
-      setLoading(true);
+      if (append) {
+        if (loadingMoreRef.current || !hasMoreRef.current) {
+          return;
+        }
+
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
 
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
         console.log('Authentication token not found');
 
-        setResult([]);
-        setSearched(true);
+        if (!append) {
+          setResult([]);
+          setSearched(true);
+        }
 
         return;
       }
@@ -82,6 +125,8 @@ const SearchPage = () => {
         {
           params: {
             q: query,
+            page,
+            limit: PAGE_SIZE,
           },
           headers: {
             Authorization: `Bearer ${token}`,
@@ -89,28 +134,173 @@ const SearchPage = () => {
         },
       );
 
+      // Ignore an outdated search response.
+      if (requestId !== undefined && requestId !== searchRequestRef.current) {
+        return;
+      }
+
       console.log('SEARCH RESPONSE:', response.data);
 
-      setResult(response.data?.complaint || []);
+      const complaints: Complaint[] =
+        response.data?.complaint ?? response.data?.complains ?? [];
+
+      const pagination: Pagination | undefined = response.data?.pagination;
+
+      if (append) {
+        setResult(previous => {
+          const existingIds = new Set(previous.map(item => item._id));
+
+          const newComplaints = complaints.filter(
+            item => !existingIds.has(item._id),
+          );
+
+          return [...previous, ...newComplaints];
+        });
+      } else {
+        setResult(complaints);
+      }
+
+      const nextPageAvailable =
+        pagination?.hasNextPage ?? complaints.length === PAGE_SIZE;
+
+      hasMoreRef.current = nextPageAvailable;
+      setHasMore(nextPageAvailable);
+
+      currentPageRef.current = page;
+
+      setTotalRecords(
+        pagination?.totalRecords ??
+          (append ? result.length + complaints.length : complaints.length),
+      );
+
       setSearched(true);
     } catch (error: any) {
       console.log('SEARCH ERROR:', error.response?.data || error.message);
 
-      setResult([]);
-      setSearched(true);
+      if (!append) {
+        setResult([]);
+        setTotalRecords(0);
+        setSearched(true);
+      }
     } finally {
-      setLoading(false);
+      if (append) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
+
+  // =====================================================
+  // SEARCH FIRST PAGE
+  // =====================================================
+
+  const onSearch = async () => {
+    const query = search.trim();
+
+    if (!query) {
+      searchRequestRef.current += 1;
+
+      setResult([]);
+      setSearched(false);
+      resetPagination();
+
+      return;
+    }
+
+    const requestId = ++searchRequestRef.current;
+
+    resetPagination();
+    setResult([]);
+    setSearched(false);
+
+    await fetchSearchResults(1, query, false, requestId);
+  };
+
+  // =====================================================
+  // LOAD NEXT PAGE
+  // =====================================================
+
+  const loadMoreComplaints = useCallback(() => {
+    const query = search.trim();
+
+    if (!query || loading || loadingMoreRef.current || !hasMoreRef.current) {
+      return;
+    }
+
+    const nextPage = currentPageRef.current + 1;
+
+    fetchSearchResults(nextPage, query, true, searchRequestRef.current);
+  }, [search, loading]);
 
   // =====================================================
   // CLEAR SEARCH
   // =====================================================
 
   const clearSearch = () => {
+    searchRequestRef.current += 1;
+
     setSearch('');
     setResult([]);
     setSearched(false);
+
+    resetPagination();
+  };
+
+  // =====================================================
+  // RENDER FOOTER
+  // =====================================================
+
+  const renderFooter = () => {
+    if (loadingMore) {
+      return (
+        <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+          <ActivityIndicator size="small" color={theme.primary} />
+          <Text
+            style={{
+              marginTop: 8,
+              color: theme.muted,
+              fontSize: 12,
+            }}
+          >
+            Loading more complaints...
+          </Text>
+        </View>
+      );
+    }
+
+    if (result.length > 0 && hasMore) {
+      return (
+        <Text
+          style={{
+            textAlign: 'center',
+            paddingVertical: 15,
+            color: theme.muted,
+            fontSize: 12,
+          }}
+        >
+          Scroll down to load more
+        </Text>
+      );
+    }
+
+    if (result.length > 0 && !hasMore) {
+      return (
+        <Text
+          style={{
+            textAlign: 'center',
+            paddingVertical: 15,
+            color: theme.muted,
+            fontSize: 12,
+          }}
+        >
+          All complaints loaded
+        </Text>
+      );
+    }
+
+    return null;
   };
 
   // =====================================================
@@ -124,6 +314,8 @@ const SearchPage = () => {
       <Text style={styles.subtitle}>
         Search complaints by organisation or module
       </Text>
+
+      {/* SEARCH INPUT */}
 
       <View style={styles.searchContainer}>
         <TextInput
@@ -157,20 +349,15 @@ const SearchPage = () => {
         </TouchableOpacity>
       </View>
 
-      {/* ================================================= */}
       {/* RESULT COUNT */}
-      {/* ================================================= */}
 
       {searched && !loading && (
         <Text style={styles.resultCount}>
-          {result.length} {result.length === 1 ? 'complaint' : 'complaints'}{' '}
-          found
+          {totalRecords} {totalRecords === 1 ? 'complaint' : 'complaints'} found
         </Text>
       )}
 
-      {/* ================================================= */}
       {/* RESULTS */}
-      {/* ================================================= */}
 
       <FlatList
         data={result}
@@ -179,40 +366,47 @@ const SearchPage = () => {
         contentContainerStyle={
           result.length === 0 ? styles.emptyList : styles.list
         }
+        onEndReached={loadMoreComplaints}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={renderFooter}
         ListEmptyComponent={
-          searched ? (
-            <View style={styles.emptyContainer}>
-              <View style={styles.emptyIcon}>
-                <Text style={styles.emptyIconText}>⌕</Text>
+          !loading ? (
+            searched ? (
+              <View style={styles.emptyContainer}>
+                <View style={styles.emptyIcon}>
+                  <Text style={styles.emptyIconText}>⌕</Text>
+                </View>
+
+                <Text style={styles.emptyTitle}>No complaints found</Text>
+
+                <Text style={styles.emptyText}>
+                  We couldn't find any complaints matching "{search}". Try
+                  searching for another organisation or module.
+                </Text>
               </View>
+            ) : (
+              <View style={styles.emptyContainer}>
+                <View style={styles.emptyIcon}>
+                  <Text style={styles.emptyIconText}>⌕</Text>
+                </View>
 
-              <Text style={styles.emptyTitle}>No complaints found</Text>
+                <Text style={styles.emptyTitle}>Search your complaints</Text>
 
-              <Text style={styles.emptyText}>
-                We couldn't find any complaints matching "{search}". Try
-                searching for another organisation or module.
-              </Text>
-            </View>
+                <Text style={styles.emptyText}>
+                  Enter an organisation or module above to find relevant
+                  complaints.
+                </Text>
+              </View>
+            )
           ) : (
-            <View style={styles.emptyContainer}>
-              <View style={styles.emptyIcon}>
-                <Text style={styles.emptyIconText}>⌕</Text>
-              </View>
-
-              <Text style={styles.emptyTitle}>Search your complaints</Text>
-
-              <Text style={styles.emptyText}>
-                Enter an organisation or module above to find relevant
-                complaints.
-              </Text>
+            <View style={{ paddingVertical: 30 }}>
+              <ActivityIndicator color={theme.primary} />
             </View>
           )
         }
         renderItem={({ item }) => (
           <View style={styles.resultCard}>
-            {/* ================================================= */}
             {/* CARD HEADER */}
-            {/* ================================================= */}
 
             <View style={styles.cardHeader}>
               <View style={{ flex: 1 }}>
@@ -220,7 +414,6 @@ const SearchPage = () => {
                   {item.organisation?.name || 'Unknown Organisation'}
                 </Text>
 
-                {/* Organisation Type */}
                 {item.organisation?.orgType && (
                   <Text
                     style={{
@@ -235,10 +428,13 @@ const SearchPage = () => {
               </View>
 
               {/* STATUS */}
+
               <View
                 style={[
                   styles.statusBadge,
-                  { backgroundColor: getStatusColor(item.status) + '22' },
+                  {
+                    backgroundColor: getStatusColor(item.status) + '22',
+                  },
                 ]}
               >
                 <Text
@@ -252,9 +448,7 @@ const SearchPage = () => {
               </View>
             </View>
 
-            {/* ================================================= */}
             {/* PROBLEM */}
-            {/* ================================================= */}
 
             <Text style={styles.problem} numberOfLines={3}>
               {item.problem || 'No problem description'}
@@ -262,15 +456,11 @@ const SearchPage = () => {
 
             <View style={styles.divider} />
 
-            {/* ================================================= */}
             {/* MODULE */}
-            {/* ================================================= */}
 
             <Text style={styles.module}>Module: {item.module || 'N/A'}</Text>
 
-            {/* ================================================= */}
-            {/* CLIENT / USER */}
-            {/* ================================================= */}
+            {/* CLIENT */}
 
             {item.user?.userName && (
               <Text
@@ -284,9 +474,7 @@ const SearchPage = () => {
               </Text>
             )}
 
-            {/* ================================================= */}
             {/* DATE */}
-            {/* ================================================= */}
 
             {item.createdAt && (
               <Text style={styles.date}>

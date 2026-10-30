@@ -19,10 +19,10 @@ function getToken(req) {
   return null;
 }
 
-// Verify the JWT and confirm the session is still valid in the database.
-// Logout, password changes and revocation increment tokenVersion, so an
-// older token is rejected. Role, organisation and designation are read
-// from the database so permission changes apply immediately.
+// =====================================================
+// AUTHENTICATE USER
+// =====================================================
+
 async function authenticate(req, res) {
   const token = getToken(req);
 
@@ -45,6 +45,7 @@ async function authenticate(req, res) {
     res.status(401).json({
       message: "Invalid or expired token",
     });
+
     return null;
   }
 
@@ -61,6 +62,7 @@ async function authenticate(req, res) {
       designation: true,
       tokenVersion: true,
       isRevoked: true,
+
       designationRef: {
         select: {
           canViewAllTickets: true,
@@ -70,20 +72,24 @@ async function authenticate(req, res) {
     },
   });
 
+  // Check whether the session is still valid
   if (!user || user.tokenVersion !== Number(decoded.tokenVersion ?? 0)) {
     res.status(401).json({
       code: "SESSION_EXPIRED",
       message: "Your session has expired. Please log in again.",
     });
+
     return null;
   }
 
+  // Check revoked account
   if (user.isRevoked) {
     res.status(401).json({
       code: "ACCOUNT_REVOKED",
       message:
         "Access to this account has been revoked. Please contact your administrator.",
     });
+
     return null;
   }
 
@@ -99,15 +105,24 @@ async function authenticate(req, res) {
   };
 }
 
+// =====================================================
+// USER PERMISSIONS
+// =====================================================
+
 function getPermissions(user) {
   const isAdmin = user.role === "admin";
 
   return {
     canViewAllTickets:
       isAdmin || Boolean(user.designationRef?.canViewAllTickets),
+
     canAssignTickets: isAdmin || Boolean(user.designationRef?.canAssignTickets),
   };
 }
+
+// =====================================================
+// VERIFY TOKEN
+// =====================================================
 
 async function verifyToken(req, res, next) {
   try {
@@ -155,8 +170,48 @@ async function verifyAdmin(req, res, next) {
   }
 }
 
+// =====================================================
+// VERIFY MANAGEMENT ACCESS
+// Admin + CEO + CTO
+// =====================================================
+
+async function verifyManagementAccess(req, res, next) {
+  try {
+    const user = await authenticate(req, res);
+
+    if (!user) return;
+
+    const role = user.role?.trim().toLowerCase();
+    const designation = user.designation?.trim().toLowerCase();
+
+    const isAdmin = role === "admin";
+
+    const isCEOorCTO =
+      role === "employee" && ["ceo", "cto"].includes(designation);
+
+    if (!isAdmin && !isCEOorCTO) {
+      return res.status(403).json({
+        code: "MANAGEMENT_ACCESS_DENIED",
+        message:
+          "Access denied. Only Admin, CEO and CTO can access User Management.",
+      });
+    }
+
+    req.user = user;
+
+    next();
+  } catch (error) {
+    console.error("MANAGEMENT AUTH ERROR:", error);
+
+    return res.status(500).json({
+      message: "Unable to verify management access",
+    });
+  }
+}
+
 module.exports = {
   verifyToken,
   verifyAdmin,
+  verifyManagementAccess,
   getPermissions,
 };

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -61,6 +61,13 @@ interface User {
   revokedReason?: string | null;
 }
 
+interface CurrentUser {
+  id?: string;
+  _id?: string;
+  role?: string;
+  designation?: string;
+}
+
 interface Organisation {
   _id: string;
   orgType: string;
@@ -74,6 +81,9 @@ interface Organisation {
 }
 
 const ClientPage = () => {
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [accessLoading, setAccessLoading] = useState(true);
+
   // USER FORM
 
   const [organisation, setOrganisation] = useState('');
@@ -93,6 +103,13 @@ const ClientPage = () => {
   // DATA
 
   const [client, setClient] = useState<User[]>([]);
+  const [loadingMoreUsers, setLoadingMoreUsers] = useState(false);
+  const [hasMoreUsers, setHasMoreUsers] = useState(false);
+  const [totalUserCount, setTotalUserCount] = useState(0);
+  const userPageRef = useRef(1);
+  const hasMoreUsersRef = useRef(false);
+  const loadingMoreUsersRef = useRef(false);
+  const USER_PAGE_SIZE = 10;
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
   const [employees, setEmployees] = useState<AssignedEmployee[]>([]);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
@@ -149,24 +166,81 @@ const ClientPage = () => {
   // INITIAL LOAD
 
   useEffect(() => {
+    getCurrentUser();
     getUser();
     getOrganisations();
     getEmployees();
   }, []);
 
-  // GET USERS
-
-  const getUser = async () => {
+  // GET THE SIGNED-IN USER AND CHECK PAGE ACCESS
+  const getCurrentUser = async () => {
     try {
-      setLoading(true);
-
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
+        setCurrentUser(null);
+        return;
+      }
+
+      const response = await axios.get(`${Config.API_URL}/api/auth/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      setCurrentUser(response.data?.user || null);
+    } catch (error: any) {
+      console.log('GET CURRENT USER ERROR:', error?.response?.data || error);
+      setCurrentUser(null);
+    } finally {
+      setAccessLoading(false);
+    }
+  };
+
+  const currentRole = String(currentUser?.role || '')
+    .trim()
+    .toLowerCase();
+  const currentDesignation = String(currentUser?.designation || '')
+    .trim()
+    .toLowerCase();
+
+  const canAccessUserManagement =
+    currentRole === 'admin' ||
+    (currentRole === 'employee' && ['ceo', 'cto'].includes(currentDesignation));
+
+  // GET USERS WITH SERVER-SIDE PAGINATION
+
+  const getUser = async (page: number = 1, append: boolean = false) => {
+    if (append) {
+      if (loadingMoreUsersRef.current || !hasMoreUsersRef.current) {
+        return;
+      }
+      loadingMoreUsersRef.current = true;
+      setLoadingMoreUsers(true);
+    } else {
+      setLoading(true);
+      userPageRef.current = 1;
+      hasMoreUsersRef.current = false;
+      setHasMoreUsers(false);
+      setLoadingMoreUsers(false);
+    }
+
+    try {
+      const token = await AsyncStorage.getItem('token');
+
+      if (!token) {
+        if (!append) {
+          setClient([]);
+          setTotalUserCount(0);
+        }
         return;
       }
 
       const res = await axios.get(`${Config.API_URL}/api/auth/getUser`, {
+        params: {
+          page,
+          limit: USER_PAGE_SIZE,
+        },
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -175,57 +249,111 @@ const ClientPage = () => {
       console.log('GET USERS RESPONSE:', res.data);
 
       const users = Array.isArray(res.data?.users) ? res.data.users : [];
-      setClient(
-        users.map((item: any) => ({
-          ...item,
-          id: String(item.id || item._id || ''),
-          _id: String(item._id || item.id || ''),
-          mobileNumber:
-            item.mobileNumber ?? item.phoneNumber ?? item.mobile ?? '',
-          isRevoked: Boolean(item.isRevoked),
-          revokedAt: item.revokedAt ?? null,
-          revokedReason: item.revokedReason ?? null,
-          organisation:
-            typeof item.organisation === 'object' && item.organisation
-              ? {
-                  ...item.organisation,
-                  _id: String(
-                    item.organisation._id || item.organisation.id || '',
-                  ),
-                }
-              : item.organisation
-              ? { _id: String(item.organisation), name: '' }
-              : { _id: '', name: '' },
-          assignedEmployee: (Array.isArray(item.assignedEmployee)
-            ? item.assignedEmployee
-            : Array.isArray(item.assignedEmployees)
-            ? item.assignedEmployees
-            : []
-          ).map((entry: any) => {
-            const employee = entry?.employee || entry;
-            if (typeof employee === 'string') {
-              return { _id: employee, userName: 'Employee', email: '' };
-            }
-            return {
-              ...employee,
-              _id: String(employee?._id || employee?.id || ''),
-              userName: employee?.userName || 'Employee',
-              email: employee?.email || '',
-            };
-          }),
-        })),
+
+      const normalizedUsers: User[] = users.map((item: any) => ({
+        ...item,
+        id: String(item.id || item._id || ''),
+        _id: String(item._id || item.id || ''),
+        mobileNumber:
+          item.mobileNumber ?? item.phoneNumber ?? item.mobile ?? '',
+        isRevoked: Boolean(item.isRevoked),
+        revokedAt: item.revokedAt ?? null,
+        revokedReason: item.revokedReason ?? null,
+        organisation:
+          typeof item.organisation === 'object' && item.organisation
+            ? {
+                ...item.organisation,
+                _id: String(
+                  item.organisation._id || item.organisation.id || '',
+                ),
+              }
+            : item.organisation
+            ? { _id: String(item.organisation), name: '' }
+            : { _id: '', name: '' },
+        assignedEmployee: (Array.isArray(item.assignedEmployee)
+          ? item.assignedEmployee
+          : Array.isArray(item.assignedEmployees)
+          ? item.assignedEmployees
+          : []
+        ).map((entry: any) => {
+          const employee = entry?.employee || entry;
+          if (typeof employee === 'string') {
+            return { _id: employee, userName: 'Employee', email: '' };
+          }
+          return {
+            ...employee,
+            _id: String(employee?._id || employee?.id || ''),
+            userName: employee?.userName || 'Employee',
+            email: employee?.email || '',
+          };
+        }),
+      }));
+
+      if (append) {
+        setClient(previous => {
+          const existingIds = new Set(
+            previous.map(item => String(item._id || item.id)),
+          );
+          return [
+            ...previous,
+            ...normalizedUsers.filter(
+              item => !existingIds.has(String(item._id || item.id)),
+            ),
+          ];
+        });
+      } else {
+        setClient(normalizedUsers);
+      }
+
+      const pagination = res.data?.pagination;
+      const nextPageAvailable =
+        pagination?.hasNextPage ?? normalizedUsers.length === USER_PAGE_SIZE;
+
+      userPageRef.current = page;
+      hasMoreUsersRef.current = nextPageAvailable;
+      setHasMoreUsers(nextPageAvailable);
+
+      setTotalUserCount(
+        Number.isFinite(Number(pagination?.totalRecords))
+          ? Number(pagination.totalRecords)
+          : append
+          ? previousTotal => previousTotal + normalizedUsers.length
+          : normalizedUsers.length,
       );
     } catch (error: any) {
-      console.log('GET USERS ERROR:', error);
+      console.log('GET USERS ERROR:', error?.response?.data || error);
 
-      Alert.alert(
-        'Unable to Load Users',
-        error.response?.data?.message ||
-          'Something went wrong while loading users.',
-      );
+      if (!append) {
+        setClient([]);
+        setTotalUserCount(0);
+        Alert.alert(
+          'Unable to Load Users',
+          error.response?.data?.message ||
+            'Something went wrong while loading users.',
+        );
+      } else {
+        Alert.alert(
+          'Unable to Load More Users',
+          error.response?.data?.message ||
+            'Please try loading more users again.',
+        );
+      }
     } finally {
-      setLoading(false);
+      if (append) {
+        loadingMoreUsersRef.current = false;
+        setLoadingMoreUsers(false);
+      } else {
+        setLoading(false);
+      }
     }
+  };
+
+  const loadMoreUsers = () => {
+    if (loading || loadingMoreUsersRef.current || !hasMoreUsersRef.current) {
+      return;
+    }
+
+    getUser(userPageRef.current + 1, true);
   };
 
   // GET ORGANISATIONS
@@ -326,9 +454,9 @@ const ClientPage = () => {
     );
   };
 
-  // GET ADMIN ID
+  // GET CURRENT USER ID
 
-  const getAdminId = async () => {
+  const getCurrentUserId = async () => {
     try {
       const token = await AsyncStorage.getItem('token');
 
@@ -349,7 +477,7 @@ const ClientPage = () => {
         res.data?.id
       );
     } catch (error) {
-      console.log('GET ADMIN ID ERROR:', error);
+      console.log('GET CURRENT USER ID ERROR:', error);
       throw error;
     }
   };
@@ -591,18 +719,18 @@ const ClientPage = () => {
         return;
       }
 
-      const adminId = await getAdminId();
+      const currentUserId = await getCurrentUserId();
 
-      if (!adminId) {
+      if (!currentUserId) {
         Alert.alert(
-          'Admin ID Missing',
-          'Unable to identify the current admin.',
+          'User ID Missing',
+          'Unable to identify the signed-in user.',
         );
         return;
       }
 
       const res = await axios.post(
-        `${Config.API_URL}/api/org/add-org/${adminId}`,
+        `${Config.API_URL}/api/org/add-org/${currentUserId}`,
         {
           orgType: cleanOrgType,
           name: cleanName,
@@ -2187,6 +2315,68 @@ const ClientPage = () => {
 
   // RETURN
 
+  if (accessLoading) {
+    return (
+      <SafeAreaView
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: theme.background,
+        }}
+      >
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text
+          style={{
+            color: theme.ink,
+            marginTop: 12,
+            fontSize: 13,
+            fontWeight: '600',
+          }}
+        >
+          Checking access...
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!canAccessUserManagement) {
+    return (
+      <SafeAreaView
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24,
+          backgroundColor: theme.background,
+        }}
+      >
+        <Ionicons name="lock-closed-outline" size={42} color={theme.muted} />
+        <Text
+          style={{
+            color: theme.ink,
+            fontSize: 18,
+            fontWeight: '800',
+            marginTop: 14,
+          }}
+        >
+          Access restricted
+        </Text>
+        <Text
+          style={{
+            color: theme.muted,
+            fontSize: 13,
+            lineHeight: 20,
+            textAlign: 'center',
+            marginTop: 7,
+          }}
+        >
+          User Management is available to Admin, CEO and CTO accounts only.
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView
       style={[styles.screen, { flex: 1 }]}
@@ -2211,7 +2401,7 @@ const ClientPage = () => {
 
           <View style={styles.header}>
             <View style={styles.headerContent}>
-              <Text style={styles.eyebrow}>ADMINISTRATION</Text>
+              <Text style={styles.eyebrow}>USER ADMINISTRATION</Text>
 
               <Text style={styles.title}>User Management</Text>
 
@@ -2270,7 +2460,7 @@ const ClientPage = () => {
               </View>
 
               <View style={{ flex: 1 }}>
-                <Text style={styles.statValue}>{client.length}</Text>
+                <Text style={styles.statValue}>{totalUserCount}</Text>
                 <Text style={styles.statLabel}>Total Users</Text>
               </View>
             </View>
@@ -2438,6 +2628,65 @@ const ClientPage = () => {
             </View>
           ) : (
             <View>{filteredClients.map(renderClient)}</View>
+          )}
+
+          {/* LOAD MORE USERS */}
+
+          {!loading && client.length > 0 && hasMoreUsers && (
+            <TouchableOpacity
+              onPress={loadMoreUsers}
+              disabled={loadingMoreUsers}
+              activeOpacity={0.8}
+              style={{
+                marginTop: 14,
+                marginBottom: 8,
+                minHeight: 46,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: theme.border,
+                backgroundColor: theme.primarySoft,
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+              }}
+            >
+              {loadingMoreUsers ? (
+                <>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <Text
+                    style={{
+                      marginLeft: 9,
+                      color: theme.primary,
+                      fontWeight: '700',
+                    }}
+                  >
+                    Loading more users...
+                  </Text>
+                </>
+              ) : (
+                <Text
+                  style={{
+                    color: theme.primary,
+                    fontWeight: '800',
+                  }}
+                >
+                  Load More Users ({client.length} of {totalUserCount})
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {!loading && client.length > 0 && !hasMoreUsers && (
+            <Text
+              style={{
+                textAlign: 'center',
+                color: theme.muted,
+                fontSize: 12,
+                paddingVertical: 12,
+              }}
+            >
+              All users loaded
+            </Text>
           )}
 
           {/* =================================================
@@ -3378,46 +3627,44 @@ const ClientPage = () => {
                   keyboard: 'phone-pad',
                 },
               ].map(field => (
-                  <View key={field.label} style={{ marginBottom: 13 }}>
-                    <Text
-                      style={{
-                        color: theme.muted,
-                        fontSize: 10,
-                        fontWeight: '800',
-                        letterSpacing: 0.7,
-                        marginBottom: 6,
-                      }}
-                    >
-                      {field.label}
-                    </Text>
+                <View key={field.label} style={{ marginBottom: 13 }}>
+                  <Text
+                    style={{
+                      color: theme.muted,
+                      fontSize: 10,
+                      fontWeight: '800',
+                      letterSpacing: 0.7,
+                      marginBottom: 6,
+                    }}
+                  >
+                    {field.label}
+                  </Text>
 
-                    <TextInput
-                      value={field.value}
-                      onChangeText={field.set}
-                      placeholder={field.placeholder}
-                      placeholderTextColor={theme.muted}
-                      keyboardType={field.keyboard as any}
-                      autoCapitalize={
-                        field.keyboard === 'email-address'
-                          ? 'none'
-                          : 'sentences'
-                      }
-                      editable={!savingEmployee}
-                      returnKeyType="next"
-                      style={{
-                        minHeight: 46,
-                        color: theme.ink,
-                        backgroundColor: theme.background,
-                        borderWidth: 1,
-                        borderColor: theme.border,
-                        borderRadius: 11,
-                        paddingHorizontal: 12,
-                        paddingVertical: 10,
-                        fontSize: 14,
-                      }}
-                    />
-                  </View>
-                ))}
+                  <TextInput
+                    value={field.value}
+                    onChangeText={field.set}
+                    placeholder={field.placeholder}
+                    placeholderTextColor={theme.muted}
+                    keyboardType={field.keyboard as any}
+                    autoCapitalize={
+                      field.keyboard === 'email-address' ? 'none' : 'sentences'
+                    }
+                    editable={!savingEmployee}
+                    returnKeyType="next"
+                    style={{
+                      minHeight: 46,
+                      color: theme.ink,
+                      backgroundColor: theme.background,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      borderRadius: 11,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      fontSize: 14,
+                    }}
+                  />
+                </View>
+              ))}
 
               {selectedClient?.role === 'employee' && (
                 <View style={{ marginBottom: 13 }}>

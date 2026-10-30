@@ -1,50 +1,92 @@
 const express = require("express");
+
 const authController = require("../controller/auth.controller");
 const authMiddleware = require("../middleware/authMiddleware");
+
+const {
+  generalLimiter,
+  authLimiter,
+  registerLimiter,
+  passwordLimiter,
+} = require("../middleware/rateLimit.middleware");
+
 const Router = express.Router();
 
-Router.post("/register", authMiddleware.verifyAdmin, authController.register);
-Router.post("/login", authController.login);
-Router.get("/me", authMiddleware.verifyToken, authController.getMe);
-Router.get(
-  "/employees",
-  authMiddleware.verifyAdmin,
-  authController.getEmployees,
+// General rate limiting for all authentication routes
+Router.use(generalLimiter);
+
+// =====================================================
+// PUBLIC ROUTES
+// =====================================================
+
+Router.post(
+  "/register",
+  registerLimiter,
+  authMiddleware.verifyManagementAccess,
+  authController.register,
 );
+
+Router.post("/login", authLimiter, authController.login);
+
+// =====================================================
+// AUTHENTICATED ROUTES
+// =====================================================
+
+Router.get("/me", authMiddleware.verifyToken, authController.getMe);
 
 Router.patch(
   "/update-profile",
   authMiddleware.verifyToken,
   authController.updateProfile,
 );
+
 Router.patch(
   "/update-password",
+  passwordLimiter,
   authMiddleware.verifyToken,
   authController.updatePassword,
 );
-Router.get("/getUser", authMiddleware.verifyAdmin, authController.getUser);
+
 Router.post(
   "/fcm-token",
   authMiddleware.verifyToken,
   authController.saveFcmToken,
 );
+
+Router.post("/logout", authMiddleware.verifyToken, authController.logout);
+
+// =====================================================
+// CEO, CTO AND ADMIN MANAGEMENT ROUTES
+// =====================================================
+
+Router.get(
+  "/employees",
+  authMiddleware.verifyManagementAccess,
+  authController.getEmployees,
+);
+
+Router.get(
+  "/getUser",
+  authMiddleware.verifyManagementAccess,
+  authController.getUser,
+);
+
 Router.patch(
   "/update-user/:userId",
-  authMiddleware.verifyToken,
+  authMiddleware.verifyManagementAccess,
   authController.updateUser,
 );
+
 Router.patch(
   "/revoke-user/:userId",
-  authMiddleware.verifyToken,
-  authMiddleware.verifyAdmin,
+  authMiddleware.verifyManagementAccess,
   authController.revokeUser,
 );
 
 Router.patch(
   "/restore-user/:userId",
-  authMiddleware.verifyToken,
-  authMiddleware.verifyAdmin,
+  authMiddleware.verifyManagementAccess,
   authController.restoreUser,
 );
-Router.post("/logout", authMiddleware.verifyToken, authController.logout);
+
 module.exports = Router;

@@ -3,6 +3,8 @@ const router = express.Router();
 
 const auth = require("../middleware/authMiddleware");
 
+const { leaveLimiter } = require("../middleware/rateLimit.middleware");
+
 const {
   applyLeave,
   getMyLeaves,
@@ -10,13 +12,29 @@ const {
   updateLeaveStatus,
 } = require("../controller/leave.controller");
 
-// Employee routes
-router.post("/apply", auth.verifyToken, applyLeave);
+// =====================================================
+// EMPLOYEE ROUTES
+// =====================================================
+
+// Apply for leave
+router.post("/apply", leaveLimiter, auth.verifyToken, applyLeave);
+
+// View own leave requests
 router.get("/my-leaves", auth.verifyToken, getMyLeaves);
 
-// Admin routes
-router.get("/admin/all", auth.verifyToken, getAllLeaves);
+// =====================================================
+// MANAGEMENT ROUTES
+// =====================================================
 
-router.patch("/admin/:leaveId/status", auth.verifyToken, updateLeaveStatus);
+// View all employee leave requests
+router.get("/admin/all", auth.verifyManagementAccess, getAllLeaves);
+
+// Approve or reject leave requests
+router.patch(
+  "/admin/:leaveId/status",
+  leaveLimiter,
+  auth.verifyManagementAccess,
+  updateLeaveStatus,
+);
 
 module.exports = router;

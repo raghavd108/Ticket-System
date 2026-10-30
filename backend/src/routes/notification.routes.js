@@ -1,40 +1,60 @@
 const express = require("express");
 
 const Router = express.Router();
-const notificationController = require("../controller/notification.controller");
 
+const notificationController = require("../controller/notification.controller");
 const authMiddleware = require("../middleware/authMiddleware");
 
-// Get all notifications
+const { notificationLimiter } = require("../middleware/rateLimit.middleware");
+
+// =====================================================
+// GET ALL NOTIFICATIONS
+// =====================================================
+
 Router.get(
   "/getAll",
   authMiddleware.verifyToken,
   notificationController.getNotifications,
 );
 
-// Get unread notifications
+// =====================================================
+// GET UNREAD NOTIFICATIONS
+// =====================================================
+
 Router.get(
   "/unread",
   authMiddleware.verifyToken,
   notificationController.getUnreadNotifications,
 );
 
-// Mark one notification as read
+// =====================================================
+// MARK ONE NOTIFICATION AS READ
+// =====================================================
+
 Router.patch(
   "/:id/read",
   authMiddleware.verifyToken,
   notificationController.markNotificationAsRead,
 );
 
-// Mark all notifications as read
+// =====================================================
+// MARK ALL NOTIFICATIONS AS READ
+// =====================================================
+
 Router.patch(
   "/read-all",
   authMiddleware.verifyToken,
   notificationController.markAllNotificationsAsRead,
 );
 
+// =====================================================
+// CUSTOM NOTIFICATION
+// Admin only
+// =====================================================
+
 Router.post(
   "/custom-notification",
+  notificationLimiter,
   authMiddleware.verifyAdmin,
   notificationController.customNotification,
 );
