@@ -27,8 +27,31 @@ function isSuperAdmin(user) {
   return user?.isSuperAdmin === true;
 }
 
+function buildUserPermissions(user) {
+  const basePermissions = getPermissions(user || {});
+  const designation = user?.designationRef;
+
+  if (!designation) {
+    return {
+      ...basePermissions,
+      canPublishOffers: basePermissions?.canPublishOffers === true,
+      canNotifyEmployees: basePermissions?.canNotifyEmployees === true,
+    };
+  }
+
+  return {
+    ...basePermissions,
+    canViewAllTickets: designation.canViewAllTickets === true,
+    canAssignTickets: designation.canAssignTickets === true,
+    canManageUsers: designation.canManageUsers === true,
+    canPublishOffers: designation.canPublishOffers === true,
+    canNotifyEmployees: designation.canNotifyEmployees === true,
+    managementLevel: Number(designation.managementLevel || 0),
+  };
+}
+
 function actorPermissions(user) {
-  return user?.permissions || getPermissions(user || {});
+  return user?.permissions || buildUserPermissions(user || {});
 }
 
 function isManagementUser(user) {
@@ -63,6 +86,7 @@ function getActorOrganisationId(user) {
 // SuperAdmin can access users across organisations.
 // Other managers can access employees in their organisation
 // and clients assigned to employees in their organisation.
+
 function manageableUserWhere(organisationId, superAdmin = false) {
   if (superAdmin) {
     return {
@@ -94,6 +118,7 @@ function manageableUserWhere(organisationId, superAdmin = false) {
 
 // A manager can only modify a strictly lower management level.
 // SuperAdmin can manage all accounts.
+
 function canManageTarget(actor, target) {
   if (isSuperAdmin(actor)) return true;
   if (!isManagementUser(actor)) return false;
@@ -136,8 +161,20 @@ function serializeUser(user) {
     _id: user.id,
   };
 
-  if (designationRef !== undefined) {
-    result.permissions = getPermissions(user);
+  // Always return a consistent permissions object.
+  result.permissions = buildUserPermissions(user);
+
+  // Return designation permissions to the frontend.
+  if (designationRef) {
+    result.designationRef = {
+      name: designationRef.name || user.designation || null,
+      canViewAllTickets: designationRef.canViewAllTickets === true,
+      canAssignTickets: designationRef.canAssignTickets === true,
+      canManageUsers: designationRef.canManageUsers === true,
+      canPublishOffers: designationRef.canPublishOffers === true,
+      canNotifyEmployees: designationRef.canNotifyEmployees === true,
+      managementLevel: Number(designationRef.managementLevel || 0),
+    };
   }
 
   if (user.organisation) {
@@ -390,6 +427,9 @@ async function register(req, res) {
             canViewAllTickets: true,
             canAssignTickets: true,
             canManageUsers: true,
+            canPublishOffers: true,
+            canNotifyEmployees: true,
+            name: true,
             managementLevel: true,
           },
         },
@@ -476,6 +516,9 @@ async function login(req, res) {
             canViewAllTickets: true,
             canAssignTickets: true,
             canManageUsers: true,
+            canPublishOffers: true,
+            canNotifyEmployees: true,
+            name: true,
             managementLevel: true,
           },
         },
@@ -547,7 +590,19 @@ async function login(req, res) {
           : null,
         designation: user.designation,
         isSuperAdmin: user.isSuperAdmin === true,
-        permissions: getPermissions(user),
+        permissions: buildUserPermissions(user),
+        designationRef: user.designationRef
+          ? {
+              name: user.designationRef.name || user.designation || null,
+              canViewAllTickets: user.designationRef.canViewAllTickets === true,
+              canAssignTickets: user.designationRef.canAssignTickets === true,
+              canManageUsers: user.designationRef.canManageUsers === true,
+              canPublishOffers: user.designationRef.canPublishOffers === true,
+              canNotifyEmployees:
+                user.designationRef.canNotifyEmployees === true,
+              managementLevel: Number(user.designationRef.managementLevel || 0),
+            }
+          : null,
       },
     });
   } catch (error) {
@@ -608,6 +663,9 @@ async function getMe(req, res) {
             canViewAllTickets: true,
             canAssignTickets: true,
             canManageUsers: true,
+            canPublishOffers: true,
+            canNotifyEmployees: true,
+            name: true,
             managementLevel: true,
           },
         },
@@ -753,6 +811,9 @@ async function updateProfile(req, res) {
             canViewAllTickets: true,
             canAssignTickets: true,
             canManageUsers: true,
+            canPublishOffers: true,
+            canNotifyEmployees: true,
+            name: true,
             managementLevel: true,
           },
         },
@@ -903,6 +964,9 @@ async function getUser(req, res) {
             canViewAllTickets: true,
             canAssignTickets: true,
             canManageUsers: true,
+            canPublishOffers: true,
+            canNotifyEmployees: true,
+            name: true,
             managementLevel: true,
           },
         },
@@ -1006,6 +1070,9 @@ async function updateUser(req, res) {
             canViewAllTickets: true,
             canAssignTickets: true,
             canManageUsers: true,
+            canPublishOffers: true,
+            canNotifyEmployees: true,
+            name: true,
             managementLevel: true,
           },
         },
@@ -1244,6 +1311,9 @@ async function updateUser(req, res) {
             canViewAllTickets: true,
             canAssignTickets: true,
             canManageUsers: true,
+            canPublishOffers: true,
+            canNotifyEmployees: true,
+            name: true,
             managementLevel: true,
           },
         },
@@ -1367,6 +1437,9 @@ async function getEmployees(req, res) {
             canViewAllTickets: true,
             canAssignTickets: true,
             canManageUsers: true,
+            canPublishOffers: true,
+            canNotifyEmployees: true,
+            name: true,
             managementLevel: true,
           },
         },
@@ -1422,6 +1495,9 @@ async function findManageableUser(userId, actor) {
           canViewAllTickets: true,
           canAssignTickets: true,
           canManageUsers: true,
+          canPublishOffers: true,
+          canNotifyEmployees: true,
+          name: true,
           managementLevel: true,
         },
       },
