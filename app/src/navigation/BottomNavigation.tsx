@@ -3,13 +3,16 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import Config from 'react-native-config';
 
 import ProfilePage from '../pages/ProfilePage';
 import ComplainPage from '../pages/ComplainPage';
 import ReportPage from '../pages/TicketGen';
 import SearchPage from '../pages/searchPage';
 import ClientPage from '../pages/userManagement';
-import { Config } from 'react-native-config';
+import ManagePage from '../pages/ManagePage';
+import ClientOffersPage from '../pages/clientOfferPage';
+
 import { useTheme } from '../context/ThemeContext';
 
 const Tab = createBottomTabNavigator();
@@ -23,7 +26,7 @@ interface User {
   Hospital?: string;
 }
 
-const BottomNavigation = () => {
+const BottomNavigation: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
 
   const { theme, isDarkMode } = useTheme();
@@ -36,9 +39,7 @@ const BottomNavigation = () => {
     try {
       const token = await AsyncStorage.getItem('token');
 
-      if (!token) {
-        return;
-      }
+      if (!token) return;
 
       const response = await axios.get(`${Config.API_URL}/api/auth/me`, {
         headers: {
@@ -46,36 +47,48 @@ const BottomNavigation = () => {
         },
       });
 
-      const loggedInUser = response.data.user;
-
-      setUser(loggedInUser);
+      setUser(response.data.user);
     } catch (error) {
       console.log('GET USER ERROR:', error);
     }
   };
 
-  // Normalize role and designation
   const role = user?.role?.trim().toLowerCase();
   const designation = user?.designation?.trim().toLowerCase();
 
-  // Admin, CEO and CTO can access User Management
+  const isClient = role === 'client';
+
   const canManageUsers =
     role === 'admin' ||
     (role === 'employee' && ['ceo', 'cto'].includes(designation || ''));
+
+  const tabIcon = (
+    focused: boolean,
+    activeIcon: string,
+    inactiveIcon: string,
+  ) => (
+    <Ionicons
+      name={focused ? activeIcon : inactiveIcon}
+      size={23}
+      color={focused ? theme.primary : theme.muted}
+    />
+  );
 
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
 
-        tabBarActiveTintColor: theme.primary,
+        tabBarShowLabel: true,
+        tabBarAllowFontScaling: false,
 
+        tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.muted,
 
         tabBarStyle: {
-          height: 64,
+          height: 68,
+          paddingTop: 7,
           paddingBottom: 8,
-          paddingTop: 6,
 
           backgroundColor: theme.white,
 
@@ -94,13 +107,17 @@ const BottomNavigation = () => {
         },
 
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: '600',
-          marginTop: 2,
+          marginTop: 3,
+          marginBottom: 0,
+          includeFontPadding: false,
         },
 
         tabBarItemStyle: {
-          borderRadius: 12,
+          flex: 1,
+          minWidth: 0,
+          paddingHorizontal: 0,
         },
 
         sceneStyle: {
@@ -108,77 +125,88 @@ const BottomNavigation = () => {
         },
       }}
     >
+      {/* TICKETS */}
       <Tab.Screen
-        name="Ticket"
+        name="Tickets"
         component={ComplainPage}
         options={{
-          tabBarIcon: ({ focused }) => (
-            <Ionicons
-              name={focused ? 'document-text' : 'document-text-outline'}
-              size={24}
-              color={focused ? theme.primary : theme.muted}
-            />
-          ),
+          tabBarLabel: 'Tickets',
+          tabBarIcon: ({ focused }) =>
+            tabIcon(focused, 'document-text', 'document-text-outline'),
         }}
       />
 
-      {role === 'client' && (
-        <Tab.Screen
-          name="New Ticket"
-          component={ReportPage}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <Ionicons
-                name={focused ? 'ticket' : 'ticket-outline'}
-                size={24}
-                color={focused ? theme.primary : theme.muted}
-              />
-            ),
-          }}
-        />
-      )}
+      {/* CLIENT TABS */}
+      {isClient ? (
+        <>
+          {/* NEW TICKET */}
+          <Tab.Screen
+            name="New Ticket"
+            component={ReportPage}
+            options={{
+              tabBarLabel: 'New Ticket',
+              tabBarIcon: ({ focused }) =>
+                tabIcon(focused, 'add-circle', 'add-circle-outline'),
+            }}
+          />
+          {/* CLIENT OFFERS */}
+          <Tab.Screen
+            name="Client Offers"
+            component={ClientOffersPage}
+            options={{
+              tabBarLabel: 'Offers',
+              tabBarIcon: ({ focused }) =>
+                tabIcon(focused, 'gift', 'gift-outline'),
+            }}
+          />
+        </>
+      ) : (
+        <>
+          {/* STAFF SEARCH */}
+          <Tab.Screen
+            name="Search"
+            component={SearchPage}
+            options={{
+              tabBarLabel: 'Search',
+              tabBarIcon: ({ focused }) =>
+                tabIcon(focused, 'search', 'search-outline'),
+            }}
+          />
 
-      <Tab.Screen
-        name="Search"
-        component={SearchPage}
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <Ionicons
-              name={focused ? 'search' : 'search-outline'}
-              size={24}
-              color={focused ? theme.primary : theme.muted}
+          {/* USER MANAGEMENT */}
+          {canManageUsers && (
+            <Tab.Screen
+              name="User Management"
+              component={ClientPage}
+              options={{
+                tabBarLabel: 'Users',
+                tabBarIcon: ({ focused }) =>
+                  tabIcon(focused, 'people', 'people-outline'),
+              }}
             />
-          ),
-        }}
-      />
+          )}
 
-      {canManageUsers && (
-        <Tab.Screen
-          name="User Management"
-          component={ClientPage}
-          options={{
-            tabBarIcon: ({ focused }) => (
-              <Ionicons
-                name={focused ? 'people' : 'people-outline'}
-                size={24}
-                color={focused ? theme.primary : theme.muted}
-              />
-            ),
-          }}
-        />
+          {/* MANAGE */}
+          <Tab.Screen
+            name="Manage"
+            component={ManagePage}
+            options={{
+              tabBarLabel: 'Manage',
+              tabBarIcon: ({ focused }) =>
+                tabIcon(focused, 'grid', 'grid-outline'),
+            }}
+          />
+        </>
       )}
 
+      {/* PROFILE */}
       <Tab.Screen
         name="Profile"
         component={ProfilePage}
         options={{
-          tabBarIcon: ({ focused }) => (
-            <Ionicons
-              name={focused ? 'person' : 'person-outline'}
-              size={24}
-              color={focused ? theme.primary : theme.muted}
-            />
-          ),
+          tabBarLabel: 'Profile',
+          tabBarIcon: ({ focused }) =>
+            tabIcon(focused, 'person', 'person-outline'),
         }}
       />
     </Tab.Navigator>

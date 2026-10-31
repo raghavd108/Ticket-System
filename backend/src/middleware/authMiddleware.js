@@ -1,9 +1,13 @@
 const jwt = require("jsonwebtoken");
 const prisma = require("../config/prisma");
 
+// =====================================================
+// GET TOKEN
+// =====================================================
+
 function getToken(req) {
   // Check cookie
-  if (req.cookies && req.cookies.token) {
+  if (req.cookies?.token) {
     return req.cookies.token;
   }
 
@@ -20,6 +24,69 @@ function getToken(req) {
 }
 
 // =====================================================
+// USER PERMISSIONS
+// All permissions come from the database.
+// Never trust frontend or JWT permission values.
+// =====================================================
+
+function getPermissions(user) {
+  const isSuperAdmin = user?.isSuperAdmin === true;
+
+  const role = String(user?.role || "")
+    .trim()
+    .toLowerCase();
+
+  const designation = user?.designationRef || {};
+
+  return {
+    isSuperAdmin,
+
+    // ================================================
+    // TICKET PERMISSIONS
+    // ================================================
+
+    canViewAllTickets:
+      isSuperAdmin ||
+      role === "admin" ||
+      designation.canViewAllTickets === true,
+
+    canAssignTickets:
+      isSuperAdmin || role === "admin" || designation.canAssignTickets === true,
+
+    // ================================================
+    // USER MANAGEMENT PERMISSION
+    // ================================================
+
+    canManageUsers: isSuperAdmin || designation.canManageUsers === true,
+
+    // ================================================
+    // OFFERS PERMISSION
+    // ================================================
+
+    canPublishOffers: isSuperAdmin || designation.canPublishOffers === true,
+
+    // ================================================
+    // EMPLOYEE NOTIFICATION PERMISSION
+    //
+    // SuperAdmin OR employee with designation permission
+    // CEO / CTO are configured through Designation table.
+    // ================================================
+
+    canNotifyEmployees:
+      isSuperAdmin ||
+      (role === "employee" && designation.canNotifyEmployees === true),
+
+    // ================================================
+    // MANAGEMENT LEVEL
+    // ================================================
+
+    managementLevel: isSuperAdmin
+      ? 999999
+      : Number(designation.managementLevel || 0),
+  };
+}
+
+// =====================================================
 // AUTHENTICATE USER
 // =====================================================
 
@@ -30,6 +97,7 @@ async function authenticate(req, res) {
     res.status(401).json({
       message: "Access denied. Token not found",
     });
+
     return null;
   }
 
@@ -49,10 +117,15 @@ async function authenticate(req, res) {
     return null;
   }
 
+  // ================================================
+  // FETCH CURRENT USER AND PERMISSIONS
+  // ================================================
+
   const user = await prisma.user.findUnique({
     where: {
       id: String(decoded.id || ""),
     },
+
     select: {
       id: true,
       role: true,
@@ -62,17 +135,30 @@ async function authenticate(req, res) {
       designation: true,
       tokenVersion: true,
       isRevoked: true,
+      isSuperAdmin: true,
 
       designationRef: {
         select: {
           canViewAllTickets: true,
           canAssignTickets: true,
+          canManageUsers: true,
+
+          // OFFER PERMISSION
+          canPublishOffers: true,
+
+          // EMPLOYEE NOTIFICATION PERMISSION
+          canNotifyEmployees: true,
+
+          managementLevel: true,
         },
       },
     },
   });
 
-  // Check whether the session is still valid
+  // ================================================
+  // CHECK SESSION
+  // ================================================
+
   if (!user || user.tokenVersion !== Number(decoded.tokenVersion ?? 0)) {
     res.status(401).json({
       code: "SESSION_EXPIRED",
@@ -82,7 +168,10 @@ async function authenticate(req, res) {
     return null;
   }
 
-  // Check revoked account
+  // ================================================
+  // CHECK ACCOUNT REVOCATION
+  // ================================================
+
   if (user.isRevoked) {
     res.status(401).json({
       code: "ACCOUNT_REVOKED",
@@ -93,35 +182,43 @@ async function authenticate(req, res) {
     return null;
   }
 
+  // ================================================
+  // GET CURRENT DATABASE PERMISSIONS
+  // ================================================
+
+  const permissions = getPermissions(user);
+
   return {
     id: user.id,
+
     role: user.role,
+
     organisation: user.organisationId,
+
+    organisationId: user.organisationId,
+
     userName: user.userName,
+
     email: user.email,
+
     designation: user.designation,
+
+    designationRef: user.designationRef,
+
+    isSuperAdmin: user.isSuperAdmin === true,
+
+    isRevoked: user.isRevoked,
+
     tokenVersion: user.tokenVersion,
-    permissions: getPermissions(user),
-  };
-}
 
-// =====================================================
-// USER PERMISSIONS
-// =====================================================
-
-function getPermissions(user) {
-  const isAdmin = user.role === "admin";
-
-  return {
-    canViewAllTickets:
-      isAdmin || Boolean(user.designationRef?.canViewAllTickets),
-
-    canAssignTickets: isAdmin || Boolean(user.designationRef?.canAssignTickets),
+    // Current database permissions
+    permissions,
   };
 }
 
 // =====================================================
 // VERIFY TOKEN
+// All authenticated users
 // =====================================================
 
 async function verifyToken(req, res, next) {
@@ -144,6 +241,7 @@ async function verifyToken(req, res, next) {
 
 // =====================================================
 // VERIFY ADMIN
+// Admin OR SuperAdmin
 // =====================================================
 
 async function verifyAdmin(req, res, next) {
@@ -152,8 +250,9 @@ async function verifyAdmin(req, res, next) {
 
     if (!user) return;
 
-    if (user.role !== "admin") {
+    if (user.role !== "admin" && user.isSuperAdmin !== true) {
       return res.status(403).json({
+        code: "ADMIN_ACCESS_DENIED",
         message: "Access denied. Admin only",
       });
     }
@@ -172,7 +271,7 @@ async function verifyAdmin(req, res, next) {
 
 // =====================================================
 // VERIFY MANAGEMENT ACCESS
-// Admin + CEO + CTO
+// SuperAdmin OR canManageUsers
 // =====================================================
 
 async function verifyManagementAccess(req, res, next) {
@@ -181,19 +280,10 @@ async function verifyManagementAccess(req, res, next) {
 
     if (!user) return;
 
-    const role = user.role?.trim().toLowerCase();
-    const designation = user.designation?.trim().toLowerCase();
-
-    const isAdmin = role === "admin";
-
-    const isCEOorCTO =
-      role === "employee" && ["ceo", "cto"].includes(designation);
-
-    if (!isAdmin && !isCEOorCTO) {
+    if (user.permissions.canManageUsers !== true) {
       return res.status(403).json({
         code: "MANAGEMENT_ACCESS_DENIED",
-        message:
-          "Access denied. Only Admin, CEO and CTO can access User Management.",
+        message: "Access denied. You do not have permission to manage users.",
       });
     }
 
@@ -209,9 +299,112 @@ async function verifyManagementAccess(req, res, next) {
   }
 }
 
+// =====================================================
+// VERIFY SUPERADMIN
+// Only SuperAdmin
+// =====================================================
+
+async function verifySuperAdmin(req, res, next) {
+  try {
+    const user = await authenticate(req, res);
+
+    if (!user) return;
+
+    if (user.isSuperAdmin !== true) {
+      return res.status(403).json({
+        code: "SUPERADMIN_ACCESS_DENIED",
+        message: "Access denied. Only SuperAdmin can perform this action.",
+      });
+    }
+
+    req.user = user;
+
+    next();
+  } catch (error) {
+    console.error("SUPERADMIN AUTH ERROR:", error);
+
+    return res.status(500).json({
+      message: "Unable to verify SuperAdmin access",
+    });
+  }
+}
+
+// =====================================================
+// VERIFY OFFER ACCESS
+// SuperAdmin OR canPublishOffers
+// =====================================================
+
+async function verifyOfferAccess(req, res, next) {
+  try {
+    const user = await authenticate(req, res);
+
+    if (!user) return;
+
+    if (user.permissions.canPublishOffers !== true) {
+      return res.status(403).json({
+        code: "OFFER_ACCESS_DENIED",
+        message:
+          "Access denied. You do not have permission to create, edit or publish offers.",
+      });
+    }
+
+    req.user = user;
+
+    next();
+  } catch (error) {
+    console.error("OFFER AUTH ERROR:", error);
+
+    return res.status(500).json({
+      message: "Unable to verify offer permissions",
+    });
+  }
+}
+
+// =====================================================
+// VERIFY EMPLOYEE NOTIFICATION ACCESS
+//
+// SuperAdmin OR employee whose designation has
+// canNotifyEmployees = true
+//
+// Developer and unauthorized users are blocked.
+// =====================================================
+
+async function verifyEmployeeNotificationAccess(req, res, next) {
+  try {
+    const user = await authenticate(req, res);
+
+    if (!user) return;
+
+    if (user.permissions.canNotifyEmployees !== true) {
+      return res.status(403).json({
+        code: "EMPLOYEE_NOTIFICATION_ACCESS_DENIED",
+        message:
+          "Access denied. You do not have permission to send employee notifications.",
+      });
+    }
+
+    req.user = user;
+
+    next();
+  } catch (error) {
+    console.error("EMPLOYEE NOTIFICATION AUTH ERROR:", error);
+
+    return res.status(500).json({
+      message: "Unable to verify employee notification permissions",
+    });
+  }
+}
+
+// =====================================================
+// EXPORTS
+// =====================================================
+
 module.exports = {
   verifyToken,
   verifyAdmin,
   verifyManagementAccess,
+  verifySuperAdmin,
+  verifyOfferAccess,
+  verifyEmployeeNotificationAccess,
   getPermissions,
 };

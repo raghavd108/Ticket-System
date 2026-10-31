@@ -7,6 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// =====================================================
+// ENUMS
+// =====================================================
+
 enum Role {
   admin
   client
@@ -25,6 +29,7 @@ enum NotificationType {
   NEW_TICKET
   STATUS_UPDATE
   CUSTOM
+  OFFER
 }
 
 enum LeaveStatus {
@@ -38,6 +43,22 @@ enum CalendarDayType {
   WORKING_DAY
 }
 
+enum OfferStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum OfferAudienceType {
+  ALL_CLIENTS
+  ORGANISATION_CATEGORIES
+  SELECTED_ORGANISATIONS
+}
+
+// =====================================================
+// ORGANISATION
+// =====================================================
+
 model Organisation {
   id        String   @id @default(cuid())
   orgType   String
@@ -46,12 +67,18 @@ model Organisation {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  creator    User?       @relation("OrganisationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  users      User[]      @relation("OrganisationUsers")
-  complaints Complaint[]
+  creator        User?               @relation("OrganisationCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  users          User[]              @relation("OrganisationUsers")
+  complaints     Complaint[]
+  targetedOffers OfferOrganisation[]
 
   @@index([createdBy])
+  @@index([orgType])
 }
+
+// =====================================================
+// USER
+// =====================================================
 
 model User {
   id             String  @id @default(cuid())
@@ -65,7 +92,8 @@ model User {
   fcmToken       String?
   tokenVersion   Int     @default(0)
 
-  // Account access revocation
+  isSuperAdmin Boolean @default(false)
+
   isRevoked     Boolean   @default(false)
   revokedAt     DateTime?
   revokedReason String?   @db.VarChar(500)
@@ -73,18 +101,14 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Organisation relations
-  organisation Organisation @relation("OrganisationUsers", fields: [organisationId], references: [id], onDelete: Restrict)
+  organisation   Organisation @relation("OrganisationUsers", fields: [organisationId], references: [id], onDelete: Restrict)
+  designationRef Designation? @relation(fields: [designation], references: [name], onDelete: Restrict, onUpdate: Cascade)
 
-  // Employee designations are managed in the Designation table.
-  designationRef       Designation?   @relation(fields: [designation], references: [name], onDelete: Restrict, onUpdate: Cascade)
   organisationsCreated Organisation[] @relation("OrganisationCreator")
 
-  // Client and employee assignments
   assignedEmployees UserAssignment[] @relation("ClientAssignments")
   assignedToClients UserAssignment[] @relation("EmployeeAssignments")
 
-  // Application relations
   complaints         Complaint[]
   assignedComplaints Complaint[]    @relation("ComplaintAssignedEmployee")
   documents          Document[]
@@ -92,26 +116,45 @@ model User {
   notifications      Notification[]
   leaves             Leave[]
 
+  offersCreated Offer[] @relation("OfferCreator")
+
   @@index([organisationId])
   @@index([email])
   @@index([role])
   @@index([isRevoked])
+  @@index([isSuperAdmin])
   @@index([designation])
 }
 
-// Employee designations and the ticket permissions they grant.
+// =====================================================
+// DESIGNATION AND PERMISSIONS
+// =====================================================
+
 model Designation {
-  id                Int      @id @default(autoincrement())
-  name              String   @unique
-  canViewAllTickets Boolean  @default(false)
-  canAssignTickets  Boolean  @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id   Int    @id @default(autoincrement())
+  name String @unique
+
+  canViewAllTickets Boolean @default(false)
+  canAssignTickets  Boolean @default(false)
+  canManageUsers    Boolean @default(false)
+
+  canPublishOffers Boolean @default(false)
+
+  // Employee notification permission
+  canNotifyEmployees Boolean @default(false)
+
+  managementLevel Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   users User[]
 }
 
-// Ticket workflow statuses. Defaults are seeded by prisma/seed.js.
+// =====================================================
+// TICKET STATUS
+// =====================================================
+
 model TicketStatus {
   id        Int      @id @default(autoincrement())
   code      String   @unique @db.VarChar(50)
@@ -124,6 +167,10 @@ model TicketStatus {
   complaints Complaint[]
 }
 
+// =====================================================
+// USER ASSIGNMENT
+// =====================================================
+
 model UserAssignment {
   clientId   String
   employeeId String
@@ -135,6 +182,10 @@ model UserAssignment {
   @@id([clientId, employeeId])
   @@index([employeeId])
 }
+
+// =====================================================
+// COMPLAINT / TICKET
+// =====================================================
 
 model Complaint {
   id                 String   @id @default(cuid())
@@ -162,6 +213,10 @@ model Complaint {
   @@index([assignedEmployeeId])
 }
 
+// =====================================================
+// COMPLAINT IMAGES
+// =====================================================
+
 model ComplaintImage {
   id          String @id @default(cuid())
   complaintId String
@@ -171,6 +226,10 @@ model ComplaintImage {
 
   @@index([complaintId])
 }
+
+// =====================================================
+// DOCUMENTS
+// =====================================================
 
 model Document {
   id         String   @id @default(cuid())
@@ -185,6 +244,10 @@ model Document {
   @@index([employeeId])
 }
 
+// =====================================================
+// DOCUMENT FILES
+// =====================================================
+
 model DocumentFile {
   id           String  @id @default(cuid())
   documentId   String
@@ -196,6 +259,10 @@ model DocumentFile {
 
   @@index([documentId])
 }
+
+// =====================================================
+// ATTENDANCE
+// =====================================================
 
 model Attendance {
   id         String           @id @default(cuid())
@@ -214,23 +281,37 @@ model Attendance {
   @@index([date])
 }
 
+// =====================================================
+// NOTIFICATIONS
+// =====================================================
+
 model Notification {
-  id          String           @id @default(cuid())
-  userId      String
-  title       String
-  body        String           @db.Text
-  type        NotificationType
-  read        Boolean          @default(false)
+  id     String           @id @default(cuid())
+  userId String
+  title  String
+  body   String           @db.Text
+  type   NotificationType
+  read   Boolean          @default(false)
+
   complaintId String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  offerId     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   complaint Complaint? @relation(fields: [complaintId], references: [id], onDelete: SetNull)
+  offer     Offer?     @relation(fields: [offerId], references: [id], onDelete: Cascade)
 
+  @@unique([offerId, userId])
   @@index([userId, read])
   @@index([complaintId])
+  @@index([offerId])
 }
+
+// =====================================================
+// LEAVE
+// =====================================================
 
 model Leave {
   id         String      @id @default(cuid())
@@ -249,6 +330,10 @@ model Leave {
   @@index([status])
 }
 
+// =====================================================
+// COMPANY CALENDAR
+// =====================================================
+
 model CompanyCalendarDay {
   id          String          @id @default(cuid())
   date        DateTime        @unique @db.Date
@@ -259,4 +344,82 @@ model CompanyCalendarDay {
   updatedAt   DateTime        @updatedAt
 
   @@index([type, date])
+}
+
+// =====================================================
+// CLIENT OFFERS
+// =====================================================
+
+model Offer {
+  id          String  @id @default(cuid())
+  title       String  @db.VarChar(191)
+  description String? @db.Text
+
+  status   OfferStatus       @default(DRAFT)
+  audience OfferAudienceType
+
+  expiresAt   DateTime?
+  publishedAt DateTime?
+
+  createdBy String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator User @relation("OfferCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  images        OfferImage[]
+  categories    OfferCategory[]
+  organisations OfferOrganisation[]
+  notifications Notification[]
+
+  @@index([status, publishedAt])
+  @@index([expiresAt])
+  @@index([createdBy])
+  @@index([audience])
+}
+
+// =====================================================
+// OFFER IMAGES
+// =====================================================
+
+model OfferImage {
+  id       String @id @default(cuid())
+  offerId  String
+  fileName String
+
+  offer Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@index([offerId])
+}
+
+// =====================================================
+// OFFER TARGET CATEGORIES
+// =====================================================
+
+model OfferCategory {
+  id       String @id @default(cuid())
+  offerId  String
+  category String @db.VarChar(191)
+
+  offer Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, category])
+  @@index([category])
+}
+
+// =====================================================
+// OFFER TARGET ORGANISATIONS
+// =====================================================
+
+model OfferOrganisation {
+  id             String @id @default(cuid())
+  offerId        String
+  organisationId String
+
+  offer        Offer        @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, organisationId])
+  @@index([organisationId])
 }

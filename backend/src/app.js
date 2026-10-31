@@ -20,6 +20,7 @@ const attendanceRoutes = require("./routes/attendance.route");
 const leaveRoutes = require("./routes/leave.route");
 const companyCalendarRoutes = require("./routes/companyCalendar.routes");
 const designationRoutes = require("./routes/designation.routes");
+const offerRoutes = require("./routes/offer.routes");
 
 // =====================================================
 // GLOBAL MIDDLEWARE
@@ -56,6 +57,7 @@ app.use("/api/attendance", attendanceRoutes);
 app.use("/api/leave", leaveRoutes);
 app.use("/api/company-calendar", companyCalendarRoutes);
 app.use("/api/designations", designationRoutes);
+app.use("/api/offers", offerRoutes);
 
 // =====================================================
 // GLOBAL ERROR HANDLER

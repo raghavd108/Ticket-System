@@ -25,12 +25,14 @@ import {
 } from 'react-native-image-picker';
 
 import createStyles from '../style/TicketGen.ts';
-import { Config } from 'react-native-config';
+import en from '../i18n/en';
+import Config from 'react-native-config';
 
 // Matches the backend upload limit (5 files, 5 MB each).
 const MAX_ATTACHMENTS = 5;
 
 const ReportPage = () => {
+  const copy = en.reportPage;
   const [module, setModule] = useState('');
   const [problem, setProblem] = useState('');
   const [image, setImage] = useState<Asset[]>([]);
@@ -50,7 +52,7 @@ const ReportPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        setMessage('Authentication token not found');
+        setMessage(copy.authTokenMissing);
         return;
       }
 
@@ -61,7 +63,7 @@ const ReportPage = () => {
       });
     } catch (error) {
       console.log('GET USER ERROR:', error);
-      setMessage('Unable to get user information');
+      setMessage(copy.userInformationError);
     }
   };
 
@@ -80,7 +82,7 @@ const ReportPage = () => {
       if (response.errorCode) {
         console.log('Image Picker Error:', response.errorMessage);
 
-        Alert.alert('Error', 'Unable to select image');
+        Alert.alert(copy.errorTitle, copy.imageSelectionError);
         return;
       }
 
@@ -96,18 +98,17 @@ const ReportPage = () => {
         const permission = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.CAMERA,
           {
-            title: 'Camera Permission',
-            message:
-              'Allow access to your camera to take complaint screenshots.',
-            buttonPositive: 'Allow',
-            buttonNegative: 'Cancel',
+            title: copy.cameraPermissionTitle,
+            message: copy.cameraPermissionMessage,
+            buttonPositive: copy.allow,
+            buttonNegative: en.common.cancel,
           },
         );
 
         if (permission !== PermissionsAndroid.RESULTS.GRANTED) {
           Alert.alert(
-            'Camera Permission Required',
-            'Please allow camera access in your device settings to take a photo.',
+            copy.cameraPermissionRequiredTitle,
+            copy.cameraPermissionRequiredMessage,
           );
           return;
         }
@@ -129,8 +130,8 @@ const ReportPage = () => {
           console.log('Camera Error:', response.errorMessage);
 
           Alert.alert(
-            'Camera Error',
-            response.errorMessage || 'Unable to open camera.',
+            copy.cameraErrorTitle,
+            response.errorMessage || copy.cameraOpenError,
           );
           return;
         }
@@ -141,7 +142,7 @@ const ReportPage = () => {
       });
     } catch (error) {
       console.log('Camera Permission Error:', error);
-      Alert.alert('Error', 'Unable to access the camera.');
+      Alert.alert(copy.errorTitle, copy.cameraAccessError);
     }
   };
 
@@ -151,12 +152,12 @@ const ReportPage = () => {
 
   const handleSubmit = async () => {
     if (!module.trim() || !problem.trim()) {
-      setMessage('Please enter the module and describe the problem.');
+      setMessage(copy.moduleProblemRequired);
       return;
     }
 
     if (image.length > MAX_ATTACHMENTS) {
-      setMessage(`You can attach up to ${MAX_ATTACHMENTS} screenshots.`);
+      setMessage(copy.attachmentLimit(MAX_ATTACHMENTS));
       return;
     }
 
@@ -167,7 +168,7 @@ const ReportPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        setMessage('Authentication token not found');
+        setMessage(copy.authTokenMissing);
         return;
       }
 
@@ -199,7 +200,7 @@ const ReportPage = () => {
 
       console.log('SUBMIT RESPONSE:', response.data);
 
-      setMessage('Complaint submitted successfully.');
+      setMessage(copy.submitSuccess);
 
       setModule('');
       setProblem('');
@@ -207,13 +208,13 @@ const ReportPage = () => {
     } catch (error) {
       console.log('SUBMIT COMPLAINT ERROR:', error);
 
-      setMessage('We could not submit your complaint. Please try again.');
+      setMessage(copy.submitError);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const isSuccess = message.includes('successfully');
+  const isSuccess = message.includes(copy.successKeyword);
 
   return (
     <KeyboardAvoidingView
@@ -237,13 +238,11 @@ const ReportPage = () => {
             </View>
 
             <View style={styles.headerTextContainer}>
-              <Text style={styles.headerLabel}>SUPPORT CENTER</Text>
+              <Text style={styles.headerLabel}>{copy.supportEyebrow}</Text>
 
-              <Text style={styles.title}>Create a Ticket</Text>
+              <Text style={styles.title}>{copy.title}</Text>
 
-              <Text style={styles.subtitle}>
-                Report an issue and our support team will help you resolve it.
-              </Text>
+              <Text style={styles.subtitle}>{copy.subtitle}</Text>
             </View>
           </View>
 
@@ -255,11 +254,9 @@ const ReportPage = () => {
             {/* CARD TOP */}
             <View style={styles.cardTopRow}>
               <View>
-                <Text style={styles.cardTitle}>Issue details</Text>
+                <Text style={styles.cardTitle}>{copy.issueDetails}</Text>
 
-                <Text style={styles.cardSubtitle}>
-                  Provide enough information to help us understand the issue.
-                </Text>
+                <Text style={styles.cardSubtitle}>{copy.issueDetailsHint}</Text>
               </View>
             </View>
 
@@ -304,15 +301,15 @@ const ReportPage = () => {
 
             <View style={styles.inputContainer}>
               <View style={styles.labelRow}>
-                <Text style={styles.inputLabel}>Module</Text>
+                <Text style={styles.inputLabel}>{copy.moduleLabel}</Text>
 
-                <Text style={styles.requiredText}>Required</Text>
+                <Text style={styles.requiredText}>{copy.required}</Text>
               </View>
 
               <View style={[styles.inputWrapper]}>
                 <TextInput
                   style={styles.input}
-                  placeholder="Billing, Login, Appointment..."
+                  placeholder={copy.modulePlaceholder}
                   placeholderTextColor="#A49DAF"
                   value={module}
                   onChangeText={setModule}
@@ -321,9 +318,7 @@ const ReportPage = () => {
                 />
               </View>
 
-              <Text style={styles.fieldHint}>
-                Select the part of the application where the problem occurred.
-              </Text>
+              <Text style={styles.fieldHint}>{copy.moduleHint}</Text>
             </View>
 
             {/* ================================================= */}
@@ -332,15 +327,15 @@ const ReportPage = () => {
 
             <View style={styles.inputContainer}>
               <View style={styles.labelRow}>
-                <Text style={styles.inputLabel}>What happened?</Text>
+                <Text style={styles.inputLabel}>{copy.problemLabel}</Text>
 
-                <Text style={styles.requiredText}>Required</Text>
+                <Text style={styles.requiredText}>{copy.required}</Text>
               </View>
 
               <View style={[styles.inputWrapper]}>
                 <TextInput
                   style={styles.textArea}
-                  placeholder="Describe what you were trying to do, what happened, and what you expected..."
+                  placeholder={copy.problemPlaceholder}
                   placeholderTextColor="#A49DAF"
                   value={problem}
                   onChangeText={setProblem}
@@ -350,13 +345,12 @@ const ReportPage = () => {
                   maxLength={1000}
                 />
 
-                <Text style={styles.characterCount}>{problem.length}/1000</Text>
+                <Text style={styles.characterCount}>
+                  {copy.characterCount(problem.length)}
+                </Text>
               </View>
 
-              <Text style={styles.fieldHint}>
-                Include any error message or important steps that led to the
-                issue.
-              </Text>
+              <Text style={styles.fieldHint}>{copy.problemHint}</Text>
             </View>
 
             {/* ================================================= */}
@@ -366,11 +360,11 @@ const ReportPage = () => {
             <View style={styles.inputContainer}>
               <View style={styles.labelRow}>
                 <View>
-                  <Text style={styles.inputLabel}>Screenshots</Text>
+                  <Text style={styles.inputLabel}>{copy.screenshots}</Text>
                 </View>
 
                 <Text style={styles.requiredText}>
-                  Optional · up to {MAX_ATTACHMENTS}
+                  {copy.optionalLimit(MAX_ATTACHMENTS)}
                 </Text>
               </View>
 
@@ -386,9 +380,9 @@ const ReportPage = () => {
                     <Text style={styles.uploadIcon}>📷</Text>
                   </View>
 
-                  <Text style={styles.imageButtonText}>Take Photo</Text>
+                  <Text style={styles.imageButtonText}>{copy.takePhoto}</Text>
 
-                  <Text style={styles.uploadHint}>Use camera</Text>
+                  <Text style={styles.uploadHint}>{copy.useCamera}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -400,9 +394,11 @@ const ReportPage = () => {
                     <Text style={styles.uploadIcon}>↑</Text>
                   </View>
 
-                  <Text style={styles.imageButtonText}>Choose Photos</Text>
+                  <Text style={styles.imageButtonText}>
+                    {copy.choosePhotos}
+                  </Text>
 
-                  <Text style={styles.uploadHint}>From gallery</Text>
+                  <Text style={styles.uploadHint}>{copy.fromGallery}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -411,13 +407,13 @@ const ReportPage = () => {
               {image.length > 0 ? (
                 <View style={styles.previewSection}>
                   <View style={styles.previewHeader}>
-                    <Text style={styles.previewTitle}>Attachments</Text>
+                    <Text style={styles.previewTitle}>{copy.attachments}</Text>
 
                     <TouchableOpacity
                       onPress={() => setImage([])}
                       activeOpacity={0.7}
                     >
-                      <Text style={styles.removeAllText}>Remove all</Text>
+                      <Text style={styles.removeAllText}>{copy.removeAll}</Text>
                     </TouchableOpacity>
                   </View>
 
@@ -459,10 +455,7 @@ const ReportPage = () => {
                   <Text style={styles.infoDotText}>i</Text>
                 </View>
 
-                <Text style={styles.helperText}>
-                  Screenshots help our support team identify and resolve the
-                  issue faster.
-                </Text>
+                <Text style={styles.helperText}>{copy.uploadHelp}</Text>
               </View>
             </View>
 
@@ -492,21 +485,21 @@ const ReportPage = () => {
                   <Text
                     style={[styles.submitButtonText, styles.submittingText]}
                   >
-                    Submitting...
+                    {copy.submitting}
                   </Text>
                 </>
               ) : (
                 <>
                   <Text style={styles.submitIcon}>↑</Text>
 
-                  <Text style={styles.submitButtonText}>Submit Complaint</Text>
+                  <Text style={styles.submitButtonText}>
+                    {copy.submitTicket}
+                  </Text>
                 </>
               )}
             </TouchableOpacity>
 
-            <Text style={styles.footerNote}>
-              Your complaint will be securely submitted to the support team.
-            </Text>
+            <Text style={styles.footerNote}>{copy.footerNote}</Text>
           </View>
 
           {/* ================================================= */}
@@ -519,12 +512,9 @@ const ReportPage = () => {
             </View>
 
             <View style={styles.securityContent}>
-              <Text style={styles.securityTitle}>Need help?</Text>
+              <Text style={styles.securityTitle}>{copy.needHelp}</Text>
 
-              <Text style={styles.securityText}>
-                Include clear details and screenshots so our team can
-                investigate your issue efficiently.
-              </Text>
+              <Text style={styles.securityText}>{copy.securityNote}</Text>
             </View>
           </View>
         </View>

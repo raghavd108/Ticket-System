@@ -13,8 +13,9 @@ import axios from 'axios';
 
 import createStyles from '../style/searchStyle';
 import { useTheme } from '../context/ThemeContext';
-import { Config } from 'react-native-config';
+import Config from 'react-native-config';
 import { getStatusColor, getStatusName } from '../hooks/useTicketStatuses';
+import en from '../i18n/en';
 
 interface Organisation {
   _id: string;
@@ -222,7 +223,7 @@ const SearchPage = () => {
   // LOAD NEXT PAGE
   // =====================================================
 
-  const loadMoreComplaints = useCallback(() => {
+  const loadMoreTickets = useCallback(() => {
     const query = search.trim();
 
     if (!query || loading || loadingMoreRef.current || !hasMoreRef.current) {
@@ -264,7 +265,7 @@ const SearchPage = () => {
               fontSize: 12,
             }}
           >
-            Loading more complaints...
+            {en.search.loadingMore}
           </Text>
         </View>
       );
@@ -280,7 +281,7 @@ const SearchPage = () => {
             fontSize: 12,
           }}
         >
-          Scroll down to load more
+          {en.search.scrollToLoadMore}
         </Text>
       );
     }
@@ -295,7 +296,7 @@ const SearchPage = () => {
             fontSize: 12,
           }}
         >
-          All complaints loaded
+          {en.search.allLoaded}
         </Text>
       );
     }
@@ -309,18 +310,16 @@ const SearchPage = () => {
 
   return (
     <SafeAreaView style={[styles.container, { flex: 1 }]}>
-      <Text style={styles.heading}>Search Complaints</Text>
+      <Text style={styles.heading}>{en.search.title}</Text>
 
-      <Text style={styles.subtitle}>
-        Search complaints by organisation or module
-      </Text>
+      <Text style={styles.subtitle}>{en.search.description}</Text>
 
       {/* SEARCH INPUT */}
 
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.input}
-          placeholder="Search complaints..."
+          placeholder={en.search.placeholder}
           placeholderTextColor="#9ca3af"
           value={search}
           onChangeText={setSearch}
@@ -344,7 +343,9 @@ const SearchPage = () => {
           {loading ? (
             <ActivityIndicator color="#ffffff" />
           ) : (
-            <Text style={styles.searchButtonText}>Search</Text>
+            <Text style={styles.searchButtonText}>
+              {en.search.searchButton}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -353,7 +354,10 @@ const SearchPage = () => {
 
       {searched && !loading && (
         <Text style={styles.resultCount}>
-          {totalRecords} {totalRecords === 1 ? 'complaint' : 'complaints'} found
+          {totalRecords}{' '}
+          {totalRecords === 1
+            ? en.search.singleResult
+            : en.search.multipleResults}
         </Text>
       )}
 
@@ -366,7 +370,7 @@ const SearchPage = () => {
         contentContainerStyle={
           result.length === 0 ? styles.emptyList : styles.list
         }
-        onEndReached={loadMoreComplaints}
+        onEndReached={loadMoreTickets}
         onEndReachedThreshold={0.4}
         ListFooterComponent={renderFooter}
         ListEmptyComponent={
@@ -377,11 +381,10 @@ const SearchPage = () => {
                   <Text style={styles.emptyIconText}>⌕</Text>
                 </View>
 
-                <Text style={styles.emptyTitle}>No complaints found</Text>
+                <Text style={styles.emptyTitle}>{en.search.empty}</Text>
 
                 <Text style={styles.emptyText}>
-                  We couldn't find any complaints matching "{search}". Try
-                  searching for another organisation or module.
+                  {en.search.noMatchDescription(search)}
                 </Text>
               </View>
             ) : (
@@ -390,11 +393,10 @@ const SearchPage = () => {
                   <Text style={styles.emptyIconText}>⌕</Text>
                 </View>
 
-                <Text style={styles.emptyTitle}>Search your complaints</Text>
+                <Text style={styles.emptyTitle}>{en.search.initialTitle}</Text>
 
                 <Text style={styles.emptyText}>
-                  Enter an organisation or module above to find relevant
-                  complaints.
+                  {en.search.initialDescription}
                 </Text>
               </View>
             )
@@ -411,7 +413,7 @@ const SearchPage = () => {
             <View style={styles.cardHeader}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.title} numberOfLines={1}>
-                  {item.organisation?.name || 'Unknown Organisation'}
+                  {item.organisation?.name || en.common.unknownOrganisation}
                 </Text>
 
                 {item.organisation?.orgType && (
@@ -451,14 +453,16 @@ const SearchPage = () => {
             {/* PROBLEM */}
 
             <Text style={styles.problem} numberOfLines={3}>
-              {item.problem || 'No problem description'}
+              {item.problem || en.tickets.noDescription}
             </Text>
 
             <View style={styles.divider} />
 
             {/* MODULE */}
 
-            <Text style={styles.module}>Module: {item.module || 'N/A'}</Text>
+            <Text style={styles.module}>
+              {en.search.moduleLabel}: {item.module || en.common.notAvailable}
+            </Text>
 
             {/* CLIENT */}
 
@@ -470,7 +474,7 @@ const SearchPage = () => {
                   fontSize: 13,
                 }}
               >
-                Client: {item.user.userName}
+                {en.search.clientLabel}: {item.user.userName}
               </Text>
             )}
 

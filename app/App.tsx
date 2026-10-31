@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import Navigation from './src/navigation/navigation';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { AuthProvider } from './src/context/AuthContext';
+import AppStatusBar from './src/components/AppStatusBar';
 
 import {
   createNotificationChannel,
@@ -16,14 +17,12 @@ const App = () => {
 
     const initializeNotifications = async () => {
       try {
-        // Create Android notification channels first.
         await createNotificationChannel();
 
         if (!isMounted) {
           return;
         }
 
-        // Request notification permission.
         await requestNotificationPermission();
 
         console.log('Notification initialization completed');
@@ -34,7 +33,6 @@ const App = () => {
 
     initializeNotifications();
 
-    // Register foreground notification listener once.
     const unsubscribe = setupForegroundNotification();
 
     return () => {
@@ -46,6 +44,7 @@ const App = () => {
   return (
     <ThemeProvider>
       <AuthProvider>
+        <AppStatusBar />
         <Navigation />
       </AuthProvider>
     </ThemeProvider>

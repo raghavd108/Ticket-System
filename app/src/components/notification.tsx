@@ -7,26 +7,23 @@ import {
   Text,
   TouchableOpacity,
   View,
-  Modal,
-  TextInput,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { useTheme } from '../context/ThemeContext';
 import { Config } from 'react-native-config';
 import { getStatusName } from '../hooks/useTicketStatuses';
+
 const BASE_URL = `${Config.API_URL}/api`;
 
 interface NotificationItem {
   _id: string;
   title: string;
   body: string;
-  type: 'NEW_TICKET' | 'STATUS_UPDATE' | 'CUSTOM';
+  type: 'NEW_TICKET' | 'STATUS_UPDATE' | 'CUSTOM' | 'ANNOUNCEMENT';
   read: boolean;
   complaint?: {
     _id: string;
@@ -39,142 +36,24 @@ interface NotificationItem {
 
 const Notification = () => {
   const { theme, isDarkMode } = useTheme();
-
   const styles = createStyles(theme, isDarkMode);
 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
 
-  const [showCustomNotification, setShowCustomNotification] = useState(false);
-
-  const [notificationTitle, setNotificationTitle] = useState('');
-  const [notificationMessage, setNotificationMessage] = useState('');
-  const [sendingNotification, setSendingNotification] = useState(false);
-
-  // =========================================================
-  // GET CURRENT USER
-  // =========================================================
-
-  const getCurrentUser = async () => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-
-      if (!token) {
-        console.log('No authentication token found');
-        return null;
-      }
-
-      const response = await axios.get(`${BASE_URL}/auth/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      return response.data.user;
-    } catch (error) {
-      console.log('GET CURRENT USER ERROR:', error);
-
-      return null;
-    }
+  const getToken = async () => {
+    return await AsyncStorage.getItem('token');
   };
 
-  // =========================================================
-  // CHECK CURRENT USER ROLE
-  // =========================================================
-
-  const checkCurrentUser = async () => {
-    try {
-      const user = await getCurrentUser();
-
-      if (!user) {
-        console.log('Unable to get current user.');
-        setIsAdmin(false);
-        return;
-      }
-
-      const userRole = user.role;
-
-      console.log('Logged-in user:', user.userName);
-      console.log('Logged-in user role:', userRole);
-
-      setIsAdmin(userRole === 'admin');
-    } catch (error) {
-      console.log('CHECK CURRENT USER ERROR:', error);
-      setIsAdmin(false);
-    }
-  };
-
-  // =========================================================
-  // SEND CUSTOM NOTIFICATION
-  // =========================================================
-
-  const sendCustomNotification = async () => {
-    try {
-      if (!notificationTitle.trim()) {
-        Alert.alert('Required', 'Please enter a notification title.');
-        return;
-      }
-
-      if (!notificationMessage.trim()) {
-        Alert.alert('Required', 'Please enter a notification message.');
-        return;
-      }
-
-      const token = await AsyncStorage.getItem('token');
-
-      if (!token) {
-        Alert.alert('Error', 'Authentication token not found.');
-        return;
-      }
-
-      setSendingNotification(true);
-
-      await axios.post(
-        `${BASE_URL}/notification/custom-notification`,
-        {
-          title: notificationTitle.trim(),
-          message: notificationMessage.trim(),
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      Alert.alert(
-        'Notification Sent 🎉',
-        'Your notification has been sent successfully to all clients and employees.',
-      );
-
-      setNotificationTitle('');
-      setNotificationMessage('');
-      setShowCustomNotification(false);
-    } catch (error: any) {
-      console.log(
-        'SEND CUSTOM NOTIFICATION ERROR:',
-        error?.response?.data || error,
-      );
-
-      Alert.alert(
-        'Failed',
-        error?.response?.data?.message || 'Unable to send notification.',
-      );
-    } finally {
-      setSendingNotification(false);
-    }
-  };
-
-  // =========================================================
-  // GET NOTIFICATIONS
-  // =========================================================
+  // =====================================================
+  // FETCH NOTIFICATIONS
+  // =====================================================
 
   const fetchNotifications = async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await getToken();
 
       if (!token) {
         setNotifications([]);
@@ -196,36 +75,28 @@ const Notification = () => {
     }
   };
 
-  // =========================================================
-  // LOAD WHEN SCREEN OPENS
-  // =========================================================
+  // =====================================================
+  // SCREEN FOCUS
+  // =====================================================
 
   useFocusEffect(
     useCallback(() => {
-      checkCurrentUser();
       fetchNotifications();
     }, []),
   );
 
-  // =========================================================
-  // REFRESH
-  // =========================================================
-
   const handleRefresh = () => {
     setRefreshing(true);
-
-    checkCurrentUser();
     fetchNotifications();
   };
 
-  // =========================================================
+  // =====================================================
   // MARK ONE AS READ
-  // =========================================================
+  // =====================================================
 
   const markAsRead = async (notificationId: string) => {
     try {
-      const token = await AsyncStorage.getItem('token');
-
+      const token = await getToken();
       if (!token) return;
 
       await axios.patch(
@@ -238,31 +109,27 @@ const Notification = () => {
         },
       );
 
-      setNotifications(prev =>
-        prev.map(notification =>
+      setNotifications(previous =>
+        previous.map(notification =>
           notification._id === notificationId
-            ? {
-                ...notification,
-                read: true,
-              }
+            ? { ...notification, read: true }
             : notification,
         ),
       );
     } catch (error) {
-      console.log('MARK NOTIFICATION READ ERROR:', error);
+      console.log('MARK READ ERROR:', error);
     }
   };
 
-  // =========================================================
+  // =====================================================
   // MARK ALL AS READ
-  // =========================================================
+  // =====================================================
 
   const markAllAsRead = async () => {
     try {
       setMarkingAll(true);
 
-      const token = await AsyncStorage.getItem('token');
-
+      const token = await getToken();
       if (!token) return;
 
       await axios.patch(
@@ -275,8 +142,8 @@ const Notification = () => {
         },
       );
 
-      setNotifications(prev =>
-        prev.map(notification => ({
+      setNotifications(previous =>
+        previous.map(notification => ({
           ...notification,
           read: true,
         })),
@@ -288,157 +155,119 @@ const Notification = () => {
     }
   };
 
-  // =========================================================
+  // =====================================================
   // FORMAT TIME
-  // =========================================================
+  // =====================================================
 
   const formatTime = (date: string) => {
     const notificationDate = new Date(date);
-    const now = new Date();
+    const difference = Date.now() - notificationDate.getTime();
 
-    const difference = now.getTime() - notificationDate.getTime();
+    const minutes = Math.floor(difference / 60000);
 
-    const minutes = Math.floor(difference / (1000 * 60));
-
-    if (minutes < 1) {
-      return 'Just now';
-    }
-
-    if (minutes < 60) {
-      return `${minutes}m ago`;
-    }
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m ago`;
 
     const hours = Math.floor(minutes / 60);
-
-    if (hours < 24) {
-      return `${hours}h ago`;
-    }
+    if (hours < 24) return `${hours}h ago`;
 
     const days = Math.floor(hours / 24);
-
-    if (days < 7) {
-      return `${days}d ago`;
-    }
+    if (days < 7) return `${days}d ago`;
 
     return notificationDate.toLocaleDateString();
   };
 
-  // =========================================================
+  // =====================================================
   // NOTIFICATION ICON
-  // =========================================================
+  // =====================================================
 
   const getNotificationIcon = (type: NotificationItem['type']) => {
-    if (type === 'NEW_TICKET') {
-      return '🎫';
-    }
-
-    if (type === 'STATUS_UPDATE') {
-      return '✓';
-    }
-
-    return '🔔';
+    if (type === 'NEW_TICKET') return 'ticket-outline';
+    if (type === 'STATUS_UPDATE') return 'checkmark-circle-outline';
+    return 'notifications-outline';
   };
 
-  // =========================================================
-  // STATUS
-  // =========================================================
-
-  const getStatusLabel = (status?: string) =>
-    status ? getStatusName(status) : '';
-
-  // =========================================================
+  // =====================================================
   // NOTIFICATION CARD
-  // =========================================================
+  // =====================================================
 
-  const renderNotification = ({ item }: { item: NotificationItem }) => {
-    return (
-      <TouchableOpacity
-        activeOpacity={0.8}
-        onPress={() => markAsRead(item._id)}
-        style={[styles.notificationCard, !item.read && styles.unreadCard]}
-      >
-        {/* ICON */}
+  const renderNotification = ({ item }: { item: NotificationItem }) => (
+    <TouchableOpacity
+      activeOpacity={0.8}
+      onPress={() => markAsRead(item._id)}
+      style={[styles.notificationCard, !item.read && styles.unreadCard]}
+    >
+      <View style={styles.iconContainer}>
+        <Ionicons
+          name={getNotificationIcon(item.type)}
+          size={22}
+          color={theme.primary}
+        />
+      </View>
 
-        <View
-          style={[
-            styles.iconContainer,
-            item.type === 'NEW_TICKET' ? styles.ticketIcon : styles.statusIcon,
-          ]}
-        >
-          <Text style={styles.iconText}>{getNotificationIcon(item.type)}</Text>
-        </View>
-
-        {/* CONTENT */}
-
-        <View style={styles.notificationContent}>
-          <View style={styles.titleRow}>
-            <Text
-              style={[styles.title, !item.read && styles.unreadTitle]}
-              numberOfLines={1}
-            >
-              {item.title}
-            </Text>
-
-            {!item.read && <View style={styles.unreadDot} />}
-          </View>
-
-          <Text style={styles.body} numberOfLines={2}>
-            {item.body}
+      <View style={styles.notificationContent}>
+        <View style={styles.titleRow}>
+          <Text
+            style={[styles.title, !item.read && styles.unreadTitle]}
+            numberOfLines={1}
+          >
+            {item.title}
           </Text>
 
-          {/* TICKET INFO */}
-
-          {item.complaint && (
-            <View style={styles.ticketInfo}>
-              {item.complaint.module && (
-                <Text style={styles.moduleText}>{item.complaint.module}</Text>
-              )}
-
-              {item.complaint.status && (
-                <Text style={styles.statusText}>
-                  {getStatusLabel(item.complaint.status)}
-                </Text>
-              )}
-            </View>
-          )}
-
-          <Text style={styles.time}>{formatTime(item.createdAt)}</Text>
+          {!item.read && <View style={styles.unreadDot} />}
         </View>
-      </TouchableOpacity>
-    );
-  };
 
-  // =========================================================
+        <Text style={styles.body} numberOfLines={3}>
+          {item.body}
+        </Text>
+
+        {item.complaint && (
+          <View style={styles.ticketInfo}>
+            {item.complaint.module && (
+              <Text style={styles.moduleText}>{item.complaint.module}</Text>
+            )}
+
+            {item.complaint.status && (
+              <Text style={styles.statusText}>
+                {getStatusName(item.complaint.status)}
+              </Text>
+            )}
+          </View>
+        )}
+
+        <Text style={styles.time}>{formatTime(item.createdAt)}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  // =====================================================
   // EMPTY STATE
-  // =========================================================
+  // =====================================================
 
   const renderEmpty = () => {
     if (loading) return null;
 
     return (
       <View style={styles.emptyContainer}>
-        <View style={styles.emptyIcon}>
-          <Text style={styles.emptyIconText}>🔔</Text>
-        </View>
+        <Ionicons
+          name="notifications-off-outline"
+          size={42}
+          color={theme.muted}
+        />
 
         <Text style={styles.emptyTitle}>No notifications</Text>
 
         <Text style={styles.emptyText}>
-          You're all caught up. New ticket updates will appear here.
+          You're all caught up. New updates will appear here.
         </Text>
       </View>
     );
   };
 
-  // =========================================================
-  // LOADING
-  // =========================================================
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={theme.primary} />
-
         <Text style={styles.loadingText}>Loading notifications...</Text>
       </View>
     );
@@ -448,14 +277,12 @@ const Notification = () => {
     notification => !notification.read,
   ).length;
 
-  // =========================================================
+  // =====================================================
   // MAIN UI
-  // =========================================================
+  // =====================================================
 
   return (
     <View style={styles.container}>
-      {/* HEADER */}
-
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Notifications</Text>
@@ -469,41 +296,22 @@ const Notification = () => {
           </Text>
         </View>
 
-        {/* HEADER ACTIONS */}
-
         <View style={styles.headerActions}>
-          {/* ADMIN ONLY */}
-
-          {isAdmin && (
-            <TouchableOpacity
-              onPress={() => setShowCustomNotification(true)}
-              style={styles.sendNotificationButton}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.sendNotificationText}>+ Send</Text>
-            </TouchableOpacity>
-          )}
-
-          {/* MARK ALL */}
-
           {unreadCount > 0 && (
             <TouchableOpacity
               onPress={markAllAsRead}
               disabled={markingAll}
               style={styles.markAllButton}
-              activeOpacity={0.8}
             >
               {markingAll ? (
                 <ActivityIndicator size="small" color={theme.primary} />
               ) : (
-                <Text style={styles.markAllText}>Mark all read</Text>
+                <Text style={styles.markAllText}>Read all</Text>
               )}
             </TouchableOpacity>
           )}
         </View>
       </View>
-
-      {/* NOTIFICATIONS */}
 
       <FlatList
         data={notifications}
@@ -523,128 +331,21 @@ const Notification = () => {
         }
         showsVerticalScrollIndicator={false}
       />
-
-      {/* CUSTOM NOTIFICATION MODAL */}
-
-      <Modal
-        visible={showCustomNotification}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          if (!sendingNotification) {
-            setShowCustomNotification(false);
-          }
-        }}
-      >
-        <KeyboardAvoidingView
-          style={styles.modalOverlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
-          <View style={styles.notificationModal}>
-            {/* HEADER */}
-
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalTitle}>Send Notification</Text>
-
-                <Text style={styles.modalSubtitle}>
-                  Send to all clients & employees
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                onPress={() => setShowCustomNotification(false)}
-                disabled={sendingNotification}
-                style={styles.closeButton}
-              >
-                <Text style={styles.closeButtonText}>×</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* TITLE */}
-
-            <Text style={styles.inputLabel}>Notification Title</Text>
-
-            <TextInput
-              value={notificationTitle}
-              onChangeText={setNotificationTitle}
-              placeholder="e.g. Happy Diwali 🎉"
-              placeholderTextColor={theme.light}
-              style={styles.notificationInput}
-              maxLength={100}
-            />
-
-            {/* MESSAGE */}
-
-            <Text style={styles.inputLabel}>Message</Text>
-
-            <TextInput
-              value={notificationMessage}
-              onChangeText={setNotificationMessage}
-              placeholder="Write your notification..."
-              placeholderTextColor={theme.light}
-              style={[styles.notificationInput, styles.messageInput]}
-              multiline
-              textAlignVertical="top"
-              maxLength={500}
-            />
-
-            {/* RECIPIENT INFO */}
-
-            <View style={styles.recipientInfo}>
-              <Text style={styles.recipientIcon}>👥</Text>
-
-              <Text style={styles.recipientText}>
-                This notification will be sent to all clients and employees in
-                your organisation.
-              </Text>
-            </View>
-
-            {/* BUTTONS */}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                onPress={() => setShowCustomNotification(false)}
-                disabled={sendingNotification}
-                style={styles.cancelButton}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                onPress={sendCustomNotification}
-                disabled={sendingNotification}
-                style={styles.sendButton}
-              >
-                {sendingNotification ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.sendButtonText}>Send Notification</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
     </View>
   );
 };
 
+// =====================================================
+// STYLES
+// =====================================================
+
 const createStyles = (theme: any, isDarkMode: boolean) =>
   StyleSheet.create({
-    /* =====================================================
-       CONTAINER
-    ===================================================== */
-
     container: {
       flex: 1,
       paddingTop: 10,
       backgroundColor: theme.background,
     },
-
-    /* =====================================================
-       HEADER
-    ===================================================== */
 
     header: {
       paddingHorizontal: 20,
@@ -660,7 +361,7 @@ const createStyles = (theme: any, isDarkMode: boolean) =>
 
     headerLeft: {
       flex: 1,
-      marginRight: 10,
+      marginRight: 8,
     },
 
     headerTitle: {
@@ -680,12 +381,15 @@ const createStyles = (theme: any, isDarkMode: boolean) =>
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: 7,
     },
 
     sendNotificationButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
       paddingHorizontal: 12,
-      paddingVertical: 9,
+      paddingVertical: 10,
       borderRadius: 10,
       backgroundColor: theme.primary,
     },
@@ -696,173 +400,24 @@ const createStyles = (theme: any, isDarkMode: boolean) =>
       color: theme.white,
     },
 
-    /* =====================================================
-       CUSTOM NOTIFICATION MODAL
-    ===================================================== */
-
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.45)',
-      justifyContent: 'center',
-      paddingHorizontal: 20,
-    },
-
-    notificationModal: {
-      backgroundColor: theme.white,
-      borderRadius: 20,
-      padding: 20,
-      borderWidth: 1,
-      borderColor: theme.border,
-    },
-
-    modalHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: 22,
-    },
-
-    modalTitle: {
-      fontSize: 20,
-      fontWeight: '800',
-      color: theme.ink,
-    },
-
-    modalSubtitle: {
-      marginTop: 4,
-      fontSize: 12,
-      color: theme.muted,
-    },
-
-    closeButton: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      backgroundColor: theme.background,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-
-    closeButtonText: {
-      fontSize: 25,
-      lineHeight: 28,
-      color: theme.text,
-    },
-
-    inputLabel: {
-      fontSize: 13,
-      fontWeight: '700',
-      color: theme.text,
-      marginBottom: 7,
-    },
-
-    notificationInput: {
-      borderWidth: 1,
-      borderColor: theme.border,
-      borderRadius: 12,
-      paddingHorizontal: 13,
-      paddingVertical: 12,
-      fontSize: 14,
-      color: theme.text,
-      backgroundColor: theme.background,
-      marginBottom: 16,
-    },
-
-    messageInput: {
-      height: 110,
-      paddingTop: 12,
-    },
-
-    recipientInfo: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: theme.primarySoft,
-      borderRadius: 12,
-      padding: 12,
-      marginBottom: 20,
-    },
-
-    recipientIcon: {
-      fontSize: 18,
-      marginRight: 9,
-    },
-
-    recipientText: {
-      flex: 1,
-      fontSize: 12,
-      lineHeight: 18,
-      color: theme.text,
-    },
-
-    modalActions: {
-      flexDirection: 'row',
-      gap: 10,
-    },
-
-    cancelButton: {
-      flex: 1,
-      paddingVertical: 13,
-      borderRadius: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: theme.background,
-      borderWidth: 1,
-      borderColor: theme.border,
-    },
-
-    cancelButtonText: {
-      fontSize: 13,
-      fontWeight: '700',
-      color: theme.text,
-    },
-
-    sendButton: {
-      flex: 1,
-      paddingVertical: 13,
-      borderRadius: 12,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: theme.primary,
-    },
-
-    sendButtonText: {
-      fontSize: 13,
-      fontWeight: '700',
-      color: theme.white,
-    },
-
-    /* =====================================================
-       MARK ALL
-    ===================================================== */
-
     markAllButton: {
-      paddingHorizontal: 12,
+      paddingHorizontal: 10,
       paddingVertical: 9,
       borderRadius: 10,
       backgroundColor: theme.primarySoft,
-      borderWidth: 1,
-      borderColor: theme.border,
     },
 
     markAllText: {
-      fontSize: 12,
+      fontSize: 11,
       fontWeight: '700',
       color: theme.primary,
     },
-
-    /* =====================================================
-       LIST
-    ===================================================== */
 
     listContent: {
       paddingHorizontal: 16,
       paddingTop: 14,
       paddingBottom: 30,
     },
-
-    /* =====================================================
-       NOTIFICATION CARD
-    ===================================================== */
 
     notificationCard: {
       flexDirection: 'row',
@@ -879,34 +434,15 @@ const createStyles = (theme: any, isDarkMode: boolean) =>
       borderColor: theme.primary,
     },
 
-    /* =====================================================
-       ICON
-    ===================================================== */
-
     iconContainer: {
       width: 44,
       height: 44,
       borderRadius: 13,
+      backgroundColor: theme.primarySoft,
       alignItems: 'center',
       justifyContent: 'center',
       marginRight: 13,
     },
-
-    ticketIcon: {
-      backgroundColor: theme.orangeSoft,
-    },
-
-    statusIcon: {
-      backgroundColor: theme.greenSoft,
-    },
-
-    iconText: {
-      fontSize: 19,
-    },
-
-    /* =====================================================
-       CONTENT
-    ===================================================== */
 
     notificationContent: {
       flex: 1,
@@ -943,10 +479,6 @@ const createStyles = (theme: any, isDarkMode: boolean) =>
       color: theme.muted,
     },
 
-    /* =====================================================
-       TICKET INFO
-    ===================================================== */
-
     ticketInfo: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -981,10 +513,6 @@ const createStyles = (theme: any, isDarkMode: boolean) =>
       fontWeight: '500',
     },
 
-    /* =====================================================
-       EMPTY
-    ===================================================== */
-
     emptyList: {
       flexGrow: 1,
     },
@@ -996,34 +524,11 @@ const createStyles = (theme: any, isDarkMode: boolean) =>
       paddingHorizontal: 40,
     },
 
-    emptyIcon: {
-      width: 70,
-      height: 70,
-      borderRadius: 35,
-      backgroundColor: theme.white,
-      borderWidth: 1,
-      borderColor: theme.border,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: 18,
-      shadowColor: theme.dark,
-      shadowOffset: {
-        width: 0,
-        height: 3,
-      },
-      shadowOpacity: isDarkMode ? 0 : 0.06,
-      shadowRadius: 8,
-      elevation: isDarkMode ? 0 : 2,
-    },
-
-    emptyIconText: {
-      fontSize: 30,
-    },
-
     emptyTitle: {
       fontSize: 19,
       fontWeight: '800',
       color: theme.ink,
+      marginTop: 15,
     },
 
     emptyText: {
@@ -1033,10 +538,6 @@ const createStyles = (theme: any, isDarkMode: boolean) =>
       lineHeight: 20,
       color: theme.muted,
     },
-
-    /* =====================================================
-       LOADING
-    ===================================================== */
 
     loadingContainer: {
       flex: 1,
@@ -1049,6 +550,370 @@ const createStyles = (theme: any, isDarkMode: boolean) =>
       marginTop: 12,
       fontSize: 13,
       color: theme.muted,
+    },
+
+    // MODAL
+
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.48)',
+      justifyContent: 'flex-end',
+    },
+
+    notificationModal: {
+      maxHeight: '94%',
+      backgroundColor: theme.white,
+      borderTopLeftRadius: 25,
+      borderTopRightRadius: 25,
+      paddingHorizontal: 20,
+      paddingTop: 10,
+      paddingBottom: 15,
+      overflow: 'hidden',
+    },
+
+    modalHandle: {
+      width: 42,
+      height: 4,
+      borderRadius: 5,
+      backgroundColor: theme.light,
+      alignSelf: 'center',
+      marginBottom: 17,
+    },
+
+    modalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 20,
+    },
+
+    modalTitle: {
+      fontSize: 21,
+      fontWeight: '800',
+      color: theme.ink,
+    },
+
+    modalSubtitle: {
+      marginTop: 4,
+      fontSize: 12,
+      color: theme.muted,
+    },
+
+    closeButton: {
+      width: 35,
+      height: 35,
+      borderRadius: 18,
+      backgroundColor: theme.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    modalScroll: {
+      paddingBottom: 10,
+    },
+
+    inputLabel: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: theme.text,
+      marginBottom: 7,
+    },
+
+    notificationInput: {
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 12,
+      paddingHorizontal: 13,
+      paddingVertical: 12,
+      fontSize: 14,
+      color: theme.text,
+      backgroundColor: theme.background,
+      marginBottom: 16,
+    },
+
+    messageInput: {
+      height: 95,
+      paddingTop: 12,
+    },
+
+    sectionLabel: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: theme.ink,
+      marginBottom: 10,
+    },
+
+    audienceContainer: {
+      gap: 9,
+      marginBottom: 20,
+    },
+
+    audienceOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 13,
+      borderRadius: 13,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.background,
+      gap: 11,
+    },
+
+    audienceSelected: {
+      borderColor: theme.primary,
+      backgroundColor: theme.primarySoft,
+    },
+
+    audienceTextContainer: {
+      flex: 1,
+    },
+
+    audienceTitle: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: theme.text,
+    },
+
+    selectedText: {
+      color: theme.primary,
+    },
+
+    audienceSubtitle: {
+      marginTop: 3,
+      fontSize: 11,
+      color: theme.muted,
+    },
+
+    employeeSection: {
+      marginBottom: 18,
+    },
+
+    employeeHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+
+    selectedCount: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: theme.primary,
+    },
+
+    searchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 9,
+      paddingHorizontal: 12,
+      borderRadius: 11,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.background,
+      marginBottom: 14,
+    },
+
+    searchInput: {
+      flex: 1,
+      height: 43,
+      fontSize: 13,
+      color: theme.text,
+      paddingVertical: 0,
+    },
+
+    filterLabel: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: theme.muted,
+      marginBottom: 9,
+    },
+
+    designationList: {
+      gap: 7,
+      paddingBottom: 13,
+    },
+
+    designationChip: {
+      paddingHorizontal: 13,
+      paddingVertical: 8,
+      borderRadius: 20,
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.background,
+    },
+
+    designationChipActive: {
+      backgroundColor: theme.primary,
+      borderColor: theme.primary,
+    },
+
+    designationChipText: {
+      fontSize: 11,
+      fontWeight: '600',
+      color: theme.text,
+    },
+
+    designationChipTextActive: {
+      color: theme.white,
+    },
+
+    selectionActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 9,
+    },
+
+    employeeCount: {
+      fontSize: 11,
+      color: theme.muted,
+      fontWeight: '600',
+    },
+
+    selectionButtons: {
+      flexDirection: 'row',
+      gap: 15,
+    },
+
+    actionText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: theme.primary,
+    },
+
+    clearText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: theme.muted,
+    },
+
+    employeeList: {
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 13,
+      overflow: 'hidden',
+    },
+
+    employeeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 11,
+      paddingVertical: 11,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.divider,
+    },
+
+    employeeAvatar: {
+      width: 37,
+      height: 37,
+      borderRadius: 19,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.primarySoft,
+      marginRight: 11,
+    },
+
+    avatarText: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: theme.primary,
+    },
+
+    employeeDetails: {
+      flex: 1,
+    },
+
+    employeeName: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: theme.text,
+    },
+
+    employeeDesignation: {
+      marginTop: 3,
+      fontSize: 11,
+      color: theme.muted,
+    },
+
+    noEmployees: {
+      textAlign: 'center',
+      padding: 20,
+      color: theme.muted,
+      fontSize: 12,
+    },
+
+    recipientInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.primarySoft,
+      borderRadius: 13,
+      padding: 13,
+      marginBottom: 18,
+      gap: 11,
+    },
+
+    recipientIconContainer: {
+      width: 36,
+      height: 36,
+      borderRadius: 10,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.white,
+    },
+
+    recipientDetails: {
+      flex: 1,
+    },
+
+    recipientHeading: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: theme.text,
+    },
+
+    recipientText: {
+      marginTop: 3,
+      fontSize: 11,
+      color: theme.muted,
+    },
+
+    modalActions: {
+      flexDirection: 'row',
+      gap: 10,
+      marginTop: 3,
+    },
+
+    cancelButton: {
+      flex: 1,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.background,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+
+    cancelButtonText: {
+      fontSize: 13,
+      fontWeight: '700',
+      color: theme.text,
+    },
+
+    sendButton: {
+      flex: 1.5,
+      flexDirection: 'row',
+      gap: 8,
+      paddingVertical: 14,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: theme.primary,
+    },
+
+    sendButtonText: {
+      fontSize: 12,
+      fontWeight: '700',
+      color: '#fff',
     },
   });
 

@@ -20,6 +20,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import createStyles from '../style/LoginStyle';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import en from '../i18n/en';
 
 const companyIcon = require('../assets/icon.png');
 
@@ -27,6 +28,7 @@ const LoginPage = () => {
   const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
+  const [isSuccess, setIsSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -38,6 +40,20 @@ const LoginPage = () => {
   const { login } = useAuth();
 
   // =====================================================
+  // MESSAGE HANDLER
+  // =====================================================
+
+  const showMessage = (text: string, success = false) => {
+    setMessage(text);
+    setIsSuccess(success);
+  };
+
+  const clearMessage = () => {
+    setMessage('');
+    setIsSuccess(false);
+  };
+
+  // =====================================================
   // LOGIN
   // =====================================================
 
@@ -45,12 +61,12 @@ const LoginPage = () => {
     if (loading) return;
 
     if (!userName.trim() || !password) {
-      setMessage('Please enter your username and password.');
+      showMessage(en.auth.missingCredentials);
       return;
     }
 
     try {
-      setMessage('');
+      clearMessage();
       setLoading(true);
       Keyboard.dismiss();
 
@@ -62,31 +78,35 @@ const LoginPage = () => {
       const token = response.data?.token;
 
       if (!token) {
-        setMessage('Login failed: authentication token not received.');
+        showMessage(en.auth.loginError);
         return;
       }
 
       await login(token);
 
       console.log('Login successful');
-      setMessage('Login successful');
+      showMessage(en.auth.loginSuccess, true);
     } catch (error: unknown) {
       if (axios.isAxiosError(error)) {
         console.log('Login error:', error.response?.data || error.message);
 
-        const serverMessage = error.response?.data?.message;
+        const status = error.response?.status;
 
-        setMessage(
-          typeof serverMessage === 'string'
-            ? serverMessage
-            : 'Login failed. Please check your credentials and try again.',
-        );
-      } else if (error instanceof Error) {
-        console.log('Login error:', error.message);
-        setMessage(error.message || 'Login failed. Please try again.');
+        if (status === 401 || status === 400) {
+          showMessage(en.auth.invalidCredentials);
+        } else if (!error.response) {
+          showMessage(en.errors.network);
+        } else {
+          showMessage(en.auth.loginError);
+        }
       } else {
-        console.log('Unexpected login error:', error);
-        setMessage('Login failed. Please try again.');
+        if (error instanceof Error) {
+          console.log('Login error:', error.message);
+        } else {
+          console.log('Unexpected login error:', error);
+        }
+
+        showMessage(en.auth.loginError);
       }
     } finally {
       setLoading(false);
@@ -133,28 +153,30 @@ const LoginPage = () => {
                   height: 90,
                   resizeMode: 'contain',
                 }}
-                accessibilityLabel="Company logo"
+                accessibilityLabel={en.auth.companyLogo}
                 accessible
               />
             </View>
 
-            <Text style={styles.title}>Welcome Back</Text>
+            {/* HEADER */}
 
-            <Text style={styles.subtitle}>Login to your account</Text>
+            <Text style={styles.title}>{en.auth.welcome}</Text>
+
+            <Text style={styles.subtitle}>{en.auth.loginTitle}</Text>
 
             {/* USERNAME */}
 
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Username / Email / Mobile Number</Text>
+              <Text style={styles.label}>{en.auth.usernameLabel}</Text>
 
               <TextInput
                 style={styles.input}
-                placeholder="Enter username, email or mobile"
+                placeholder={en.auth.usernamePlaceholder}
                 placeholderTextColor="#9ca3af"
                 value={userName}
                 onChangeText={value => {
                   setUserName(value);
-                  if (message) setMessage('');
+                  if (message) clearMessage();
                 }}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -165,13 +187,14 @@ const LoginPage = () => {
                 onSubmitEditing={() => {
                   passwordInputRef.current?.focus();
                 }}
+                accessibilityLabel={en.auth.usernameLabel}
               />
             </View>
 
             {/* PASSWORD */}
 
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Password</Text>
+              <Text style={styles.label}>{en.auth.passwordLabel}</Text>
 
               <View
                 style={{
@@ -187,12 +210,12 @@ const LoginPage = () => {
                       paddingRight: 48,
                     },
                   ]}
-                  placeholder="Enter password"
+                  placeholder={en.auth.passwordPlaceholder}
                   placeholderTextColor="#9ca3af"
                   value={password}
                   onChangeText={value => {
                     setPassword(value);
-                    if (message) setMessage('');
+                    if (message) clearMessage();
                   }}
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
@@ -200,7 +223,7 @@ const LoginPage = () => {
                   returnKeyType="go"
                   editable={!loading}
                   onSubmitEditing={handleLogin}
-                  accessibilityLabel="Password"
+                  accessibilityLabel={en.auth.passwordLabel}
                 />
 
                 <TouchableOpacity
@@ -217,7 +240,7 @@ const LoginPage = () => {
                   activeOpacity={0.7}
                   accessibilityRole="button"
                   accessibilityLabel={
-                    showPassword ? 'Hide password' : 'Show password'
+                    showPassword ? en.auth.hidePassword : en.auth.showPassword
                   }
                 >
                   <Ionicons
@@ -233,18 +256,17 @@ const LoginPage = () => {
 
             {message ? (
               <View
+                accessibilityRole="alert"
                 style={{
                   marginBottom: 15,
                   padding: 10,
                   borderRadius: 8,
-                  backgroundColor:
-                    message === 'Login successful' ? '#dcfce7' : '#fee2e2',
+                  backgroundColor: isSuccess ? '#dcfce7' : '#fee2e2',
                 }}
               >
                 <Text
                   style={{
-                    color:
-                      message === 'Login successful' ? '#166534' : '#dc2626',
+                    color: isSuccess ? '#166534' : '#dc2626',
                     textAlign: 'center',
                   }}
                 >
@@ -261,12 +283,12 @@ const LoginPage = () => {
               disabled={loading}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel="Login"
+              accessibilityLabel={en.auth.logInButton}
             >
               {loading ? (
                 <ActivityIndicator color="#ffffff" />
               ) : (
-                <Text style={styles.loginText}>Login</Text>
+                <Text style={styles.loginText}>{en.auth.logInButton}</Text>
               )}
             </TouchableOpacity>
           </View>

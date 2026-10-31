@@ -3,6 +3,8 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -801,7 +803,11 @@ export default function CompanyCalendarScreen({
         animationType="slide"
         onRequestClose={closeModal}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
+        >
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
 
@@ -825,8 +831,14 @@ export default function CompanyCalendarScreen({
             </View>
 
             <ScrollView
+              style={styles.modalFormScroll}
+              contentContainerStyle={styles.modalFormContent}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode={
+                Platform.OS === 'ios' ? 'interactive' : 'on-drag'
+              }
               showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
             >
               <Text style={styles.inputLabel}>Date (YYYY-MM-DD)</Text>
 
@@ -946,7 +958,7 @@ export default function CompanyCalendarScreen({
               )}
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1305,8 +1317,16 @@ const createStyles = (COLORS: CalendarColors) =>
       borderTopRightRadius: 26,
       paddingHorizontal: 20,
       paddingTop: 10,
-      paddingBottom: 28,
-      maxHeight: '90%',
+      paddingBottom: Platform.OS === 'ios' ? 24 : 16,
+      maxHeight: '92%',
+      flexShrink: 1,
+    },
+    modalFormScroll: {
+      flexShrink: 1,
+    },
+    modalFormContent: {
+      flexGrow: 1,
+      paddingBottom: 24,
     },
     modalHandle: {
       alignSelf: 'center',

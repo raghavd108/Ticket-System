@@ -1,7 +1,14 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, {
+  useEffect,
+  useState,
+  useMemo,
+  useRef,
+  useCallback,
+} from 'react';
 import createStyles from '../style/complainStyle';
 import { useTheme } from '../context/ThemeContext';
-import { useNavigation } from '@react-navigation/native';
+import en from '../i18n/en';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import AttendanceToggle from '../components/attendance';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -18,9 +25,10 @@ import {
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getMessaging, onMessage } from '@react-native-firebase/messaging';
 import { useFilter } from '../hooks/useFilter';
 import Filter from '../components/filter';
-import { Config } from 'react-native-config';
+import Config from 'react-native-config';
 import {
   getStatusColor,
   getStatusIcon,
@@ -120,6 +128,7 @@ const ComplainPage = () => {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
 
   // Infinite-scroll pagination
   const PAGE_SIZE = 10;
@@ -201,7 +210,7 @@ const ComplainPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        setMessage('Authentication token not found');
+        setMessage(en.common.sessionExpired);
         setLoading(false);
         return;
       }
@@ -219,7 +228,7 @@ const ComplainPage = () => {
       await getComplaints();
     } catch (error) {
       console.log('GET USER ERROR:', error);
-      setMessage('Unable to get user information');
+      setMessage(en.errors.loadFailed);
     } finally {
       setLoading(false);
     }
@@ -248,7 +257,7 @@ const ComplainPage = () => {
         rawUsers
           .map((item: any) => ({
             id: String(item?.id ?? item?._id ?? ''),
-            userName: String(item?.userName ?? 'Unnamed employee'),
+            userName: String(item?.userName ?? en.common.unknownUser),
             email: item?.email,
             designation: item?.designation,
           }))
@@ -257,10 +266,7 @@ const ComplainPage = () => {
     } catch (error) {
       console.log('GET EMPLOYEES ERROR:', error);
       setEmployees([]);
-      setEmployeesError(
-        (error as any)?.response?.data?.message ??
-          'Unable to load employees. Check your connection and try again.',
-      );
+      setEmployeesError(en.users.loadError);
     } finally {
       setLoadingEmployees(false);
     }
@@ -273,10 +279,7 @@ const ComplainPage = () => {
       selectedComplaint.assignedEmployee?._id ??
       '';
     if (!selectedEmployeeId && !currentAssignee) {
-      Alert.alert(
-        'Select employee',
-        'Please select an employee to assign this ticket.',
-      );
+      Alert.alert(en.tickets.selectEmployee, en.tickets.employeeRequired);
       return;
     }
 
@@ -284,7 +287,7 @@ const ComplainPage = () => {
       setAssigningTicket(true);
       const token = await AsyncStorage.getItem('token');
       if (!token) {
-        Alert.alert('Session expired', 'Please log in again.');
+        Alert.alert(en.common.sessionExpired, '');
         return;
       }
 
@@ -308,15 +311,14 @@ const ComplainPage = () => {
       }
 
       Alert.alert(
-        selectedEmployeeId ? 'Ticket assigned' : 'Ticket unassigned',
-        response.data?.message ?? 'The ticket has been updated.',
+        selectedEmployeeId
+          ? en.tickets.assignedTitle
+          : en.tickets.unassignedTitle,
+        en.tickets.statusUpdated,
       );
     } catch (error: any) {
       console.log('ASSIGN TICKET ERROR:', error?.response?.data ?? error);
-      Alert.alert(
-        'Assignment failed',
-        error?.response?.data?.message ?? 'Unable to assign this ticket.',
-      );
+      Alert.alert(en.tickets.assignmentErrorTitle, en.tickets.assignmentError);
     } finally {
       setAssigningTicket(false);
     }
@@ -345,7 +347,7 @@ const ComplainPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        setMessage('Authentication token not found');
+        setMessage(en.common.sessionExpired);
         return;
       }
 
@@ -397,12 +399,9 @@ const ComplainPage = () => {
 
       // Keep already-loaded tickets visible if a later page fails.
       if (!append) {
-        setMessage('Unable to fetch complaints');
+        setMessage(en.tickets.loadError);
       } else {
-        Alert.alert(
-          'Unable to load more tickets',
-          'Please check your connection and try scrolling again.',
-        );
+        Alert.alert(en.tickets.loadMoreErrorTitle, en.tickets.loadMoreError);
       }
     } finally {
       if (append) {
@@ -467,13 +466,10 @@ const ComplainPage = () => {
         prev && prev._id === complaintId ? applyUpdate(prev) : prev,
       );
 
-      Alert.alert('Updated', 'Ticket status has been updated.');
+      Alert.alert(en.common.updated, en.tickets.statusUpdated);
     } catch (error: any) {
       console.log('UPDATE STATUS ERROR:', error?.response?.data ?? error);
-      Alert.alert(
-        'Error',
-        error?.response?.data?.message ?? 'Failed to update status',
-      );
+      Alert.alert(en.common.error, en.tickets.statusUpdateError);
     }
   };
 
@@ -515,7 +511,7 @@ const ComplainPage = () => {
 
   const openAttachments = (complaint: Complaint) => {
     if (!complaint.image || complaint.image.length === 0) {
-      Alert.alert('Attachments', 'No attachments available.');
+      Alert.alert(en.tickets.attachments, en.tickets.noAttachments);
       return;
     }
 
@@ -559,6 +555,90 @@ const ComplainPage = () => {
       setorganisationFilter('all');
     }
   };
+
+  // Keep the notification badge in sync with the server.
+  // The unread endpoint is the source of truth, so reading a notification
+  // removes the dot as soon as this screen becomes active again.
+  const checkUnreadNotifications = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+
+      if (!token) {
+        setHasUnreadNotifications(false);
+        return;
+      }
+
+      const response = await axios.get(
+        `${Config.API_URL}/api/notification/unread`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      const payload = response.data;
+      const unreadItems = Array.isArray(payload)
+        ? payload
+        : Array.isArray(payload?.notifications)
+        ? payload.notifications
+        : Array.isArray(payload?.unread)
+        ? payload.unread
+        : Array.isArray(payload?.data)
+        ? payload.data
+        : null;
+
+      let unreadCount = 0;
+
+      if (typeof payload?.unreadCount === 'number') {
+        unreadCount = payload.unreadCount;
+      } else if (typeof payload?.count === 'number') {
+        unreadCount = payload.count;
+      } else if (typeof payload?.totalUnread === 'number') {
+        unreadCount = payload.totalUnread;
+      } else if (unreadItems) {
+        unreadCount = unreadItems.filter((item: any) => {
+          // The /unread endpoint normally returns only unread items.
+          // Also support APIs that return a mixed notification list.
+          if (typeof item?.isRead === 'boolean') return !item.isRead;
+          if (typeof item?.read === 'boolean') return !item.read;
+          if (item?.readAt) return false;
+          return true;
+        }).length;
+      } else if (typeof payload?.hasUnread === 'boolean') {
+        setHasUnreadNotifications(payload.hasUnread);
+        return;
+      }
+
+      setHasUnreadNotifications(unreadCount > 0);
+    } catch (error: any) {
+      console.log(
+        'UNREAD NOTIFICATION CHECK ERROR:',
+        error?.response?.data ?? error,
+      );
+      // Keep the last known badge state if the network request fails.
+    }
+  }, []);
+
+  // Refresh when ComplainPage gains focus (including after returning from
+  // the Notification screen).
+  useFocusEffect(
+    useCallback(() => {
+      checkUnreadNotifications();
+    }, [checkUnreadNotifications]),
+  );
+
+  // Refresh immediately for foreground push notifications. If the app was
+  // backgrounded, the focus refresh above checks the server when it returns.
+  useEffect(() => {
+    const messagingInstance = getMessaging();
+
+    const unsubscribe = onMessage(messagingInstance, async () => {
+      await checkUnreadNotifications();
+    });
+
+    return unsubscribe;
+  }, [checkUnreadNotifications]);
 
   const handleNotification = () => {
     navigation.navigate('Notification');
@@ -695,9 +775,9 @@ const ComplainPage = () => {
           <Text style={styles.loadingIconText}>✓</Text>
         </View>
 
-        <Text style={styles.loadingTitle}>Loading your tickets</Text>
+        <Text style={styles.loadingTitle}>{en.tickets.loadingTitle}</Text>
 
-        <Text style={styles.loadingText}>Getting everything ready...</Text>
+        <Text style={styles.loadingText}>{en.tickets.loadingDescription}</Text>
 
         <ActivityIndicator
           size="small"
@@ -749,19 +829,24 @@ const ComplainPage = () => {
               <View style={styles.headerTopRow}>
                 <View style={styles.headerTextContainer}>
                   <Text style={styles.eyebrow}>
-                    {isAdmin || isEmployee ? 'SUPPORT CENTER' : 'MY SUPPORT'}
+                    {isAdmin || isEmployee
+                      ? en.tickets.staffEyebrow
+                      : en.tickets.clientEyebrow}
                   </Text>
 
                   <Text style={styles.title}>
-                    {isAdmin || isEmployee ? 'Tickets' : 'My Tickets'}
+                    {isAdmin || isEmployee
+                      ? en.tickets.title
+                      : en.tickets.myTickets}
                   </Text>
 
                   <Text style={styles.subtitle}>
                     {isAdmin || isEmployee
                       ? `Manage support requests from ${
-                          user?.organisation?.name || 'your organisations'
+                          user?.organisation?.name ||
+                          en.common.yourOrganisations
                         }`
-                      : 'Track and manage your submitted support requests'}
+                      : en.tickets.clientSubtitle}
                   </Text>
                 </View>
 
@@ -770,7 +855,7 @@ const ComplainPage = () => {
                     style={styles.notificationButton}
                     activeOpacity={0.8}
                     onPress={handleCompanyCalendar}
-                    accessibilityLabel="Open company calendar"
+                    accessibilityLabel={en.calendar.openAccessibility}
                   >
                     <Ionicons
                       name="calendar-outline"
@@ -784,14 +869,16 @@ const ComplainPage = () => {
                   style={styles.notificationButton}
                   activeOpacity={0.75}
                   onPress={handleNotification}
-                  accessibilityLabel="Open notifications"
+                  accessibilityLabel={en.notifications.openAccessibility}
                 >
                   <Ionicons
                     name="notifications-outline"
                     size={21}
                     color={theme.text}
                   />
-                  <View style={styles.notificationDot} />
+                  {hasUnreadNotifications && (
+                    <View style={styles.notificationDot} />
+                  )}
                 </TouchableOpacity>
               </View>
 
@@ -841,7 +928,7 @@ const ComplainPage = () => {
                     marginBottom: 5,
                   }}
                 >
-                  TICKET OVERVIEW
+                  {en.tickets.overviewEyebrow}
                 </Text>
                 <Text
                   style={{
@@ -851,7 +938,7 @@ const ComplainPage = () => {
                     color: theme.ink || theme.text || '#211C2A',
                   }}
                 >
-                  Resolution progress
+                  {en.tickets.resolutionProgress}
                 </Text>
               </View>
               <View
@@ -890,7 +977,7 @@ const ComplainPage = () => {
                       color: theme.ink || theme.text || '#211C2A',
                     }}
                   >
-                    Ticket breakdown
+                    {en.tickets.breakdown}
                   </Text>
                   <Text
                     style={{
@@ -899,7 +986,7 @@ const ComplainPage = () => {
                       marginTop: 4,
                     }}
                   >
-                    Tickets by current status
+                    {en.tickets.byCurrentStatus}
                   </Text>
                 </View>
 
@@ -936,17 +1023,17 @@ const ComplainPage = () => {
               >
                 {[
                   {
-                    label: 'Pending',
+                    label: en.tickets.pending,
                     count: pendingTickets,
                     color: theme.orange || '#D99024',
                   },
                   {
-                    label: 'In progress',
+                    label: en.tickets.inProgress,
                     count: progressTickets,
                     color: theme.blue || '#6551C9',
                   },
                   {
-                    label: 'Completed',
+                    label: en.tickets.completed,
                     count: resolvedTickets,
                     color: theme.green || '#23845D',
                   },
@@ -1046,7 +1133,7 @@ const ComplainPage = () => {
                       flexShrink: 1,
                     }}
                   >
-                    Pending
+                    {en.tickets.pending}
                   </Text>
                 </View>
                 <Text
@@ -1067,7 +1154,7 @@ const ComplainPage = () => {
                     marginTop: 3,
                   }}
                 >
-                  Awaiting action
+                  {en.tickets.awaitingAction}
                 </Text>
               </View>
 
@@ -1104,7 +1191,7 @@ const ComplainPage = () => {
                       flexShrink: 1,
                     }}
                   >
-                    In progress
+                    {en.tickets.inProgress}
                   </Text>
                 </View>
                 <Text
@@ -1125,7 +1212,7 @@ const ComplainPage = () => {
                     marginTop: 3,
                   }}
                 >
-                  Being handled
+                  {en.tickets.beingHandled}
                 </Text>
               </View>
 
@@ -1162,7 +1249,7 @@ const ComplainPage = () => {
                       flexShrink: 1,
                     }}
                   >
-                    Completed
+                    {en.tickets.completed}
                   </Text>
                 </View>
                 <Text
@@ -1183,7 +1270,7 @@ const ComplainPage = () => {
                     marginTop: 3,
                   }}
                 >
-                  Successfully closed
+                  {en.tickets.successfullyClosed}
                 </Text>
               </View>
             </View>
@@ -1212,9 +1299,9 @@ const ComplainPage = () => {
           {complaints.length > 0 && (
             <View style={styles.sectionHeader}>
               <View style={styles.sectionHeaderText}>
-                <Text style={styles.sectionTitle}>Recent Tickets</Text>
+                <Text style={styles.sectionTitle}>{en.tickets.recent}</Text>
                 <Text style={styles.sectionSubtitle}>
-                  Tap a ticket to see full details
+                  {en.tickets.tapForDetails}
                 </Text>
               </View>
 
@@ -1229,7 +1316,7 @@ const ComplainPage = () => {
                   style={styles.filterButton}
                   activeOpacity={0.85}
                   onPress={handleFilter}
-                  accessibilityLabel="Filter tickets"
+                  accessibilityLabel={en.tickets.filterAccessibility}
                 >
                   <Ionicons
                     name="options-outline"
@@ -1251,14 +1338,14 @@ const ComplainPage = () => {
                 <Text style={styles.emptyIcon}>✓</Text>
               </View>
 
-              <Text style={styles.emptyTitle}>No tickets found</Text>
+              <Text style={styles.emptyTitle}>{en.tickets.empty}</Text>
 
               <Text style={styles.emptyText}>
                 {complaints.length > 0
-                  ? 'There are no tickets matching your current filters.'
+                  ? en.tickets.noMatchingFilters
                   : isAdmin || isEmployee
-                  ? 'There are no tickets for you yet.'
-                  : "You haven't submitted any support requests yet."}
+                  ? en.tickets.noStaffTickets
+                  : en.tickets.noClientTickets}
               </Text>
 
               {complaints.length > 0 && (
@@ -1272,7 +1359,7 @@ const ComplainPage = () => {
                   accessibilityRole="button"
                 >
                   <Text style={styles.premiumAssignButtonText}>
-                    Clear filters
+                    {en.common.clearFilters}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -1366,7 +1453,7 @@ const ComplainPage = () => {
                           <Text style={styles.metaIcon}>●</Text>
 
                           <Text style={styles.metaText} numberOfLines={1}>
-                            {complaint.user?.userName || 'Unknown user'}
+                            {complaint.user?.userName || en.common.unknownUser}
                           </Text>
                         </View>
 
@@ -1378,7 +1465,8 @@ const ComplainPage = () => {
                       <Text style={styles.metaIcon}>⌂</Text>
 
                       <Text style={styles.metaText} numberOfLines={1}>
-                        {complaint.organisation?.name || 'Unknown organisation'}
+                        {complaint.organisation?.name ||
+                          en.common.unknownOrganisation}
                       </Text>
                     </View>
                     <View style={styles.metaDivider} />
@@ -1387,7 +1475,8 @@ const ComplainPage = () => {
                       <Text style={styles.metaIcon}>⌂</Text>
 
                       <Text style={styles.metaText} numberOfLines={1}>
-                        {complaint.organisation?.orgType || 'Unknown Type'}
+                        {complaint.organisation?.orgType ||
+                          en.common.unknownType}
                       </Text>
                     </View>
 
@@ -1431,7 +1520,7 @@ const ComplainPage = () => {
                       fontWeight: '600',
                     }}
                   >
-                    Loading more tickets...
+                    {en.tickets.loadingMore}
                   </Text>
                 </View>
               ) : hasMoreComplaints ? (
@@ -1441,7 +1530,7 @@ const ComplainPage = () => {
                     fontSize: 11,
                   }}
                 >
-                  Scroll down to load more
+                  {en.tickets.scrollToLoadMore}
                 </Text>
               ) : complaints.length > 0 ? (
                 <Text
@@ -1450,7 +1539,7 @@ const ComplainPage = () => {
                     fontSize: 11,
                   }}
                 >
-                  You have reached the end
+                  {en.common.endOfList}
                 </Text>
               ) : null}
             </View>
@@ -1521,8 +1610,12 @@ const ComplainPage = () => {
               <View style={styles.premiumGrabber} />
               <View style={styles.premiumTopRow}>
                 <View>
-                  <Text style={styles.premiumOverline}>SUPPORT DESK</Text>
-                  <Text style={styles.premiumTopTitle}>Ticket overview</Text>
+                  <Text style={styles.premiumOverline}>
+                    {en.tickets.supportDesk}
+                  </Text>
+                  <Text style={styles.premiumTopTitle}>
+                    {en.tickets.details}
+                  </Text>
                 </View>
 
                 <TouchableOpacity
@@ -1557,10 +1650,10 @@ const ComplainPage = () => {
 
                     <View style={styles.premiumIdentityText}>
                       <Text style={styles.premiumModuleName}>
-                        {selectedComplaint.module || 'General complaint'}
+                        {selectedComplaint.module || en.tickets.generalTicket}
                       </Text>
                       <Text style={styles.premiumTicketId}>
-                        TICKET / #{selectedComplaint._id}
+                        {`${en.tickets.ticketPrefix} / #${selectedComplaint._id}`}
                       </Text>
                     </View>
 
@@ -1585,7 +1678,9 @@ const ComplainPage = () => {
                   {/* PROBLEM FIRST — HERO SECTION */}
                   <View style={styles.premiumProblem}>
                     <View style={styles.premiumProblemHeading}>
-                      <Text style={styles.premiumOverline}>REPORTED ISSUE</Text>
+                      <Text style={styles.premiumOverline}>
+                        {en.tickets.reportedIssue}
+                      </Text>
                       <Ionicons
                         name="document-text-outline"
                         size={19}
@@ -1594,12 +1689,11 @@ const ComplainPage = () => {
                     </View>
 
                     <Text style={styles.premiumProblemTitle}>
-                      What needs attention?
+                      {en.tickets.whatNeedsAttention}
                     </Text>
 
                     <Text style={styles.premiumProblemDescription}>
-                      {selectedComplaint.problem ||
-                        'No description was provided for this ticket.'}
+                      {selectedComplaint.problem || en.tickets.noDescription}
                     </Text>
 
                     <View style={styles.premiumDateRow}>
@@ -1609,7 +1703,9 @@ const ComplainPage = () => {
                         color={'#898692'}
                       />
                       <Text style={styles.premiumDateText}>
-                        Reported {formatDate(selectedComplaint.createdAt)}
+                        {`${en.tickets.reported} ${formatDate(
+                          selectedComplaint.createdAt,
+                        )}`}
                       </Text>
                       <View style={styles.premiumDateDot} />
                       <Text style={styles.premiumDateText}>
@@ -1623,10 +1719,10 @@ const ComplainPage = () => {
                     <View style={styles.premiumSectionHeading}>
                       <View>
                         <Text style={styles.premiumSectionTitle}>
-                          Evidence & attachments
+                          {en.tickets.attachments}
                         </Text>
                         <Text style={styles.premiumSectionHint}>
-                          Supporting images for this issue
+                          {en.tickets.attachmentDescription}
                         </Text>
                       </View>
 
@@ -1653,13 +1749,13 @@ const ComplainPage = () => {
 
                         <View style={styles.premiumAttachmentInfo}>
                           <Text style={styles.premiumAttachmentTitle}>
-                            View attached files
+                            {en.tickets.viewAttachments}
                           </Text>
                           <Text style={styles.premiumSectionHint}>
                             {selectedComplaint.image.length}{' '}
                             {selectedComplaint.image.length === 1
-                              ? 'image attached'
-                              : 'images attached'}
+                              ? en.tickets.imageAttached
+                              : en.tickets.imagesAttached}
                           </Text>
                         </View>
 
@@ -1677,7 +1773,7 @@ const ComplainPage = () => {
                           color={'#898692'}
                         />
                         <Text style={styles.premiumSectionHint}>
-                          No supporting files
+                          {en.tickets.noAttachments}
                         </Text>
                       </View>
                     )}
@@ -1688,10 +1784,10 @@ const ComplainPage = () => {
                     <View style={styles.premiumSectionHeading}>
                       <View>
                         <Text style={styles.premiumSectionTitle}>
-                          Resolution progress
+                          {en.tickets.resolutionProgress}
                         </Text>
                         <Text style={styles.premiumSectionHint}>
-                          From submission to completion
+                          {en.tickets.fromSubmission}
                         </Text>
                       </View>
                       <Ionicons
@@ -1717,10 +1813,10 @@ const ComplainPage = () => {
                         </View>
                         <View style={styles.premiumProgressCopy}>
                           <Text style={styles.premiumProgressTitle}>
-                            Submitted
+                            {en.tickets.submitted}
                           </Text>
                           <Text style={styles.premiumSectionHint}>
-                            Request received
+                            {en.tickets.ticketReceived}
                           </Text>
                         </View>
                       </View>
@@ -1752,10 +1848,10 @@ const ComplainPage = () => {
                         </View>
                         <View style={styles.premiumProgressCopy}>
                           <Text style={styles.premiumProgressTitle}>
-                            In progress
+                            {en.tickets.inProgress}
                           </Text>
                           <Text style={styles.premiumSectionHint}>
-                            Support team handling
+                            {en.tickets.ourTeamWorking}
                           </Text>
                         </View>
                       </View>
@@ -1790,8 +1886,8 @@ const ComplainPage = () => {
                             {normalizeComplaintStatus(
                               selectedComplaint.status,
                             ) === 'cancelled'
-                              ? 'Cancelled'
-                              : 'Completed'}
+                              ? en.tickets.cancelled
+                              : en.tickets.completed}
                           </Text>
                           <Text style={styles.premiumSectionHint}>
                             {[...COMPLETED_STATUSES, 'cancelled'].includes(
@@ -1800,7 +1896,7 @@ const ComplainPage = () => {
                               ),
                             )
                               ? getStatusLabel(selectedComplaint.status)
-                              : 'Issue completed'}
+                              : en.tickets.ticketCompleted}
                           </Text>
                         </View>
                       </View>
@@ -1813,15 +1909,15 @@ const ComplainPage = () => {
                       <View style={styles.premiumSectionHeading}>
                         <View>
                           <Text style={styles.premiumSectionTitle}>
-                            Manage ticket
+                            {en.tickets.manageTicket}
                           </Text>
                           <Text style={styles.premiumSectionHint}>
-                            Update the current workflow status
+                            {en.tickets.updateWorkflow}
                           </Text>
                         </View>
                         <View style={styles.premiumRoleTag}>
                           <Text style={styles.premiumRoleTagText}>
-                            {isAdmin ? 'ADMIN' : 'EMPLOYEE'}
+                            {isAdmin ? en.common.admin : en.common.employee}
                           </Text>
                         </View>
                       </View>
@@ -1868,10 +1964,10 @@ const ComplainPage = () => {
                       <View style={styles.premiumSectionHeading}>
                         <View>
                           <Text style={styles.premiumSectionTitle}>
-                            Ticket ownership
+                            {en.tickets.ownership}
                           </Text>
                           <Text style={styles.premiumSectionHint}>
-                            Select the responsible employee
+                            {en.tickets.chooseEmployee}
                           </Text>
                         </View>
                         <Ionicons
@@ -1937,7 +2033,7 @@ const ComplainPage = () => {
                                           }`
                                         : ''
                                     }`
-                                  : 'Select an employee...'}
+                                  : en.tickets.selectEmployeePlaceholder}
                               </Text>
                             </View>
                             <Ionicons
@@ -1961,11 +2057,11 @@ const ComplainPage = () => {
                             ) : (
                               <Text style={styles.premiumAssignButtonText}>
                                 {!selectedEmployeeId
-                                  ? 'Remove assignment'
+                                  ? en.tickets.removeAssignment
                                   : selectedComplaint.assignedEmployeeId ||
                                     selectedComplaint.assignedEmployee
-                                  ? 'Reassign employee'
-                                  : 'Assign employee'}
+                                  ? en.tickets.reassignEmployee
+                                  : en.tickets.assignEmployee}
                               </Text>
                             )}
                           </TouchableOpacity>
@@ -1973,14 +2069,15 @@ const ComplainPage = () => {
                       ) : (
                         <View style={styles.premiumEmpty}>
                           <Text style={styles.premiumSectionHint}>
-                            {employeesError ||
-                              'No employees are mapped to this client yet. Map employees to the client in User Management.'}
+                            {employeesError || en.tickets.noMappedEmployees}
                           </Text>
                           <TouchableOpacity
                             onPress={() => getEmployees(selectedComplaint._id)}
                             style={{ marginTop: 10 }}
                           >
-                            <Text style={styles.premiumRetry}>Try again</Text>
+                            <Text style={styles.premiumRetry}>
+                              {en.common.retry}
+                            </Text>
                           </TouchableOpacity>
                         </View>
                       )}
@@ -1991,7 +2088,7 @@ const ComplainPage = () => {
                   {(isAdmin || isEmployee) && (
                     <View style={styles.premiumSection}>
                       <Text style={styles.premiumSectionTitle}>
-                        Assigned to
+                        {en.tickets.assignedTo}
                       </Text>
 
                       <View style={styles.premiumOwner}>
@@ -2005,7 +2102,7 @@ const ComplainPage = () => {
                         <View style={styles.premiumOwnerCopy}>
                           <Text style={styles.premiumOwnerName}>
                             {selectedComplaint.assignedEmployee?.userName ||
-                              'Not assigned'}
+                              en.tickets.notAssigned}
                           </Text>
                           {!!selectedComplaint.assignedEmployee
                             ?.designation && (
@@ -2033,7 +2130,7 @@ const ComplainPage = () => {
                 activeOpacity={0.85}
                 onPress={closeComplaintDetails}
               >
-                <Text style={styles.premiumFooterText}>Done</Text>
+                <Text style={styles.premiumFooterText}>{en.common.done}</Text>
                 <Ionicons name="checkmark" size={18} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
@@ -2090,8 +2187,8 @@ const ComplainPage = () => {
               }}
             >
               {activeTicketDropdown === 'status'
-                ? 'TICKET WORKFLOW'
-                : 'TICKET OWNER'}
+                ? en.tickets.workflowEyebrow
+                : en.tickets.ownerEyebrow}
             </Text>
             <Text
               style={{
@@ -2103,8 +2200,8 @@ const ComplainPage = () => {
               }}
             >
               {activeTicketDropdown === 'status'
-                ? 'Update status'
-                : 'Assign employee'}
+                ? en.tickets.updateStatus
+                : en.tickets.assignEmployee}
             </Text>
 
             <ScrollView
@@ -2202,7 +2299,7 @@ const ComplainPage = () => {
                         color: theme.text,
                       }}
                     >
-                      Unassigned
+                      {en.tickets.unassigned}
                     </Text>
                     {!selectedEmployeeId && (
                       <Ionicons
@@ -2311,7 +2408,7 @@ const ComplainPage = () => {
               <Text
                 style={{ fontSize: 13, fontWeight: '700', color: theme.text }}
               >
-                Cancel
+                {en.common.cancel}
               </Text>
             </TouchableOpacity>
           </TouchableOpacity>
@@ -2332,11 +2429,15 @@ const ComplainPage = () => {
           <View style={styles.attachmentsModalContainer}>
             <View style={styles.attachmentsModalHeader}>
               <View>
-                <Text style={styles.attachmentsModalTitle}>Attachments</Text>
+                <Text style={styles.attachmentsModalTitle}>
+                  {en.tickets.attachments}
+                </Text>
 
                 <Text style={styles.attachmentsModalSubtitle}>
                   {attachmentImages.length}{' '}
-                  {attachmentImages.length === 1 ? 'image' : 'images'}
+                  {attachmentImages.length === 1
+                    ? en.common.image
+                    : en.common.images}
                 </Text>
               </View>
 

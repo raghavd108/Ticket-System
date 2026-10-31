@@ -26,6 +26,7 @@ import createstyles from '../style/userManagement';
 import AttendanceHistory from '../components/AttendanceHistory';
 import DesignationPicker from '../components/DesignationPicker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import en from '../i18n/en';
 
 interface AssignedEmployee {
   _id: string;
@@ -59,6 +60,13 @@ interface User {
   isRevoked?: boolean;
   revokedAt?: string | null;
   revokedReason?: string | null;
+  isSuperAdmin?: boolean;
+  permissions?: {
+    canManageUsers?: boolean;
+    canViewAllTickets?: boolean;
+    canAssignTickets?: boolean;
+    managementLevel?: number;
+  };
 }
 
 interface CurrentUser {
@@ -66,6 +74,13 @@ interface CurrentUser {
   _id?: string;
   role?: string;
   designation?: string;
+  isSuperAdmin?: boolean;
+  permissions?: {
+    canManageUsers?: boolean;
+    canViewAllTickets?: boolean;
+    canAssignTickets?: boolean;
+    managementLevel?: number;
+  };
 }
 
 interface Organisation {
@@ -81,6 +96,7 @@ interface Organisation {
 }
 
 const ClientPage = () => {
+  const copy = en.clientPage;
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
 
@@ -197,16 +213,12 @@ const ClientPage = () => {
     }
   };
 
-  const currentRole = String(currentUser?.role || '')
-    .trim()
-    .toLowerCase();
-  const currentDesignation = String(currentUser?.designation || '')
-    .trim()
-    .toLowerCase();
-
-  const canAccessUserManagement =
-    currentRole === 'admin' ||
-    (currentRole === 'employee' && ['ceo', 'cto'].includes(currentDesignation));
+  // Access is driven by database permissions, not hard-coded role/designation names.
+  // SuperAdmin always has access; other users need canManageUsers on their designation.
+  const isSuperAdmin = currentUser?.isSuperAdmin === true;
+  const canManageUsers =
+    isSuperAdmin || currentUser?.permissions?.canManageUsers === true;
+  const canAccessUserManagement = canManageUsers;
 
   // GET USERS WITH SERVER-SIDE PAGINATION
 
@@ -278,12 +290,12 @@ const ClientPage = () => {
         ).map((entry: any) => {
           const employee = entry?.employee || entry;
           if (typeof employee === 'string') {
-            return { _id: employee, userName: 'Employee', email: '' };
+            return { _id: employee, userName: copy.employee, email: '' };
           }
           return {
             ...employee,
             _id: String(employee?._id || employee?.id || ''),
-            userName: employee?.userName || 'Employee',
+            userName: employee?.userName || copy.employee,
             email: employee?.email || '',
           };
         }),
@@ -327,15 +339,13 @@ const ClientPage = () => {
         setClient([]);
         setTotalUserCount(0);
         Alert.alert(
-          'Unable to Load Users',
-          error.response?.data?.message ||
-            'Something went wrong while loading users.',
+          copy.loadUsersTitle,
+          error.response?.data?.message || copy.loadUsersError,
         );
       } else {
         Alert.alert(
-          'Unable to Load More Users',
-          error.response?.data?.message ||
-            'Please try loading more users again.',
+          copy.loadMoreUsersTitle,
+          error.response?.data?.message || copy.loadMoreUsersError,
         );
       }
     } finally {
@@ -381,9 +391,8 @@ const ClientPage = () => {
       console.log('GET ORGANISATIONS ERROR:', error);
 
       Alert.alert(
-        'Unable to Load Organisations',
-        error.response?.data?.message ||
-          'Something went wrong while loading organisations.',
+        copy.loadOrganisationsTitle,
+        error.response?.data?.message || copy.loadOrganisationsError,
       );
     } finally {
       setLoadingOrganisations(false);
@@ -434,9 +443,8 @@ const ClientPage = () => {
       console.log('GET EMPLOYEES ERROR:', error);
 
       Alert.alert(
-        'Unable to Load Employees',
-        error.response?.data?.message ||
-          'Something went wrong while loading employees.',
+        copy.loadEmployeesTitle,
+        error.response?.data?.message || copy.loadEmployeesError,
       );
     } finally {
       setLoadingEmployees(false);
@@ -461,7 +469,7 @@ const ClientPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        throw new Error('Authentication token not found.');
+        throw new Error(copy.authenticationTokenMissing);
       }
 
       const res = await axios.get(`${Config.API_URL}/api/auth/me`, {
@@ -544,7 +552,10 @@ const ClientPage = () => {
     const cleanMobileNumber = mobileNumber.trim();
 
     if (cleanRole === 'client' && !organisation) {
-      Alert.alert('Organisation Required', 'Please select an organisation.');
+      Alert.alert(
+        copy.organisationRequiredTitle,
+        copy.selectOrganisationRequired,
+      );
       return;
     }
 
@@ -554,10 +565,7 @@ const ClientPage = () => {
       const spinfocomOrganisation = getSpinfocomOrganisation();
 
       if (!spinfocomOrganisation?._id) {
-        Alert.alert(
-          'Spinfocom Organisation Not Found',
-          'The Spinfocom organisation was not found. Please create/add Spinfocom organisation first.',
-        );
+        Alert.alert(copy.spinfocomNotFoundTitle, copy.spinfocomNotFound);
         return;
       }
 
@@ -565,38 +573,32 @@ const ClientPage = () => {
     }
 
     if (!cleanUserName) {
-      Alert.alert('Username Required', 'Please enter a username.');
+      Alert.alert(copy.usernameRequiredTitle, copy.enterUsername);
       return;
     }
 
     if (!cleanEmail) {
-      Alert.alert('Email Required', 'Please enter an email address.');
+      Alert.alert(copy.emailRequiredTitle, copy.enterEmail);
       return;
     }
 
     if (!password) {
-      Alert.alert('Password Required', 'Please enter a password.');
+      Alert.alert(copy.passwordRequiredTitle, copy.enterPassword);
       return;
     }
 
     if (cleanRole === 'employee' && !cleanMobileNumber) {
-      Alert.alert('Mobile Number Required', 'Please enter a mobile number.');
+      Alert.alert(copy.mobileRequiredTitle, copy.enterMobile);
       return;
     }
 
     if (cleanRole === 'employee' && !/^\d{10}$/.test(cleanMobileNumber)) {
-      Alert.alert(
-        'Invalid Mobile Number',
-        'Please enter a valid 10-digit mobile number.',
-      );
+      Alert.alert(copy.invalidMobileTitle, copy.invalidMobile);
       return;
     }
 
     if (cleanRole === 'employee' && !cleanDesignation) {
-      Alert.alert(
-        'Designation Required',
-        'Please select a designation for the employee.',
-      );
+      Alert.alert(copy.designationRequiredTitle, copy.selectDesignation);
       return;
     }
 
@@ -612,8 +614,8 @@ const ClientPage = () => {
 
       if (invalidSelectedEmployees) {
         Alert.alert(
-          'Invalid Employee Selection',
-          'Please select employees belonging to the selected organisation.',
+          copy.invalidEmployeeSelectionTitle,
+          copy.invalidEmployeeSelection,
         );
         return;
       }
@@ -625,7 +627,7 @@ const ClientPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        Alert.alert('Authentication Error', 'Please login again.');
+        Alert.alert(copy.authenticationErrorTitle, copy.loginAgain);
         return;
       }
 
@@ -659,8 +661,8 @@ const ClientPage = () => {
       console.log('CREATE USER RESPONSE:', res.data);
 
       Alert.alert(
-        'Account Created',
-        `${getRoleLabel(cleanRole)} account has been created successfully.`,
+        copy.accountCreatedTitle,
+        copy.accountCreatedMessage(getRoleLabel(cleanRole)),
       );
 
       resetUserForm();
@@ -678,9 +680,8 @@ const ClientPage = () => {
       console.log('CREATE ACCOUNT ERROR:', error);
 
       Alert.alert(
-        'Unable to Create Account',
-        error.response?.data?.message ||
-          'Something went wrong while creating the account.',
+        copy.createAccountErrorTitle,
+        error.response?.data?.message || copy.createAccountError,
       );
     } finally {
       setCreating(false);
@@ -695,16 +696,16 @@ const ClientPage = () => {
 
     if (!cleanOrgType) {
       Alert.alert(
-        'Organisation Type Required',
-        'Please enter the organisation type.',
+        copy.organisationTypeRequiredTitle,
+        copy.enterOrganisationType,
       );
       return;
     }
 
     if (!cleanName) {
       Alert.alert(
-        'Organisation Name Required',
-        'Please enter the organisation name.',
+        copy.organisationNameRequiredTitle,
+        copy.enterOrganisationName,
       );
       return;
     }
@@ -715,17 +716,14 @@ const ClientPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        Alert.alert('Authentication Error', 'Please login again.');
+        Alert.alert(copy.authenticationErrorTitle, copy.loginAgain);
         return;
       }
 
       const currentUserId = await getCurrentUserId();
 
       if (!currentUserId) {
-        Alert.alert(
-          'User ID Missing',
-          'Unable to identify the signed-in user.',
-        );
+        Alert.alert(copy.userIdMissingTitle, copy.identifySignedInUser);
         return;
       }
 
@@ -746,10 +744,7 @@ const ClientPage = () => {
 
       const createdOrganisation = res.data?.org || res.data?.organisation;
 
-      Alert.alert(
-        'Organisation Created',
-        'Organisation has been created successfully.',
-      );
+      Alert.alert(copy.organisationCreatedTitle, copy.organisationCreated);
 
       setNewOrganisationName('');
       setShowOrganisationModal(false);
@@ -763,9 +758,8 @@ const ClientPage = () => {
       console.log('CREATE ORGANISATION ERROR:', error);
 
       Alert.alert(
-        'Unable to Create Organisation',
-        error.response?.data?.message ||
-          'Something went wrong while creating the organisation.',
+        copy.createOrganisationErrorTitle,
+        error.response?.data?.message || copy.createOrganisationError,
       );
     } finally {
       setCreatingOrganisation(false);
@@ -793,16 +787,16 @@ const ClientPage = () => {
   const getRoleLabel = (value: string) => {
     switch (value) {
       case 'admin':
-        return 'Admin';
+        return copy.admin;
 
       case 'employee':
-        return 'Employee';
+        return copy.employee;
 
       case 'client':
-        return 'Client';
+        return copy.client;
 
       default:
-        return 'User';
+        return copy.user;
     }
   };
 
@@ -880,8 +874,8 @@ const ClientPage = () => {
 
     if (!spinfocomOrganisation?._id) {
       Alert.alert(
-        'Spinfocom Organisation Not Found',
-        'The Spinfocom organisation was not found. Please make sure an organisation named "spinfocom" exists.',
+        copy.spinfocomNotFoundTitle,
+        copy.spinfocomNotFoundForEmployee,
       );
 
       return;
@@ -939,10 +933,7 @@ const ClientPage = () => {
   // OPEN UPLOAD MODAL
   const openUploadModal = () => {
     if (selectedClient?.role !== 'employee') {
-      Alert.alert(
-        'Employee Required',
-        'Please select an employee before uploading documents.',
-      );
+      Alert.alert(copy.employeeRequiredTitle, copy.selectEmployeeForUpload);
       return;
     }
 
@@ -968,7 +959,7 @@ const ClientPage = () => {
       const remainingSlots = 10 - documentFiles.length;
 
       if (remainingSlots <= 0) {
-        Alert.alert('File Limit', 'You can select a maximum of 10 files.');
+        Alert.alert(copy.fileLimitTitle, copy.selectFileLimit);
         return;
       }
 
@@ -986,10 +977,7 @@ const ClientPage = () => {
         const availableSlots = Math.max(0, 10 - previous.length);
 
         if (newFiles.length > availableSlots) {
-          Alert.alert(
-            'File Limit',
-            'Only the first 10 unique files can be selected.',
-          );
+          Alert.alert(copy.fileLimitTitle, copy.uniqueFileLimit);
         }
 
         return [...previous, ...newFiles.slice(0, availableSlots)];
@@ -1003,7 +991,7 @@ const ClientPage = () => {
       }
 
       console.log('DOCUMENT PICKER ERROR:', error);
-      Alert.alert('Error', 'Unable to select documents.');
+      Alert.alert(copy.errorTitle, copy.selectDocumentsError);
     }
   };
 
@@ -1017,22 +1005,22 @@ const ClientPage = () => {
     const employeeId = selectedClient?._id || selectedClient?.id;
 
     if (selectedClient?.role !== 'employee' || !employeeId) {
-      Alert.alert('Employee Required', 'Please select a valid employee.');
+      Alert.alert(copy.employeeRequiredTitle, copy.validEmployeeRequired);
       return;
     }
 
     if (!documentTitle.trim()) {
-      Alert.alert('Title Required', 'Please enter a document title.');
+      Alert.alert(copy.titleRequiredTitle, copy.enterDocumentTitle);
       return;
     }
 
     if (documentFiles.length === 0) {
-      Alert.alert('Files Required', 'Please select at least one file.');
+      Alert.alert(copy.filesRequiredTitle, copy.selectAtLeastOneFile);
       return;
     }
 
     if (documentFiles.length > 10) {
-      Alert.alert('File Limit', 'You can upload a maximum of 10 files.');
+      Alert.alert(copy.fileLimitTitle, copy.uploadFileLimit);
       return;
     }
 
@@ -1042,7 +1030,7 @@ const ClientPage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        Alert.alert('Authentication Error', 'Please log in again.');
+        Alert.alert(copy.authenticationErrorTitle, copy.loginAgain);
         return;
       }
 
@@ -1073,10 +1061,7 @@ const ClientPage = () => {
 
       console.log('DOCUMENT UPLOAD RESPONSE:', response.data);
 
-      Alert.alert(
-        'Upload Successful',
-        'Documents have been assigned to the selected employee.',
-      );
+      Alert.alert(copy.uploadSuccessfulTitle, copy.documentsAssigned);
 
       setShowUploadModal(false);
       setDocumentTitle('');
@@ -1088,9 +1073,8 @@ const ClientPage = () => {
       );
 
       Alert.alert(
-        'Upload Failed',
-        error.response?.data?.message ||
-          'Unable to upload documents. Please try again.',
+        copy.uploadFailedTitle,
+        error.response?.data?.message || copy.uploadDocumentsError,
       );
     } finally {
       setUploadingDocuments(false);
@@ -1101,7 +1085,7 @@ const ClientPage = () => {
     const employeeId = selectedClient?._id || selectedClient?.id;
 
     if (!employeeId || selectedClient?.role !== 'employee') {
-      Alert.alert('Employee Required', 'Please select a valid employee.');
+      Alert.alert(copy.employeeRequiredTitle, copy.validEmployeeRequired);
       return;
     }
 
@@ -1149,33 +1133,31 @@ const ClientPage = () => {
     const newPassword = editEmployeePassword;
 
     if (!userId || (!isEmployee && !isClient)) return;
+
+    // Changing another user's password is a SuperAdmin-only operation.
+    if (newPassword.length > 0 && !isSuperAdmin) {
+      Alert.alert(copy.permissionRequiredTitle, copy.superAdminPasswordOnly);
+      return;
+    }
+
     if (newPassword.length > 0 && newPassword.trim().length === 0) {
-      Alert.alert('Invalid password', 'Password cannot contain only spaces.');
+      Alert.alert(copy.invalidPasswordTitle, copy.passwordOnlySpaces);
       return;
     }
     if (newPassword.length > 0 && newPassword.length < 8) {
-      Alert.alert(
-        'Invalid password',
-        'Password must be at least 8 characters long.',
-      );
+      Alert.alert(copy.invalidPasswordTitle, copy.passwordMinLength);
       return;
     }
     if (!cleanName || !cleanEmail) {
-      Alert.alert('Missing details', 'Username and email are required.');
+      Alert.alert(copy.missingDetailsTitle, copy.usernameEmailRequired);
       return;
     }
     if (cleanMobile && !/^\d{10}$/.test(cleanMobile)) {
-      Alert.alert(
-        'Invalid mobile number',
-        'Enter a valid 10-digit mobile number.',
-      );
+      Alert.alert(copy.invalidMobileTitle, copy.invalidMobile);
       return;
     }
     if (isEmployee && (!cleanMobile || !cleanDesignation)) {
-      Alert.alert(
-        'Missing details',
-        'Employee mobile number and designation are required.',
-      );
+      Alert.alert(copy.missingDetailsTitle, copy.employeeDetailsRequired);
       return;
     }
     if (
@@ -1184,17 +1166,14 @@ const ClientPage = () => {
         id => !employees.some(employee => employee._id === id),
       )
     ) {
-      Alert.alert(
-        'Invalid employee selection',
-        'Refresh the employee list and try again.',
-      );
+      Alert.alert(copy.invalidEmployeeSelectionTitle, copy.refreshEmployees);
       return;
     }
 
     try {
       setSavingEmployee(true);
       const token = await AsyncStorage.getItem('token');
-      if (!token) throw new Error('Authentication token not found.');
+      if (!token) throw new Error(copy.authenticationTokenMissing);
 
       const payload: any = {
         userName: cleanName,
@@ -1243,17 +1222,19 @@ const ClientPage = () => {
       setEditEmployeePassword('');
       setShowEditPassword(false);
       Alert.alert(
-        'Details updated',
-        `${isEmployee ? 'Employee' : 'Client'} details have been updated.`,
+        copy.detailsUpdatedTitle,
+        `${
+          isEmployee ? copy.employee : copy.client
+        } details have been updated.`,
       );
       await Promise.all([getUser(), getEmployees()]);
     } catch (error: any) {
       console.log('ADMIN UPDATE USER ERROR:', error?.response?.data || error);
       Alert.alert(
-        'Update failed',
+        copy.updateFailedTitle,
         error?.response?.data?.message ||
           error?.message ||
-          'Could not update user details. Check the backend route and permissions.',
+          copy.updateUserError,
       );
     } finally {
       setSavingEmployee(false);
@@ -1271,22 +1252,22 @@ const ClientPage = () => {
     const userId = selectedClient?._id || selectedClient?.id;
 
     if (!selectedClient || !userId) {
-      Alert.alert('User not found', 'Please close this window and try again.');
+      Alert.alert(copy.userNotFoundTitle, copy.closeAndRetry);
       return;
     }
 
     const isRestore = action === 'restore';
     const title = isRestore
-      ? 'Restore account access?'
-      : 'Revoke account access?';
+      ? copy.restoreAccessConfirmTitle
+      : copy.revokeAccessConfirmTitle;
     const message = isRestore
       ? `Allow ${selectedClient.userName} to log in again?`
       : `This will prevent ${selectedClient.userName} from logging in and invalidate their active sessions.`;
 
     Alert.alert(title, message, [
-      { text: 'Cancel', style: 'cancel' },
+      { text: copy.cancel, style: 'cancel' },
       {
-        text: isRestore ? 'Restore Access' : 'Revoke Access',
+        text: isRestore ? copy.restoreAccess : copy.revokeAccess,
         style: isRestore ? 'default' : 'destructive',
         onPress: async () => {
           try {
@@ -1294,7 +1275,7 @@ const ClientPage = () => {
             const token = await AsyncStorage.getItem('token');
 
             if (!token) {
-              Alert.alert('Authentication Error', 'Please log in again.');
+              Alert.alert(copy.authenticationErrorTitle, copy.loginAgain);
               return;
             }
 
@@ -1336,11 +1317,9 @@ const ClientPage = () => {
             }
 
             Alert.alert(
-              isRestore ? 'Access Restored' : 'Access Revoked',
+              isRestore ? copy.accessRestoredTitle : copy.accessRevokedTitle,
               response.data?.message ||
-                (isRestore
-                  ? 'The account can log in again.'
-                  : 'The account can no longer log in.'),
+                (isRestore ? copy.accountCanLogin : copy.accountCannotLogin),
             );
 
             await getUser();
@@ -1350,9 +1329,8 @@ const ClientPage = () => {
               error?.response?.data || error,
             );
             Alert.alert(
-              isRestore ? 'Restore Failed' : 'Revoke Failed',
-              error?.response?.data?.message ||
-                'Unable to change account access. Please try again.',
+              isRestore ? copy.restoreFailedTitle : copy.revokeFailedTitle,
+              error?.response?.data?.message || copy.changeAccessError,
             );
           } finally {
             setChangingAccess(false);
@@ -1410,7 +1388,7 @@ const ClientPage = () => {
                     item.isRevoked && { color: '#B91C1C' },
                   ]}
                 >
-                  {item.isRevoked ? 'Revoked' : getRoleLabel(item.role)}
+                  {item.isRevoked ? copy.revoked : getRoleLabel(item.role)}
                 </Text>
               </View>
             </View>
@@ -1441,7 +1419,7 @@ const ClientPage = () => {
                 }}
                 numberOfLines={1}
               >
-                {item.assignedEmployee?.length || 0} assigned employee
+                {item.assignedEmployee?.length || 0} {copy.assignedEmployee}
                 {(item.assignedEmployee?.length || 0) === 1 ? '' : 's'}
               </Text>
             )}
@@ -1456,7 +1434,7 @@ const ClientPage = () => {
             activeOpacity={0.75}
             onPress={() => viewClient(item)}
           >
-            <Text style={styles.actionButtonText}>View</Text>
+            <Text style={styles.actionButtonText}>{copy.view}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -1509,11 +1487,11 @@ const ClientPage = () => {
         ===================================================== */}
 
         <View style={styles.field}>
-          <Text style={styles.label}>USERNAME</Text>
+          <Text style={styles.label}>{copy.usernameLabel}</Text>
 
           <TextInput
             style={styles.input}
-            placeholder="Enter username"
+            placeholder={copy.usernamePlaceholder}
             placeholderTextColor="#A1A1AA"
             value={userName}
             onChangeText={setUserName}
@@ -1528,11 +1506,11 @@ const ClientPage = () => {
         ===================================================== */}
 
         <View style={styles.field}>
-          <Text style={styles.label}>EMAIL ADDRESS</Text>
+          <Text style={styles.label}>{copy.emailAddressLabel}</Text>
 
           <TextInput
             style={styles.input}
-            placeholder="Enter email address"
+            placeholder={copy.emailPlaceholder}
             placeholderTextColor="#A1A1AA"
             value={email}
             onChangeText={setEmail}
@@ -1557,7 +1535,7 @@ const ClientPage = () => {
             }}
           >
             <Text style={[styles.label, { marginBottom: 0 }]}>
-              ORGANISATION
+              {copy.organisationLabel}
             </Text>
 
             <TouchableOpacity
@@ -1572,7 +1550,7 @@ const ClientPage = () => {
                   fontSize: 13,
                 }}
               >
-                + Add Organisation
+                {copy.addOrganisation}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1608,7 +1586,7 @@ const ClientPage = () => {
                     color: theme.muted,
                   }}
                 >
-                  Loading organisations...
+                  {copy.loadingOrganisations}
                 </Text>
               </View>
             ) : (
@@ -1629,7 +1607,7 @@ const ClientPage = () => {
                 >
                   {selectedOrganisation
                     ? selectedOrganisation.name
-                    : 'Select organisation'}
+                    : copy.selectOrganisation}
                 </Text>
 
                 <Ionicons
@@ -1667,7 +1645,7 @@ const ClientPage = () => {
                       marginBottom: 10,
                     }}
                   >
-                    No organisations found.
+                    {copy.noOrganisations}
                   </Text>
 
                   <TouchableOpacity
@@ -1680,7 +1658,7 @@ const ClientPage = () => {
                         fontWeight: '700',
                       }}
                     >
-                      + Add Organisation
+                      {copy.addOrganisation}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -1740,7 +1718,7 @@ const ClientPage = () => {
                     fontWeight: '700',
                   }}
                 >
-                  + Add New Organisation
+                  {copy.addNewOrganisation}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1752,7 +1730,7 @@ const ClientPage = () => {
         ===================================================== */}
 
         <View style={styles.field}>
-          <Text style={styles.label}>ASSIGN EMPLOYEES</Text>
+          <Text style={styles.label}>{copy.assignEmployeesLabel}</Text>
 
           <TouchableOpacity
             onPress={() => setShowEmployeeList(previous => !previous)}
@@ -1784,7 +1762,7 @@ const ClientPage = () => {
                     color: theme.muted,
                   }}
                 >
-                  Loading employees...
+                  {copy.loadingEmployees}
                 </Text>
               </View>
             ) : !organisation ? (
@@ -1794,7 +1772,7 @@ const ClientPage = () => {
                   fontSize: 15,
                 }}
               >
-                Select organisation first
+                {copy.selectOrganisationFirst}
               </Text>
             ) : (
               <View
@@ -1817,7 +1795,7 @@ const ClientPage = () => {
                     ? `${assignedEmployee.length} employee${
                         assignedEmployee.length > 1 ? 's' : ''
                       } selected`
-                    : 'Select employees'}
+                    : copy.selectEmployees}
                 </Text>
 
                 <Ionicons
@@ -1909,8 +1887,8 @@ const ClientPage = () => {
                     }}
                   >
                     {employees.length === 0
-                      ? 'No employees found. Create an employee first.'
-                      : 'No employees are available for this organisation.'}
+                      ? copy.noEmployeesCreateFirst
+                      : copy.noEmployeesForOrganisation}
                   </Text>
                 </View>
               ) : (
@@ -1953,7 +1931,7 @@ const ClientPage = () => {
                           }}
                           numberOfLines={1}
                         >
-                          {employee.designation || 'Employee'} •{' '}
+                          {employee.designation || copy.employee} •{' '}
                           {employee.email}
                         </Text>
                       </View>
@@ -2001,7 +1979,7 @@ const ClientPage = () => {
                       fontWeight: '700',
                     }}
                   >
-                    Done
+                    {copy.done}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -2014,12 +1992,12 @@ const ClientPage = () => {
         ===================================================== */}
 
         <View style={styles.field}>
-          <Text style={styles.label}>PASSWORD</Text>
+          <Text style={styles.label}>{copy.passwordLabel}</Text>
 
           <View style={styles.passwordWrapper}>
             <TextInput
               style={[styles.input, styles.passwordInput]}
-              placeholder="Create password"
+              placeholder={copy.createPassword}
               placeholderTextColor="#A1A1AA"
               value={password}
               onChangeText={setPassword}
@@ -2058,7 +2036,7 @@ const ClientPage = () => {
               <ActivityIndicator color="#FFFFFF" size="small" />
 
               <Text style={[styles.submitText, { marginLeft: 9 }]}>
-                Creating...
+                {copy.creating}
               </Text>
             </>
           ) : (
@@ -2069,7 +2047,7 @@ const ClientPage = () => {
                 color={theme.everWhite}
               />
 
-              <Text style={styles.submitText}>Create Client Account</Text>
+              <Text style={styles.submitText}>{copy.createClientAccount}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -2084,7 +2062,7 @@ const ClientPage = () => {
           disabled={creating}
           activeOpacity={0.7}
         >
-          <Text style={styles.cancelText}>Cancel</Text>
+          <Text style={styles.cancelText}>{copy.cancel}</Text>
         </TouchableOpacity>
       </ScrollView>
     );
@@ -2128,7 +2106,7 @@ const ClientPage = () => {
               marginBottom: 5,
             }}
           >
-            DEFAULT ORGANISATION
+            {copy.defaultOrganisation}
           </Text>
 
           <Text
@@ -2138,7 +2116,7 @@ const ClientPage = () => {
               fontWeight: '700',
             }}
           >
-            Spinfocom
+            {copy.defaultOrganisationName}
           </Text>
 
           <Text
@@ -2148,7 +2126,7 @@ const ClientPage = () => {
               marginTop: 4,
             }}
           >
-            Employees are automatically assigned to Spinfocom.
+            {copy.employeesAutoAssigned}
           </Text>
         </View>
 
@@ -2157,11 +2135,11 @@ const ClientPage = () => {
         ===================================================== */}
 
         <View style={styles.field}>
-          <Text style={styles.label}>USERNAME</Text>
+          <Text style={styles.label}>{copy.usernameLabel}</Text>
 
           <TextInput
             style={styles.input}
-            placeholder="Enter employee username"
+            placeholder={copy.employeeUsernamePlaceholder}
             placeholderTextColor="#A1A1AA"
             value={userName}
             onChangeText={setUserName}
@@ -2177,11 +2155,11 @@ const ClientPage = () => {
         ===================================================== */}
 
         <View style={styles.field}>
-          <Text style={styles.label}>EMAIL ADDRESS</Text>
+          <Text style={styles.label}>{copy.emailAddressLabel}</Text>
 
           <TextInput
             style={styles.input}
-            placeholder="Enter employee email"
+            placeholder={copy.employeeEmailPlaceholder}
             placeholderTextColor="#A1A1AA"
             value={email}
             onChangeText={setEmail}
@@ -2198,11 +2176,11 @@ const ClientPage = () => {
         ===================================================== */}
 
         <View style={styles.field}>
-          <Text style={styles.label}>MOBILE NUMBER</Text>
+          <Text style={styles.label}>{copy.mobileNumberLabel}</Text>
 
           <TextInput
             style={styles.input}
-            placeholder="Enter employee mobile number"
+            placeholder={copy.employeeMobilePlaceholder}
             placeholderTextColor="#A1A1AA"
             value={mobileNumber}
             onChangeText={text =>
@@ -2220,12 +2198,12 @@ const ClientPage = () => {
         ===================================================== */}
 
         <View style={styles.field}>
-          <Text style={styles.label}>PASSWORD</Text>
+          <Text style={styles.label}>{copy.passwordLabel}</Text>
 
           <View style={styles.passwordWrapper}>
             <TextInput
               style={[styles.input, styles.passwordInput]}
-              placeholder="Create password"
+              placeholder={copy.createPassword}
               placeholderTextColor="#A1A1AA"
               value={password}
               onChangeText={setPassword}
@@ -2256,13 +2234,15 @@ const ClientPage = () => {
         ===================================================== */}
 
         <View style={styles.field}>
-          <Text style={styles.label}>DESIGNATION</Text>
+          <Text style={styles.label}>{copy.designationLabel}</Text>
 
           <DesignationPicker
             value={designation}
             onChange={setDesignation}
             disabled={creating}
-            allowCreate
+            allowCreate={canManageUsers}
+            isSuperAdmin={isSuperAdmin}
+            canManageUsers={canManageUsers}
           />
         </View>
 
@@ -2281,7 +2261,7 @@ const ClientPage = () => {
               <ActivityIndicator color="#FFFFFF" size="small" />
 
               <Text style={[styles.submitText, { marginLeft: 9 }]}>
-                Creating...
+                {copy.creating}
               </Text>
             </>
           ) : (
@@ -2292,7 +2272,9 @@ const ClientPage = () => {
                 color={theme.everWhite}
               />
 
-              <Text style={styles.submitText}>Create Employee Account</Text>
+              <Text style={styles.submitText}>
+                {copy.createEmployeeAccount}
+              </Text>
             </>
           )}
         </TouchableOpacity>
@@ -2307,7 +2289,7 @@ const ClientPage = () => {
           disabled={creating}
           activeOpacity={0.7}
         >
-          <Text style={styles.cancelText}>Cancel</Text>
+          <Text style={styles.cancelText}>{copy.cancel}</Text>
         </TouchableOpacity>
       </ScrollView>
     );
@@ -2334,7 +2316,7 @@ const ClientPage = () => {
             fontWeight: '600',
           }}
         >
-          Checking access...
+          {copy.checkingAccess}
         </Text>
       </SafeAreaView>
     );
@@ -2360,7 +2342,7 @@ const ClientPage = () => {
             marginTop: 14,
           }}
         >
-          Access restricted
+          {copy.accessRestricted}
         </Text>
         <Text
           style={{
@@ -2371,7 +2353,7 @@ const ClientPage = () => {
             marginTop: 7,
           }}
         >
-          User Management is available to Admin, CEO and CTO accounts only.
+          {copy.accessRestrictedDescription}
         </Text>
       </SafeAreaView>
     );
@@ -2401,13 +2383,11 @@ const ClientPage = () => {
 
           <View style={styles.header}>
             <View style={styles.headerContent}>
-              <Text style={styles.eyebrow}>USER ADMINISTRATION</Text>
+              <Text style={styles.eyebrow}>{copy.eyebrow}</Text>
 
-              <Text style={styles.title}>User Management</Text>
+              <Text style={styles.title}>{copy.title}</Text>
 
-              <Text style={styles.subtitle}>
-                Manage users, roles, access and organisation details.
-              </Text>
+              <Text style={styles.subtitle}>{copy.pageSubtitle}</Text>
             </View>
 
             {/* =================================================
@@ -2431,7 +2411,7 @@ const ClientPage = () => {
               >
                 <Ionicons name="person-add" size={19} color={theme.everWhite} />
 
-                <Text style={styles.createButtonText}>Create Client</Text>
+                <Text style={styles.createButtonText}>{copy.createClient}</Text>
               </TouchableOpacity>
 
               {/* CREATE EMPLOYEE */}
@@ -2443,7 +2423,9 @@ const ClientPage = () => {
               >
                 <Ionicons name="person-add" size={19} color={theme.everWhite} />
 
-                <Text style={styles.createButtonText}>Create Employee</Text>
+                <Text style={styles.createButtonText}>
+                  {copy.createEmployee}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -2461,7 +2443,7 @@ const ClientPage = () => {
 
               <View style={{ flex: 1 }}>
                 <Text style={styles.statValue}>{totalUserCount}</Text>
-                <Text style={styles.statLabel}>Total Users</Text>
+                <Text style={styles.statLabel}>{copy.totalUsers}</Text>
               </View>
             </View>
 
@@ -2473,7 +2455,7 @@ const ClientPage = () => {
 
               <View style={{ flex: 1 }}>
                 <Text style={styles.statValue}>{organisations.length}</Text>
-                <Text style={styles.statLabel}>Organisations</Text>
+                <Text style={styles.statLabel}>{copy.organisations}</Text>
               </View>
             </View>
           </View>
@@ -2492,7 +2474,7 @@ const ClientPage = () => {
 
             <TextInput
               style={styles.searchInput}
-              placeholder="Search by name, email, organisation or role"
+              placeholder={copy.searchPlaceholder}
               placeholderTextColor="#A1A1AA"
               value={search}
               onChangeText={setSearch}
@@ -2519,13 +2501,13 @@ const ClientPage = () => {
           <View style={styles.listHeader}>
             <View style={styles.filterTabs}>
               {[
-                { label: 'All Users', value: 'all' as const },
-                { label: 'Clients', value: 'client' as const },
-                { label: 'Employees', value: 'employee' as const },
+                { label: copy.allUsers, value: 'all' as const },
+                { label: copy.clients, value: 'client' as const },
+                { label: copy.employees, value: 'employee' as const },
                 ...(revokedUsers.length > 0
                   ? [
                       {
-                        label: `Revoked (${revokedUsers.length})`,
+                        label: `${copy.revoked} (${revokedUsers.length})`,
                         value: 'revoked' as const,
                       },
                     ]
@@ -2565,7 +2547,7 @@ const ClientPage = () => {
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="small" color={theme.primary} />
 
-              <Text style={styles.loadingText}>Loading users...</Text>
+              <Text style={styles.loadingText}>{copy.loadingUsers}</Text>
             </View>
           ) : filteredClients.length === 0 ? (
             <View style={styles.emptyCard}>
@@ -2577,12 +2559,10 @@ const ClientPage = () => {
                 />
               </View>
 
-              <Text style={styles.emptyTitle}>No users found</Text>
+              <Text style={styles.emptyTitle}>{copy.noUsersFound}</Text>
 
               <Text style={styles.emptyText}>
-                {search
-                  ? 'Try another name, email, organisation or role.'
-                  : 'Create your first user account to get started.'}
+                {search ? copy.searchEmpty(search) : copy.emptyDescription}
               </Text>
 
               {!search && (
@@ -2603,7 +2583,7 @@ const ClientPage = () => {
                       size={16}
                       color={theme.everWhite}
                     />
-                    <Text style={styles.emptyButtonText}>Client</Text>
+                    <Text style={styles.emptyButtonText}>{copy.client}</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -2621,7 +2601,7 @@ const ClientPage = () => {
                       size={16}
                       color={theme.everWhite}
                     />
-                    <Text style={styles.emptyButtonText}>Employee</Text>
+                    <Text style={styles.emptyButtonText}>{copy.employee}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -2660,7 +2640,7 @@ const ClientPage = () => {
                       fontWeight: '700',
                     }}
                   >
-                    Loading more users...
+                    {copy.loadingMoreUsers}
                   </Text>
                 </>
               ) : (
@@ -2670,7 +2650,7 @@ const ClientPage = () => {
                     fontWeight: '800',
                   }}
                 >
-                  Load More Users ({client.length} of {totalUserCount})
+                  {copy.loadMore(client.length, totalUserCount)}
                 </Text>
               )}
             </TouchableOpacity>
@@ -2685,7 +2665,7 @@ const ClientPage = () => {
                 paddingVertical: 12,
               }}
             >
-              All users loaded
+              {copy.allUsersLoadedText}
             </Text>
           )}
 
@@ -2693,9 +2673,7 @@ const ClientPage = () => {
               FOOTER
           ================================================= */}
 
-          <Text style={styles.footerText}>
-            User Management • Secure Account Administration
-          </Text>
+          <Text style={styles.footerText}>{copy.footerText}</Text>
         </View>
       </ScrollView>
 
@@ -2731,14 +2709,15 @@ const ClientPage = () => {
             <View style={styles.modalHeader}>
               <View style={styles.modalHeaderContent}>
                 <View style={styles.modalEyebrow}>
-                  <Text style={styles.modalEyebrowText}>NEW CLIENT</Text>
+                  <Text style={styles.modalEyebrowText}>
+                    {copy.newClientEyebrow}
+                  </Text>
                 </View>
 
-                <Text style={styles.modalTitle}>Create Client</Text>
+                <Text style={styles.modalTitle}>{copy.createClient}</Text>
 
                 <Text style={styles.modalSubtitle}>
-                  Create a client account, assign an organisation and select
-                  employees.
+                  {copy.createClientSubtitle}
                 </Text>
               </View>
 
@@ -2789,14 +2768,15 @@ const ClientPage = () => {
             <View style={styles.modalHeader}>
               <View style={styles.modalHeaderContent}>
                 <View style={styles.modalEyebrow}>
-                  <Text style={styles.modalEyebrowText}>NEW EMPLOYEE</Text>
+                  <Text style={styles.modalEyebrowText}>
+                    {copy.newEmployeeEyebrow}
+                  </Text>
                 </View>
 
-                <Text style={styles.modalTitle}>Create Employee</Text>
+                <Text style={styles.modalTitle}>{copy.createEmployee}</Text>
 
                 <Text style={styles.modalSubtitle}>
-                  Create an employee account. Organisation is automatically set
-                  to Spinfocom.
+                  {copy.createEmployeeSubtitle}
                 </Text>
               </View>
 
@@ -2874,7 +2854,7 @@ const ClientPage = () => {
                       letterSpacing: 1,
                     }}
                   >
-                    NEW ORGANISATION
+                    {copy.newOrganisationEyebrow}
                   </Text>
                 </View>
 
@@ -2885,7 +2865,7 @@ const ClientPage = () => {
                     color: theme.ink,
                   }}
                 >
-                  Add Organisation
+                  {copy.addOrganisationTitle}
                 </Text>
 
                 <Text
@@ -2896,7 +2876,7 @@ const ClientPage = () => {
                     marginTop: 6,
                   }}
                 >
-                  Create an organisation that can be assigned to users.
+                  {copy.createOrganisationSubtitle}
                 </Text>
               </View>
 
@@ -2932,13 +2912,13 @@ const ClientPage = () => {
                 letterSpacing: 0.5,
               }}
             >
-              ORGANISATION TYPE
+              {copy.organisationTypeLabel}
             </Text>
 
             <TextInput
               value={newOrganisationType}
               onChangeText={setNewOrganisationType}
-              placeholder="Enter organisation type"
+              placeholder={copy.organisationTypePlaceholder}
               placeholderTextColor={theme.muted}
               autoCapitalize="words"
               editable={!creatingOrganisation}
@@ -2964,13 +2944,13 @@ const ClientPage = () => {
                 letterSpacing: 0.5,
               }}
             >
-              ORGANISATION NAME
+              {copy.organisationNameLabel}
             </Text>
 
             <TextInput
               value={newOrganisationName}
               onChangeText={setNewOrganisationName}
-              placeholder="Enter organisation name"
+              placeholder={copy.organisationNamePlaceholder}
               placeholderTextColor={theme.muted}
               autoCapitalize="words"
               editable={!creatingOrganisation}
@@ -3013,7 +2993,7 @@ const ClientPage = () => {
                       fontSize: 14,
                     }}
                   >
-                    Creating...
+                    {copy.creating}
                   </Text>
                 </>
               ) : (
@@ -3024,7 +3004,7 @@ const ClientPage = () => {
                     fontSize: 14,
                   }}
                 >
-                  Create Organisation
+                  {copy.createOrganisationButton}
                 </Text>
               )}
             </TouchableOpacity>
@@ -3051,7 +3031,7 @@ const ClientPage = () => {
                   fontSize: 13,
                 }}
               >
-                Cancel
+                {copy.cancel}
               </Text>
             </TouchableOpacity>
           </View>
@@ -3145,7 +3125,7 @@ const ClientPage = () => {
                           fontWeight: '800',
                         }}
                       >
-                        ACCESS REVOKED
+                        {copy.accessRevokedEyebrow}
                       </Text>
                     </View>
                   )}
@@ -3192,11 +3172,11 @@ const ClientPage = () => {
 
                   <View style={styles.detailContent}>
                     <Text style={[styles.detailLabel, { color: theme.muted }]}>
-                      EMAIL
+                      {copy.emailDetailLabel}
                     </Text>
 
                     <Text style={[styles.detailValue, { color: theme.ink }]}>
-                      {selectedClient?.email || 'Not available'}
+                      {selectedClient?.email || copy.notAvailable}
                     </Text>
                   </View>
                 </View>
@@ -3217,11 +3197,11 @@ const ClientPage = () => {
 
                   <View style={styles.detailContent}>
                     <Text style={[styles.detailLabel, { color: theme.muted }]}>
-                      PHONE NUMBER
+                      {copy.phoneDetailLabel}
                     </Text>
 
                     <Text style={[styles.detailValue, { color: theme.ink }]}>
-                      {selectedClient?.mobileNumber || 'Not available'}
+                      {selectedClient?.mobileNumber || copy.notAvailable}
                     </Text>
                   </View>
                 </View>
@@ -3242,11 +3222,12 @@ const ClientPage = () => {
 
                   <View style={styles.detailContent}>
                     <Text style={[styles.detailLabel, { color: theme.muted }]}>
-                      ORGANISATION
+                      {copy.organisationLabel}
                     </Text>
 
                     <Text style={[styles.detailValue, { color: theme.ink }]}>
-                      {selectedClient?.organisation?.name || 'No Organisation'}
+                      {selectedClient?.organisation?.name ||
+                        copy.noOrganisation}
                     </Text>
                   </View>
                 </View>
@@ -3270,10 +3251,10 @@ const ClientPage = () => {
                       }}
                     >
                       <Text style={{ color: theme.primary, fontWeight: '800' }}>
-                        Edit{' '}
+                        {copy.edit}{' '}
                         {selectedClient?.role === 'employee'
-                          ? 'Employee'
-                          : 'Client'}
+                          ? copy.employee
+                          : copy.client}
                       </Text>
                     </TouchableOpacity>
                     {selectedClient?.role === 'employee' && (
@@ -3292,7 +3273,7 @@ const ClientPage = () => {
                         <Text
                           style={{ color: theme.everWhite, fontWeight: '800' }}
                         >
-                          Attendance History
+                          {copy.attendanceHistory}
                         </Text>
                       </TouchableOpacity>
                     )}
@@ -3345,8 +3326,8 @@ const ClientPage = () => {
                           }}
                         >
                           {selectedClient?.isRevoked
-                            ? 'Restore Account Access'
-                            : 'Revoke Account Access'}
+                            ? copy.restoreAccountAccess
+                            : copy.revokeAccountAccess}
                         </Text>
                       </>
                     )}
@@ -3372,11 +3353,11 @@ const ClientPage = () => {
                         marginBottom: 4,
                       }}
                     >
-                      Account access is disabled
+                      {copy.accessDisabled}
                     </Text>
                     {!!selectedClient.revokedAt && (
                       <Text style={{ color: theme.muted, fontSize: 12 }}>
-                        Revoked:{' '}
+                        {copy.revokedLabel}{' '}
                         {new Date(selectedClient.revokedAt).toLocaleString()}
                       </Text>
                     )}
@@ -3388,7 +3369,7 @@ const ClientPage = () => {
                           marginTop: 4,
                         }}
                       >
-                        Reason: {selectedClient.revokedReason}
+                        {copy.reasonLabel} {selectedClient.revokedReason}
                       </Text>
                     )}
                   </View>
@@ -3416,7 +3397,7 @@ const ClientPage = () => {
                         fontWeight: '800',
                       }}
                     >
-                      + Upload Documents
+                      {copy.uploadDocumentsButton}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -3436,7 +3417,7 @@ const ClientPage = () => {
                       <Text
                         style={[styles.detailLabel, { color: theme.muted }]}
                       >
-                        ASSIGNED EMPLOYEES
+                        {copy.assignedEmployeesLabel}
                       </Text>
 
                       {selectedClient?.assignedEmployee &&
@@ -3492,7 +3473,7 @@ const ClientPage = () => {
                             { color: theme.muted },
                           ]}
                         >
-                          No employee assigned
+                          {copy.noEmployeeAssigned}
                         </Text>
                       )}
                     </View>
@@ -3512,7 +3493,7 @@ const ClientPage = () => {
                     fontWeight: '800',
                   }}
                 >
-                  Close
+                  {copy.close}
                 </Text>
               </TouchableOpacity>
             </ScrollView>
@@ -3572,7 +3553,9 @@ const ClientPage = () => {
                 }}
               >
                 Edit{' '}
-                {selectedClient?.role === 'employee' ? 'Employee' : 'Client'}
+                {selectedClient?.role === 'employee'
+                  ? copy.employee
+                  : copy.client}
               </Text>
 
               <Text
@@ -3582,7 +3565,7 @@ const ClientPage = () => {
                   marginTop: 4,
                 }}
               >
-                Update account details and assignments.
+                {copy.updateAccountSubtitle}
               </Text>
             </View>
 
@@ -3603,27 +3586,27 @@ const ClientPage = () => {
             >
               {[
                 {
-                  label: 'USERNAME',
+                  label: copy.usernameLabel,
                   value: editEmployeeName,
                   set: setEditEmployeeName,
-                  placeholder: 'Username',
+                  placeholder: copy.username,
                   keyboard: 'default',
                 },
                 {
-                  label: 'EMAIL',
+                  label: copy.emailLabel,
                   value: editEmployeeEmail,
                   set: setEditEmployeeEmail,
-                  placeholder: 'Email address',
+                  placeholder: copy.emailAddress,
                   keyboard: 'email-address',
                 },
                 {
-                  label: 'MOBILE NUMBER',
+                  label: copy.mobileNumberLabel,
                   value: editEmployeeMobile,
                   set: (value: string) =>
                     setEditEmployeeMobile(
                       value.replace(/\D/g, '').slice(0, 10),
                     ),
-                  placeholder: '10-digit mobile number',
+                  placeholder: copy.mobilePlaceholder,
                   keyboard: 'phone-pad',
                 },
               ].map(field => (
@@ -3677,102 +3660,106 @@ const ClientPage = () => {
                       marginBottom: 6,
                     }}
                   >
-                    DESIGNATION
+                    {copy.designationLabel}
                   </Text>
                   <DesignationPicker
                     value={editEmployeeDesignation}
                     onChange={setEditEmployeeDesignation}
                     disabled={savingEmployee}
-                    allowCreate
+                    allowCreate={canManageUsers}
+                    isSuperAdmin={isSuperAdmin}
+                    canManageUsers={canManageUsers}
                   />
                 </View>
               )}
 
-              {/* OPTIONAL PASSWORD UPDATE */}
-              <View style={{ marginBottom: 14 }}>
-                <Text
-                  style={{
-                    color: theme.muted,
-                    fontSize: 10,
-                    fontWeight: '800',
-                    letterSpacing: 0.7,
-                    marginBottom: 6,
-                  }}
-                >
-                  NEW PASSWORD (OPTIONAL)
-                </Text>
-
-                <View
-                  style={{
-                    minHeight: 46,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                    borderRadius: 11,
-                    paddingRight: 12,
-                    backgroundColor: theme.background,
-                  }}
-                >
-                  <TextInput
-                    value={editEmployeePassword}
-                    onChangeText={setEditEmployeePassword}
-                    placeholder="Enter a new password"
-                    placeholderTextColor={theme.muted}
-                    secureTextEntry={!showEditPassword}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoComplete="new-password"
-                    editable={!savingEmployee}
-                    returnKeyType="done"
-                    blurOnSubmit
+              {/* OPTIONAL PASSWORD UPDATE - SUPERADMIN ONLY */}
+              {isSuperAdmin && (
+                <View style={{ marginBottom: 14 }}>
+                  <Text
                     style={{
-                      flex: 1,
-                      minHeight: 44,
-                      color: theme.ink,
-                      paddingHorizontal: 12,
-                      paddingVertical: 10,
-                      fontSize: 14,
-                    }}
-                  />
-
-                  <TouchableOpacity
-                    onPress={() => setShowEditPassword(previous => !previous)}
-                    disabled={savingEmployee}
-                    activeOpacity={0.7}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      showEditPassword ? 'Hide password' : 'Show password'
-                    }
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    style={{
-                      width: 34,
-                      height: 40,
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      color: theme.muted,
+                      fontSize: 10,
+                      fontWeight: '800',
+                      letterSpacing: 0.7,
+                      marginBottom: 6,
                     }}
                   >
-                    <Ionicons
-                      name={
-                        showEditPassword ? 'eye-off-outline' : 'eye-outline'
-                      }
-                      size={20}
-                      color={theme.primary}
-                    />
-                  </TouchableOpacity>
-                </View>
+                    {copy.newPasswordOptional}
+                  </Text>
 
-                <Text
-                  style={{
-                    color: theme.muted,
-                    fontSize: 11,
-                    lineHeight: 16,
-                    marginTop: 6,
-                  }}
-                >
-                  Leave blank to keep the current password.
-                </Text>
-              </View>
+                  <View
+                    style={{
+                      minHeight: 46,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      borderRadius: 11,
+                      paddingRight: 12,
+                      backgroundColor: theme.background,
+                    }}
+                  >
+                    <TextInput
+                      value={editEmployeePassword}
+                      onChangeText={setEditEmployeePassword}
+                      placeholder={copy.newPasswordPlaceholder}
+                      placeholderTextColor={theme.muted}
+                      secureTextEntry={!showEditPassword}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="new-password"
+                      editable={!savingEmployee}
+                      returnKeyType="done"
+                      blurOnSubmit
+                      style={{
+                        flex: 1,
+                        minHeight: 44,
+                        color: theme.ink,
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        fontSize: 14,
+                      }}
+                    />
+
+                    <TouchableOpacity
+                      onPress={() => setShowEditPassword(previous => !previous)}
+                      disabled={savingEmployee}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        showEditPassword ? copy.hidePassword : copy.showPassword
+                      }
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      style={{
+                        width: 34,
+                        height: 40,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Ionicons
+                        name={
+                          showEditPassword ? 'eye-off-outline' : 'eye-outline'
+                        }
+                        size={20}
+                        color={theme.primary}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text
+                    style={{
+                      color: theme.muted,
+                      fontSize: 11,
+                      lineHeight: 16,
+                      marginTop: 6,
+                    }}
+                  >
+                    {copy.passwordKeepHint}
+                  </Text>
+                </View>
+              )}
 
               {/* ASSIGNED EMPLOYEES */}
               {selectedClient?.role === 'client' && (
@@ -3786,7 +3773,7 @@ const ClientPage = () => {
                       marginBottom: 7,
                     }}
                   >
-                    ASSIGNED EMPLOYEES
+                    {copy.assignedEmployeesLabel}
                   </Text>
 
                   <View
@@ -3847,7 +3834,7 @@ const ClientPage = () => {
                                   marginTop: 3,
                                 }}
                               >
-                                {employee.designation || 'Employee'} ·{' '}
+                                {employee.designation || copy.employee} ·{' '}
                                 {employee.email}
                               </Text>
                             </View>
@@ -3898,7 +3885,7 @@ const ClientPage = () => {
                 <Text
                   style={{ color: theme.ink, fontWeight: '700', fontSize: 13 }}
                 >
-                  Cancel
+                  {copy.cancel}
                 </Text>
               </TouchableOpacity>
 
@@ -3927,7 +3914,7 @@ const ClientPage = () => {
                       fontSize: 13,
                     }}
                   >
-                    Save Changes
+                    {copy.saveChanges}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -3977,7 +3964,7 @@ const ClientPage = () => {
                     fontWeight: '800',
                   }}
                 >
-                  Attendance History
+                  {copy.attendanceHistory}
                 </Text>
 
                 <Text
@@ -3988,7 +3975,7 @@ const ClientPage = () => {
                     marginTop: 4,
                   }}
                 >
-                  {selectedClient?.userName || 'Employee'}
+                  {selectedClient?.userName || copy.employee}
                 </Text>
               </View>
 
@@ -3997,7 +3984,7 @@ const ClientPage = () => {
                 activeOpacity={0.6}
                 disabled={false}
                 accessibilityRole="button"
-                accessibilityLabel="Close attendance history"
+                accessibilityLabel={copy.closeAttendanceHistory}
                 style={{
                   width: 76,
                   height: 44,
@@ -4017,7 +4004,7 @@ const ClientPage = () => {
                     fontWeight: '800',
                   }}
                 >
-                  Close
+                  {copy.close}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -4039,7 +4026,7 @@ const ClientPage = () => {
                   }}
                 >
                   <Text style={{ color: theme.muted }}>
-                    No employee selected.
+                    {copy.noEmployeeSelected}
                   </Text>
                 </View>
               )}
@@ -4089,11 +4076,11 @@ const ClientPage = () => {
               <View style={styles.modalHeader}>
                 <View style={{ flex: 1, paddingRight: 12 }}>
                   <Text style={[styles.modalTitle, { color: theme.ink }]}>
-                    Upload Documents
+                    {copy.uploadDocumentsTitle}
                   </Text>
 
                   <Text style={[styles.modalSubtitle, { color: theme.muted }]}>
-                    Assign documents directly to this employee.
+                    {copy.uploadSubtitle}
                   </Text>
                 </View>
 
@@ -4134,7 +4121,7 @@ const ClientPage = () => {
                     marginBottom: 6,
                   }}
                 >
-                  ASSIGNED EMPLOYEE
+                  {copy.assignedEmployeeLabel}
                 </Text>
 
                 <Text
@@ -4144,7 +4131,7 @@ const ClientPage = () => {
                     color: theme.ink,
                   }}
                 >
-                  {selectedClient?.userName || 'Unknown employee'}
+                  {selectedClient?.userName || copy.unknownEmployee}
                 </Text>
 
                 <Text
@@ -4155,18 +4142,20 @@ const ClientPage = () => {
                   }}
                 >
                   ID:{' '}
-                  {selectedClient?._id || selectedClient?.id || 'Unavailable'}
+                  {selectedClient?._id ||
+                    selectedClient?.id ||
+                    copy.unavailable}
                 </Text>
               </View>
 
               <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                DOCUMENT TITLE
+                {copy.documentTitleLabel}
               </Text>
 
               <TextInput
                 value={documentTitle}
                 onChangeText={setDocumentTitle}
-                placeholder="e.g. Employment Documents"
+                placeholder={copy.documentTitlePlaceholder}
                 placeholderTextColor={theme.muted}
                 editable={!uploadingDocuments}
                 style={[
@@ -4211,7 +4200,7 @@ const ClientPage = () => {
                     color: theme.primary,
                   }}
                 >
-                  Select Files
+                  {copy.selectFiles}
                 </Text>
 
                 <Text
@@ -4222,7 +4211,7 @@ const ClientPage = () => {
                     textAlign: 'center',
                   }}
                 >
-                  Choose multiple documents
+                  {copy.chooseMultipleDocuments}
                 </Text>
               </TouchableOpacity>
 
@@ -4256,7 +4245,7 @@ const ClientPage = () => {
                         color: theme.ink,
                       }}
                     >
-                      {file.name || 'Unnamed document'}
+                      {file.name || copy.unnamedDocument}
                     </Text>
 
                     {typeof file.size === 'number' && (
@@ -4306,7 +4295,7 @@ const ClientPage = () => {
                   marginTop: 3,
                 }}
               >
-                {documentFiles.length} file(s) selected · Maximum 10 files
+                {copy.totalFiles(documentFiles.length)}
               </Text>
 
               <TouchableOpacity
@@ -4335,7 +4324,7 @@ const ClientPage = () => {
                         marginLeft: 9,
                       }}
                     >
-                      Uploading...
+                      {copy.uploading}
                     </Text>
                   </>
                 ) : (
@@ -4346,7 +4335,7 @@ const ClientPage = () => {
                       fontWeight: '800',
                     }}
                   >
-                    Upload Documents
+                    {copy.uploadDocumentsTitle}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -4369,7 +4358,7 @@ const ClientPage = () => {
                     fontWeight: '700',
                   }}
                 >
-                  Cancel
+                  {copy.cancel}
                 </Text>
               </TouchableOpacity>
             </ScrollView>

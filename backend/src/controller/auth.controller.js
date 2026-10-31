@@ -16,51 +16,100 @@ const COOKIE_OPTIONS = {
 
 async function findDesignation(name) {
   const value = String(name || "").trim();
-
   if (!value) return null;
 
   return prisma.designation.findUnique({
-    where: {
-      name: value,
-    },
+    where: { name: value },
   });
 }
 
-// =====================================================
-// MANAGEMENT ACCESS HELPER
-// Admin + CEO + CTO
-// =====================================================
+function isSuperAdmin(user) {
+  return user?.isSuperAdmin === true;
+}
+
+function actorPermissions(user) {
+  return user?.permissions || getPermissions(user || {});
+}
 
 function isManagementUser(user) {
-  const role = String(user?.role || "")
-    .trim()
-    .toLowerCase();
-  const designation = String(user?.designation || "")
-    .trim()
-    .toLowerCase();
+  return actorPermissions(user).canManageUsers === true;
+}
 
-  return (
-    role === "admin" ||
-    (role === "employee" && ["ceo", "cto"].includes(designation))
+function getManagementLevel(user) {
+  if (isSuperAdmin(user)) return 999999;
+
+  return Number(
+    user?.permissions?.managementLevel ??
+      user?.designationRef?.managementLevel ??
+      0,
   );
 }
 
-// =====================================================
-// MANAGEABLE USERS QUERY
-// =====================================================
+function isElevatedDesignation(designation) {
+  return Boolean(
+    designation &&
+    (designation.canManageUsers === true ||
+      designation.canViewAllTickets === true ||
+      Number(designation.managementLevel || 0) > 0),
+  );
+}
 
-function manageableUserWhere(adminOrganisationId) {
+function getActorOrganisationId(user) {
+  return String(
+    user?.organisation?.id || user?.organisationId || user?.organisation || "",
+  );
+}
+
+// SuperAdmin can access users across organisations.
+// Other managers can access employees in their organisation
+// and clients assigned to employees in their organisation.
+function manageableUserWhere(organisationId, superAdmin = false) {
+  if (superAdmin) {
+    return {
+      isSuperAdmin: false,
+      OR: [{ role: "employee" }, { role: "client" }, { role: "admin" }],
+    };
+  }
+
   return {
     OR: [
       {
         role: "employee",
-        organisationId: adminOrganisationId,
+        organisationId,
       },
       {
         role: "client",
+        assignedEmployees: {
+          some: {
+            employee: {
+              organisationId,
+              role: "employee",
+            },
+          },
+        },
       },
     ],
   };
+}
+
+// A manager can only modify a strictly lower management level.
+// SuperAdmin can manage all accounts.
+function canManageTarget(actor, target) {
+  if (isSuperAdmin(actor)) return true;
+  if (!isManagementUser(actor)) return false;
+  if (!target || target.isSuperAdmin === true) return false;
+
+  return getManagementLevel(actor) > getManagementLevel(target);
+}
+
+function managementDenied(
+  res,
+  message = "You cannot manage a user with an equal or higher management level",
+) {
+  return res.status(403).json({
+    code: "INSUFFICIENT_MANAGEMENT_LEVEL",
+    message,
+  });
 }
 
 // =====================================================
@@ -94,6 +143,7 @@ function serializeUser(user) {
   if (user.organisation) {
     result.organisation = {
       _id: user.organisation.id,
+      id: user.organisation.id,
       name: user.organisation.name,
     };
   } else if (organisationId) {
@@ -102,9 +152,7 @@ function serializeUser(user) {
 
   if (Array.isArray(assignedEmployees)) {
     result.assignedEmployee = assignedEmployees.map((assignment) => {
-      if (!assignment.employee) {
-        return assignment.employeeId;
-      }
+      if (!assignment.employee) return assignment.employeeId;
 
       return {
         _id: assignment.employee.id,
@@ -123,11 +171,19 @@ function serializeUser(user) {
 
 // =====================================================
 // REGISTER USER
-// Admin + CEO + CTO
+// SuperAdmin or users with canManageUsers
 // =====================================================
 
 async function register(req, res) {
   try {
+    const actor = req.user;
+
+    if (!actor || !isManagementUser(actor)) {
+      return res.status(403).json({
+        message: "You do not have permission to create users",
+      });
+    }
+
     const {
       organisation,
       userName,
@@ -137,7 +193,7 @@ async function register(req, res) {
       designation,
       mobileNumber,
       assignedEmployee,
-    } = req.body;
+    } = req.body || {};
 
     if (!userName || !email || !password || !role) {
       return res.status(400).json({
@@ -151,6 +207,13 @@ async function register(req, res) {
       });
     }
 
+    // Only SuperAdmin can create admin-role accounts.
+    if (role === "admin" && !isSuperAdmin(actor)) {
+      return res.status(403).json({
+        message: "Only SuperAdmin can create admin accounts",
+      });
+    }
+
     const normalizedUserName = String(userName).trim();
     const normalizedEmail = String(email).trim().toLowerCase();
     const normalizedMobileNumber = String(mobileNumber || "").trim();
@@ -159,6 +222,12 @@ async function register(req, res) {
     if (!normalizedUserName || !normalizedEmail || !password) {
       return res.status(400).json({
         message: "Username, email and password cannot be empty",
+      });
+    }
+
+    if (String(password).length < 8) {
+      return res.status(400).json({
+        message: "Password must be at least 8 characters long",
       });
     }
 
@@ -177,34 +246,32 @@ async function register(req, res) {
       });
     }
 
+    // Only SuperAdmin can assign elevated designations.
+    if (
+      role === "employee" &&
+      isElevatedDesignation(designationRecord) &&
+      !isSuperAdmin(actor)
+    ) {
+      return res.status(403).json({
+        code: "ELEVATED_DESIGNATION_FORBIDDEN",
+        message: "Only SuperAdmin can assign elevated designations",
+      });
+    }
+
     if (role === "employee" && !/^\d{10}$/.test(normalizedMobileNumber)) {
       return res.status(400).json({
         message: "A valid 10-digit mobile number is required for employee",
       });
     }
 
-    const isAuthenticatedManagementUser = isManagementUser(req.user);
-
-    const adminOrganisationId = String(
-      req.user?.organisation?.id ||
-        req.user?.organisationId ||
-        req.user?.organisation ||
-        "",
-    );
-
-    if (isAuthenticatedManagementUser && role === "admin") {
-      return res.status(403).json({
-        message: "Management users cannot create another admin account",
-      });
-    }
-
+    const actorOrganisationId = getActorOrganisationId(actor);
     let targetOrganisationId = organisation ? String(organisation) : "";
 
-    if (isAuthenticatedManagementUser && role === "employee") {
-      targetOrganisationId = adminOrganisationId;
+    if (!isSuperAdmin(actor) && role === "employee") {
+      targetOrganisationId = actorOrganisationId;
     }
 
-    if (isAuthenticatedManagementUser && !adminOrganisationId) {
+    if (!isSuperAdmin(actor) && !actorOrganisationId) {
       return res.status(400).json({
         message: "Your account is not linked to an organisation",
       });
@@ -217,28 +284,13 @@ async function register(req, res) {
     }
 
     const org = await prisma.organisation.findUnique({
-      where: {
-        id: targetOrganisationId,
-      },
-      select: {
-        id: true,
-        name: true,
-      },
+      where: { id: targetOrganisationId },
+      select: { id: true, name: true },
     });
 
     if (!org) {
       return res.status(404).json({
         message: "Organisation not found",
-      });
-    }
-
-    if (
-      isAuthenticatedManagementUser &&
-      role !== "client" &&
-      targetOrganisationId !== adminOrganisationId
-    ) {
-      return res.status(403).json({
-        message: "You can only create users in your own organisation",
       });
     }
 
@@ -249,9 +301,7 @@ async function register(req, res) {
           { organisationId: org.id, email: normalizedEmail },
         ],
       },
-      select: {
-        id: true,
-      },
+      select: { id: true },
     });
 
     if (existingUser) {
@@ -269,7 +319,9 @@ async function register(req, res) {
         });
       }
 
-      employeeIds = [...new Set(assignedEmployee.map(String))];
+      employeeIds = [
+        ...new Set(assignedEmployee.map((id) => String(id).trim())),
+      ];
 
       if (
         employeeIds.some((id) => !id || id === "undefined" || id === "null")
@@ -279,34 +331,25 @@ async function register(req, res) {
         });
       }
 
-      const employeeOrganisationId = isAuthenticatedManagementUser
-        ? adminOrganisationId
-        : org.id;
-
-      if (!employeeOrganisationId) {
-        return res.status(400).json({
-          message: "Unable to determine the employee organisation",
-        });
-      }
+      const employeeOrganisationId = isSuperAdmin(actor)
+        ? actorOrganisationId || undefined
+        : actorOrganisationId;
 
       const employees = await prisma.user.findMany({
         where: {
-          id: {
-            in: employeeIds,
-          },
+          id: { in: employeeIds },
           role: "employee",
-          organisationId: employeeOrganisationId,
+          ...(employeeOrganisationId
+            ? { organisationId: employeeOrganisationId }
+            : {}),
         },
-        select: {
-          id: true,
-        },
+        select: { id: true },
       });
 
       if (employees.length !== employeeIds.length) {
         return res.status(400).json({
-          message: isAuthenticatedManagementUser
-            ? "One or more selected employees do not belong to your organisation"
-            : "One or more selected employees are invalid or do not belong to this organisation",
+          message:
+            "One or more selected employees are invalid or outside your organisation",
         });
       }
     }
@@ -323,14 +366,15 @@ async function register(req, res) {
         designation: designationRecord ? designationRecord.name : null,
         mobileNumber: role === "employee" ? normalizedMobileNumber : null,
 
+        // Never accept isSuperAdmin from req.body.
+        isSuperAdmin: false,
+
         ...(role === "client" && employeeIds.length > 0
           ? {
               assignedEmployees: {
                 create: employeeIds.map((employeeId) => ({
                   employee: {
-                    connect: {
-                      id: employeeId,
-                    },
+                    connect: { id: employeeId },
                   },
                 })),
               },
@@ -339,9 +383,14 @@ async function register(req, res) {
       },
       include: {
         organisation: {
+          select: { id: true, name: true },
+        },
+        designationRef: {
           select: {
-            id: true,
-            name: true,
+            canViewAllTickets: true,
+            canAssignTickets: true,
+            canManageUsers: true,
+            managementLevel: true,
           },
         },
         assignedEmployees: {
@@ -422,6 +471,14 @@ async function login(req, res) {
             name: true,
           },
         },
+        designationRef: {
+          select: {
+            canViewAllTickets: true,
+            canAssignTickets: true,
+            canManageUsers: true,
+            managementLevel: true,
+          },
+        },
       },
     });
 
@@ -489,6 +546,8 @@ async function login(req, res) {
             }
           : null,
         designation: user.designation,
+        isSuperAdmin: user.isSuperAdmin === true,
+        permissions: getPermissions(user),
       },
     });
   } catch (error) {
@@ -499,7 +558,6 @@ async function login(req, res) {
     });
   }
 }
-
 // =====================================================
 // LOGOUT
 // =====================================================
@@ -549,6 +607,8 @@ async function getMe(req, res) {
           select: {
             canViewAllTickets: true,
             canAssignTickets: true,
+            canManageUsers: true,
+            managementLevel: true,
           },
         },
         organisation: {
@@ -594,6 +654,7 @@ async function getMe(req, res) {
 
 // =====================================================
 // UPDATE PROFILE
+// User can update their own profile
 // =====================================================
 
 async function updateProfile(req, res) {
@@ -675,7 +736,9 @@ async function updateProfile(req, res) {
         userName: normalizedUserName,
         email: normalizedEmail,
         ...(normalizedMobileNumber !== undefined
-          ? { mobileNumber: normalizedMobileNumber || null }
+          ? {
+              mobileNumber: normalizedMobileNumber || null,
+            }
           : {}),
       },
       include: {
@@ -683,6 +746,14 @@ async function updateProfile(req, res) {
           select: {
             id: true,
             name: true,
+          },
+        },
+        designationRef: {
+          select: {
+            canViewAllTickets: true,
+            canAssignTickets: true,
+            canManageUsers: true,
+            managementLevel: true,
           },
         },
         assignedEmployees: {
@@ -721,7 +792,8 @@ async function updateProfile(req, res) {
 }
 
 // =====================================================
-// UPDATE PASSWORD
+// UPDATE OWN PASSWORD
+// Requires current password
 // =====================================================
 
 async function updatePassword(req, res) {
@@ -792,33 +864,28 @@ async function updatePassword(req, res) {
 
 // =====================================================
 // GET CLIENTS AND EMPLOYEES
-// Admin + CEO + CTO
+// Requires canManageUsers
 // =====================================================
 
 async function getUser(req, res) {
   try {
     if (!isManagementUser(req.user)) {
       return res.status(403).json({
-        message:
-          "Only Admin, CEO and CTO can view employee and client management",
+        message: "You do not have permission to view user management",
       });
     }
 
-    const adminOrganisationId = String(
-      req.user?.organisation?.id ||
-        req.user?.organisationId ||
-        req.user?.organisation ||
-        "",
-    );
+    const superAdmin = isSuperAdmin(req.user);
+    const organisationId = getActorOrganisationId(req.user);
 
-    if (!adminOrganisationId) {
+    if (!superAdmin && !organisationId) {
       return res.status(400).json({
         message: "Your account is not linked to an organisation",
       });
     }
 
     const users = await prisma.user.findMany({
-      where: manageableUserWhere(adminOrganisationId),
+      where: manageableUserWhere(organisationId, superAdmin),
       select: {
         id: true,
         userName: true,
@@ -826,9 +893,19 @@ async function getUser(req, res) {
         role: true,
         mobileNumber: true,
         designation: true,
+        isSuperAdmin: true,
         isRevoked: true,
         revokedAt: true,
         revokedReason: true,
+        organisationId: true,
+        designationRef: {
+          select: {
+            canViewAllTickets: true,
+            canAssignTickets: true,
+            canManageUsers: true,
+            managementLevel: true,
+          },
+        },
         organisation: {
           select: {
             id: true,
@@ -854,9 +931,12 @@ async function getUser(req, res) {
       },
     });
 
+    // Do not expose SuperAdmin accounts in the management list.
+    const visibleUsers = users.filter((user) => user.isSuperAdmin !== true);
+
     return res.status(200).json({
       message: "Users fetched successfully",
-      users: users.map(serializeUser),
+      users: visibleUsers.map(serializeUser),
     });
   } catch (error) {
     console.error("GET USERS ERROR:", error);
@@ -869,16 +949,16 @@ async function getUser(req, res) {
 
 // =====================================================
 // UPDATE EMPLOYEE OR CLIENT
-// Admin + CEO + CTO
 // PATCH /api/auth/update-user/:userId
 // =====================================================
 
 async function updateUser(req, res) {
   try {
-    if (!isManagementUser(req.user)) {
+    const actor = req.user;
+
+    if (!isManagementUser(actor)) {
       return res.status(403).json({
-        message:
-          "Only Admin, CEO and CTO can update employee and client details",
+        message: "You do not have permission to update users",
       });
     }
 
@@ -890,14 +970,21 @@ async function updateUser(req, res) {
       });
     }
 
-    const adminOrganisationId = String(
-      req.user?.organisation?.id ||
-        req.user?.organisationId ||
-        req.user?.organisation ||
-        "",
-    );
+    // Do not allow role or SuperAdmin status changes here.
+    if (
+      Object.prototype.hasOwnProperty.call(req.body || {}, "isSuperAdmin") ||
+      Object.prototype.hasOwnProperty.call(req.body || {}, "role")
+    ) {
+      return res.status(403).json({
+        message:
+          "Role and SuperAdmin status cannot be changed through this endpoint",
+      });
+    }
 
-    if (!adminOrganisationId) {
+    const superAdmin = isSuperAdmin(actor);
+    const organisationId = getActorOrganisationId(actor);
+
+    if (!superAdmin && !organisationId) {
       return res.status(400).json({
         message: "Your account is not linked to an organisation",
       });
@@ -906,20 +993,35 @@ async function updateUser(req, res) {
     const target = await prisma.user.findFirst({
       where: {
         id: userId,
-        ...manageableUserWhere(adminOrganisationId),
+        ...manageableUserWhere(organisationId, superAdmin),
       },
       select: {
         id: true,
         role: true,
         organisationId: true,
+        designation: true,
+        isSuperAdmin: true,
+        designationRef: {
+          select: {
+            canViewAllTickets: true,
+            canAssignTickets: true,
+            canManageUsers: true,
+            managementLevel: true,
+          },
+        },
       },
     });
 
     if (!target) {
       return res.status(404).json({
         message:
-          "Employee or client not found, or you do not have permission to update this user",
+          "User not found, or you do not have permission to update this user",
       });
+    }
+
+    // Enforce strict management hierarchy.
+    if (!canManageTarget(actor, target)) {
+      return managementDenied(res);
     }
 
     const {
@@ -948,9 +1050,9 @@ async function updateUser(req, res) {
     if (email !== undefined) {
       const value = String(email).trim().toLowerCase();
 
-      if (!value) {
+      if (!value || !/^\S+@\S+\.\S+$/.test(value)) {
         return res.status(400).json({
-          message: "Email cannot be empty",
+          message: "Enter a valid email address",
         });
       }
 
@@ -975,16 +1077,18 @@ async function updateUser(req, res) {
       data.mobileNumber = value || null;
     }
 
+    // Only SuperAdmin can change another user's password.
     if (password !== undefined && password !== "") {
-      if (typeof password !== "string") {
-        return res.status(400).json({
-          message: "Password must be a valid string",
+      if (!superAdmin) {
+        return res.status(403).json({
+          code: "PASSWORD_CHANGE_FORBIDDEN",
+          message: "Only SuperAdmin can change another user's password",
         });
       }
 
-      if (!password.trim()) {
+      if (typeof password !== "string" || !password.trim()) {
         return res.status(400).json({
-          message: "Password cannot contain only spaces",
+          message: "Password must be a valid non-empty string",
         });
       }
 
@@ -1016,6 +1120,14 @@ async function updateUser(req, res) {
         });
       }
 
+      // Only SuperAdmin can grant elevated permissions.
+      if (isElevatedDesignation(designationRecord) && !superAdmin) {
+        return res.status(403).json({
+          code: "ELEVATED_DESIGNATION_FORBIDDEN",
+          message: "Only SuperAdmin can assign elevated designations",
+        });
+      }
+
       data.designation = designationRecord.name;
     }
 
@@ -1026,12 +1138,12 @@ async function updateUser(req, res) {
         });
       }
 
-      const employeeIds = [...new Set(assignedEmployee.map(String))];
+      const employeeIds = [
+        ...new Set(assignedEmployee.map((id) => String(id).trim())),
+      ];
 
       if (
-        employeeIds.some(
-          (id) => !id.trim() || id === "undefined" || id === "null",
-        )
+        employeeIds.some((id) => !id || id === "undefined" || id === "null")
       ) {
         return res.status(400).json({
           message: "Every assigned employee ID must be valid",
@@ -1044,7 +1156,7 @@ async function updateUser(req, res) {
             in: employeeIds,
           },
           role: "employee",
-          organisationId: adminOrganisationId,
+          ...(superAdmin ? {} : { organisationId }),
         },
         select: {
           id: true,
@@ -1060,7 +1172,7 @@ async function updateUser(req, res) {
 
       data.assignedEmployees = {
         deleteMany: {},
-        ...(employeeIds.length
+        ...(employeeIds.length > 0
           ? {
               create: employeeIds.map((employeeId) => ({
                 employee: {
@@ -1092,6 +1204,7 @@ async function updateUser(req, res) {
       if (data.email !== undefined) {
         duplicateOr.push({
           email: data.email,
+          organisationId: target.organisationId,
         });
       }
 
@@ -1100,11 +1213,7 @@ async function updateUser(req, res) {
           id: {
             not: target.id,
           },
-          OR: duplicateOr.map((condition) =>
-            condition.email
-              ? { ...condition, organisationId: target.organisationId }
-              : condition,
-          ),
+          OR: duplicateOr,
         },
         select: {
           id: true,
@@ -1113,7 +1222,7 @@ async function updateUser(req, res) {
 
       if (duplicate) {
         return res.status(409).json({
-          message: "Username or email is already in use in this organisation",
+          message: "Username or email is already in use",
         });
       }
     }
@@ -1128,6 +1237,14 @@ async function updateUser(req, res) {
           select: {
             id: true,
             name: true,
+          },
+        },
+        designationRef: {
+          select: {
+            canViewAllTickets: true,
+            canAssignTickets: true,
+            canManageUsers: true,
+            managementLevel: true,
           },
         },
         assignedEmployees: {
@@ -1172,7 +1289,6 @@ async function updateUser(req, res) {
     });
   }
 }
-
 // =====================================================
 // SAVE FCM TOKEN
 // =====================================================
@@ -1213,25 +1329,21 @@ async function saveFcmToken(req, res) {
 
 // =====================================================
 // GET EMPLOYEES
-// Admin + CEO + CTO
+// Requires canManageUsers
 // =====================================================
 
 async function getEmployees(req, res) {
   try {
     if (!isManagementUser(req.user)) {
       return res.status(403).json({
-        message: "Only Admin, CEO and CTO can view employee records",
+        message: "You do not have permission to view employee records",
       });
     }
 
-    const organisationId = String(
-      req.user?.organisation?.id ||
-        req.user?.organisationId ||
-        req.user?.organisation ||
-        "",
-    );
+    const superAdmin = isSuperAdmin(req.user);
+    const organisationId = getActorOrganisationId(req.user);
 
-    if (!organisationId) {
+    if (!superAdmin && !organisationId) {
       return res.status(400).json({
         message: "Your account is not linked to an organisation",
       });
@@ -1240,7 +1352,8 @@ async function getEmployees(req, res) {
     const employees = await prisma.user.findMany({
       where: {
         role: "employee",
-        organisationId,
+        ...(superAdmin ? {} : { organisationId }),
+        isSuperAdmin: false,
       },
       select: {
         id: true,
@@ -1248,6 +1361,15 @@ async function getEmployees(req, res) {
         email: true,
         mobileNumber: true,
         designation: true,
+        isSuperAdmin: true,
+        designationRef: {
+          select: {
+            canViewAllTickets: true,
+            canAssignTickets: true,
+            canManageUsers: true,
+            managementLevel: true,
+          },
+        },
         organisation: {
           select: {
             id: true,
@@ -1274,46 +1396,52 @@ async function getEmployees(req, res) {
 }
 
 // =====================================================
-// ADMIN-ONLY ACCOUNT ACCESS REVOCATION
+// ACCOUNT ACCESS REVOCATION HELPERS
 // =====================================================
 
-function getAdminOrganisationId(req) {
-  return String(
-    req.user?.organisation?.id ||
-      req.user?.organisationId ||
-      req.user?.organisation ||
-      "",
-  );
-}
+async function findManageableUser(userId, actor) {
+  const superAdmin = isSuperAdmin(actor);
+  const organisationId = getActorOrganisationId(actor);
 
-async function findManageableUser(userId, adminOrganisationId) {
   return prisma.user.findFirst({
     where: {
       id: userId,
-      ...manageableUserWhere(adminOrganisationId),
+      ...manageableUserWhere(organisationId, superAdmin),
     },
     select: {
       id: true,
       userName: true,
       role: true,
+      organisationId: true,
+      isSuperAdmin: true,
       isRevoked: true,
       revokedAt: true,
       revokedReason: true,
+      designationRef: {
+        select: {
+          canViewAllTickets: true,
+          canAssignTickets: true,
+          canManageUsers: true,
+          managementLevel: true,
+        },
+      },
     },
   });
 }
 
 // =====================================================
 // REVOKE USER ACCESS
-// Admin only
+// SuperAdmin or manager of a lower-level account
 // =====================================================
 
 async function revokeUser(req, res) {
   try {
-    if (req.user?.role !== "admin") {
+    const actor = req.user;
+
+    if (!isManagementUser(actor)) {
       return res.status(403).json({
         success: false,
-        message: "Only admins can revoke account access",
+        message: "You do not have permission to revoke account access",
       });
     }
 
@@ -1326,23 +1454,18 @@ async function revokeUser(req, res) {
       });
     }
 
-    const adminOrganisationId = getAdminOrganisationId(req);
-
-    if (!adminOrganisationId) {
-      return res.status(400).json({
-        success: false,
-        message: "Your admin account is not linked to an organisation",
-      });
-    }
-
-    const target = await findManageableUser(userId, adminOrganisationId);
+    const target = await findManageableUser(userId, actor);
 
     if (!target) {
       return res.status(404).json({
         success: false,
         message:
-          "Client or employee not found, or you do not have permission to manage this user",
+          "User not found, or you do not have permission to manage this user",
       });
+    }
+
+    if (!canManageTarget(actor, target)) {
+      return managementDenied(res);
     }
 
     if (target.isRevoked) {
@@ -1383,9 +1506,7 @@ async function revokeUser(req, res) {
 
     return res.status(200).json({
       success: true,
-      message: `${
-        target.role === "employee" ? "Employee" : "Client"
-      } access revoked successfully`,
+      message: "User access revoked successfully",
       user,
     });
   } catch (error) {
@@ -1400,15 +1521,17 @@ async function revokeUser(req, res) {
 
 // =====================================================
 // RESTORE USER ACCESS
-// Admin only
+// SuperAdmin or manager of a lower-level account
 // =====================================================
 
 async function restoreUser(req, res) {
   try {
-    if (req.user?.role !== "admin") {
+    const actor = req.user;
+
+    if (!isManagementUser(actor)) {
       return res.status(403).json({
         success: false,
-        message: "Only admins can restore account access",
+        message: "You do not have permission to restore account access",
       });
     }
 
@@ -1421,23 +1544,18 @@ async function restoreUser(req, res) {
       });
     }
 
-    const adminOrganisationId = getAdminOrganisationId(req);
-
-    if (!adminOrganisationId) {
-      return res.status(400).json({
-        success: false,
-        message: "Your admin account is not linked to an organisation",
-      });
-    }
-
-    const target = await findManageableUser(userId, adminOrganisationId);
+    const target = await findManageableUser(userId, actor);
 
     if (!target) {
       return res.status(404).json({
         success: false,
         message:
-          "Client or employee not found, or you do not have permission to manage this user",
+          "User not found, or you do not have permission to manage this user",
       });
+    }
+
+    if (!canManageTarget(actor, target)) {
+      return managementDenied(res);
     }
 
     if (!target.isRevoked) {
@@ -1473,9 +1591,7 @@ async function restoreUser(req, res) {
 
     return res.status(200).json({
       success: true,
-      message: `${
-        target.role === "employee" ? "Employee" : "Client"
-      } access restored successfully`,
+      message: "User access restored successfully",
       user,
     });
   } catch (error) {

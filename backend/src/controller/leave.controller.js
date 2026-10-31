@@ -330,7 +330,7 @@ exports.applyLeave = async (req, res) => {
 
     const body =
       `${employee.userName || "An employee"} has requested ` +
-      `${leave.leaveType} leave from ${startDate} to ${endDate}.`;
+      `${leave.leaveType} from ${startDate} to ${endDate}.`;
 
     // Send notifications to Admin, CEO and CTO.
     await notifyLeaveRecipients(approvers, {

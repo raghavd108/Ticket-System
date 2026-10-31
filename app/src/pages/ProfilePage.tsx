@@ -27,8 +27,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import LeaveRequest from '../components/leaveRequest';
-import LeaveManagement from '../components/LeaveManagement';
 import Config from 'react-native-config';
+import en from '../i18n/en';
 
 interface Organisation {
   _id: string;
@@ -64,6 +64,7 @@ interface User {
 
 const ProfilePage = () => {
   const { logout } = useAuth();
+  const copy = en.profilePage;
 
   const [user, setUser] = useState<User | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -76,6 +77,8 @@ const ProfilePage = () => {
   const [documentPreviewVisible, setDocumentPreviewVisible] = useState(false);
 
   const [loading, setLoading] = useState(true);
+  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   // Edit profile
   const [editModalVisible, setEditModalVisible] = useState(false);
@@ -97,7 +100,7 @@ const ProfilePage = () => {
     useState(false);
 
   const [employeeModal, setEmployeeModal] = useState<
-    'documents' | 'attendance' | 'leave' | null
+    'documents' | 'attendance' | null
   >(null);
 
   const drawerSlide = useRef(new Animated.Value(1)).current;
@@ -124,14 +127,14 @@ const ProfilePage = () => {
     organisation?: string | Organisation | null,
   ): string => {
     if (!organisation) {
-      return 'Not assigned';
+      return copy.notAssigned;
     }
 
     if (typeof organisation === 'string') {
       return organisation;
     }
 
-    return organisation.name || 'Not assigned';
+    return organisation.name || copy.notAssigned;
   };
 
   useEffect(() => {
@@ -144,7 +147,7 @@ const ProfilePage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        Alert.alert('Session expired', 'Please login again.');
+        Alert.alert(copy.sessionExpiredTitle, copy.loginAgain);
         return;
       }
 
@@ -166,7 +169,7 @@ const ProfilePage = () => {
       }
     } catch (error) {
       console.log('GET USER ERROR:', error);
-      Alert.alert('Error', 'Unable to load your profile.');
+      Alert.alert(copy.errorTitle, copy.loadProfileError);
     } finally {
       setLoading(false);
     }
@@ -186,12 +189,12 @@ const ProfilePage = () => {
   // UPDATE PROFILE
   const updateProfile = async () => {
     if (!editUserName.trim()) {
-      Alert.alert('Invalid Username', 'Username cannot be empty.');
+      Alert.alert(copy.invalidUsernameTitle, copy.usernameRequired);
       return;
     }
 
     if (!editEmail.trim()) {
-      Alert.alert('Invalid Email', 'Email cannot be empty.');
+      Alert.alert(copy.invalidEmailTitle, copy.emailRequired);
       return;
     }
 
@@ -201,7 +204,7 @@ const ProfilePage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        Alert.alert('Session expired', 'Please login again.');
+        Alert.alert(copy.sessionExpiredTitle, copy.loginAgain);
         return;
       }
 
@@ -232,16 +235,13 @@ const ProfilePage = () => {
 
       setEditModalVisible(false);
 
-      Alert.alert(
-        'Profile Updated',
-        'Your profile has been updated successfully.',
-      );
+      Alert.alert(copy.profileUpdatedTitle, copy.profileUpdatedMessage);
     } catch (error: any) {
       console.log('UPDATE PROFILE ERROR:', error?.response?.data || error);
 
       Alert.alert(
-        'Update Failed',
-        error?.response?.data?.message || 'Unable to update your profile.',
+        copy.updateFailedTitle,
+        error?.response?.data?.message || copy.updateProfileError,
       );
     } finally {
       setUpdatingProfile(false);
@@ -255,23 +255,17 @@ const ProfilePage = () => {
       !newPassword.trim() ||
       !confirmPassword.trim()
     ) {
-      Alert.alert('Missing Fields', 'Please fill all password fields.');
+      Alert.alert(copy.missingFieldsTitle, copy.passwordFieldsRequired);
       return;
     }
 
     if (newPassword.length < 6) {
-      Alert.alert(
-        'Weak Password',
-        'Password must contain at least 6 characters.',
-      );
+      Alert.alert(copy.weakPasswordTitle, copy.passwordMinLength);
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert(
-        'Password Mismatch',
-        'New password and confirm password do not match.',
-      );
+      Alert.alert(copy.passwordMismatchTitle, copy.passwordMismatch);
       return;
     }
 
@@ -281,7 +275,7 @@ const ProfilePage = () => {
       const token = await AsyncStorage.getItem('token');
 
       if (!token) {
-        Alert.alert('Session expired', 'Please login again.');
+        Alert.alert(copy.sessionExpiredTitle, copy.loginAgain);
         return;
       }
 
@@ -307,17 +301,17 @@ const ProfilePage = () => {
 
       // The server ends every session after a password change.
       Alert.alert(
-        'Password Updated',
-        'Your password has been changed. Please log in again with your new password.',
-        [{ text: 'OK', onPress: () => logout() }],
+        copy.passwordUpdatedTitle,
+        copy.passwordUpdatedMessage,
+        [{ text: copy.ok, onPress: () => logout() }],
         { cancelable: false },
       );
     } catch (error: any) {
       console.log('UPDATE PASSWORD ERROR:', error?.response?.data || error);
 
       Alert.alert(
-        'Password Update Failed',
-        error?.response?.data?.message || 'Unable to update your password.',
+        copy.passwordUpdateFailedTitle,
+        error?.response?.data?.message || copy.updatePasswordError,
       );
     } finally {
       setUpdatingPassword(false);
@@ -351,7 +345,7 @@ const ProfilePage = () => {
   // OPEN DOCUMENT
   const openDocument = async (file: DocumentFile) => {
     if (!file.url) {
-      Alert.alert('Error', 'Document URL is unavailable.');
+      Alert.alert(copy.errorTitle, copy.documentUrlUnavailable);
       return;
     }
 
@@ -366,51 +360,40 @@ const ProfilePage = () => {
     } catch (error) {
       console.log('OPEN DOCUMENT ERROR:', error);
 
-      Alert.alert(
-        'Cannot Open Document',
-        'Unable to open this file. Check that the URL is accessible and that a compatible viewer is installed.',
-      );
+      Alert.alert(copy.cannotOpenDocumentTitle, copy.cannotOpenDocumentMessage);
     }
   };
 
   // LOGOUT
   const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      {
-        text: 'Cancel',
-        style: 'cancel',
-      },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-        },
-      },
-    ]);
+    setLogoutModalVisible(true);
+  };
+
+  const confirmLogout = async () => {
+    try {
+      setLoggingOut(true);
+      await logout();
+      setLogoutModalVisible(false);
+    } catch (error) {
+      console.log('LOGOUT ERROR:', error);
+      Alert.alert(copy.errorTitle, copy.logoutError);
+    } finally {
+      setLoggingOut(false);
+    }
   };
 
   const normalizedRole = String(user?.role || '')
     .trim()
     .toLowerCase();
-  const normalizedDesignation = String(user?.designation || '')
-    .trim()
-    .toLowerCase();
-
   const isEmployee = normalizedRole === 'employee';
   const isAdmin = normalizedRole === 'admin';
-
-  // Admin, CEO and CTO can manage employee leave requests.
-  // CEO and CTO are employee accounts identified by designation.
-  const isLeaveManager =
-    isAdmin || (isEmployee && ['ceo', 'cto'].includes(normalizedDesignation));
 
   // LOADING
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#202124" />
-        <Text style={styles.loadingText}>Loading profile...</Text>
+        <Text style={styles.loadingText}>{copy.loadingProfile}</Text>
       </View>
     );
   }
@@ -419,10 +402,10 @@ const ProfilePage = () => {
   if (!user) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={styles.errorText}>Unable to load profile.</Text>
+        <Text style={styles.errorText}>{copy.loadProfileError}</Text>
 
         <TouchableOpacity style={styles.retryButton} onPress={getUser}>
-          <Text style={styles.retryButtonText}>Try Again</Text>
+          <Text style={styles.retryButtonText}>{copy.tryAgain}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -475,7 +458,9 @@ const ProfilePage = () => {
             {/* ACCOUNT INFORMATION */}
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Account Information</Text>
+                <Text style={styles.sectionTitle}>
+                  {copy.accountInformation}
+                </Text>
               </View>
 
               <View style={styles.infoCard}>
@@ -490,7 +475,7 @@ const ProfilePage = () => {
                   </View>
 
                   <View style={styles.infoContent}>
-                    <Text style={styles.infoLabel}>Organisation</Text>
+                    <Text style={styles.infoLabel}>{copy.organisation}</Text>
 
                     <Text style={styles.infoValue} numberOfLines={2}>
                       {getOrganisationName(user.organisation)}
@@ -517,9 +502,9 @@ const ProfilePage = () => {
                       </View>
 
                       <View style={styles.infoContent}>
-                        <Text style={styles.infoLabel}>Attendance</Text>
+                        <Text style={styles.infoLabel}>{copy.attendance}</Text>
                         <Text style={styles.infoValue}>
-                          View attendance history
+                          {copy.viewAttendanceHistory}
                         </Text>
                       </View>
 
@@ -547,9 +532,9 @@ const ProfilePage = () => {
                       </View>
 
                       <View style={styles.infoContent}>
-                        <Text style={styles.infoLabel}>Documents</Text>
+                        <Text style={styles.infoLabel}>{copy.documents}</Text>
                         <Text style={styles.infoValue}>
-                          {documents.length} documents
+                          {copy.documentCount(documents.length)}
                         </Text>
                       </View>
 
@@ -575,7 +560,7 @@ const ProfilePage = () => {
                   </View>
 
                   <View style={styles.infoContent}>
-                    <Text style={styles.infoLabel}>Account Role</Text>
+                    <Text style={styles.infoLabel}>{copy.accountRole}</Text>
                     <Text style={styles.infoValue}>{user.role}</Text>
                   </View>
                 </View>
@@ -594,9 +579,9 @@ const ProfilePage = () => {
                     </View>
 
                     <View style={styles.infoContent}>
-                      <Text style={styles.infoLabel}>Designation</Text>
+                      <Text style={styles.infoLabel}>{copy.designation}</Text>
                       <Text style={styles.infoValue}>
-                        {user.designation || 'Not assigned'}
+                        {user.designation || copy.notAssigned}
                       </Text>
                     </View>
                   </View>
@@ -606,7 +591,7 @@ const ProfilePage = () => {
 
             {/* ACCOUNT SETTINGS */}
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Account Settings</Text>
+              <Text style={styles.sectionTitle}>{copy.accountSettings}</Text>
 
               <View style={styles.settingsCard}>
                 <View
@@ -614,21 +599,21 @@ const ProfilePage = () => {
                 >
                   <View>
                     <Text style={[styles.settingTitle, { color: theme.text }]}>
-                      Dark Mode
+                      {copy.darkMode}
                     </Text>
 
                     <Text
                       style={[styles.settingSubtitle, { color: theme.text }]}
                     >
-                      {isDarkMode ? 'Dark mode is on' : 'Dark mode is off'}
+                      {isDarkMode ? copy.darkModeOn : copy.darkModeOff}
                     </Text>
                   </View>
 
                   <Switch value={isDarkMode} onValueChange={toggleTheme} />
                 </View>
                 <View style={styles.divider} />
-                {/*Leave Request */}
-                {(isEmployee || isAdmin) && (
+                {/* EMPLOYEE LEAVE REQUEST */}
+                {isEmployee && (
                   <TouchableOpacity
                     style={styles.settingItem}
                     activeOpacity={0.7}
@@ -644,13 +629,10 @@ const ProfilePage = () => {
 
                     <View style={styles.settingContent}>
                       <Text style={styles.settingTitle}>
-                        {isLeaveManager ? 'Leave Management' : 'Leave Request'}
+                        {copy.leaveRequest}
                       </Text>
-
                       <Text style={styles.settingDescription}>
-                        {isLeaveManager
-                          ? 'Review, approve, or reject employee leave requests'
-                          : 'Submit a leave request and track its status'}
+                        {copy.leaveRequestDescription}
                       </Text>
                     </View>
 
@@ -677,10 +659,10 @@ const ProfilePage = () => {
 
                       <View style={styles.settingContent}>
                         <Text style={styles.settingTitle}>
-                          Attendance Reports
+                          {copy.attendanceReports}
                         </Text>
                         <Text style={styles.settingDescription}>
-                          Daily and monthly attendance for all employees
+                          {copy.attendanceReportsDescription}
                         </Text>
                       </View>
 
@@ -702,10 +684,12 @@ const ProfilePage = () => {
                   </View>
 
                   <View style={styles.settingContent}>
-                    <Text style={styles.settingTitle}>Change Password</Text>
+                    <Text style={styles.settingTitle}>
+                      {copy.changePassword}
+                    </Text>
 
                     <Text style={styles.settingDescription}>
-                      Update your account password
+                      {copy.changePasswordDescription}
                     </Text>
                   </View>
 
@@ -721,13 +705,148 @@ const ProfilePage = () => {
               onPress={handleLogout}
             >
               <Text style={styles.logoutIcon}>↪</Text>
-              <Text style={styles.logoutText}>Logout</Text>
+              <Text style={styles.logoutText}>{copy.logOut}</Text>
             </TouchableOpacity>
 
-            <Text style={styles.footerText}>Account settings</Text>
+            <Text style={styles.footerText}>{copy.footer}</Text>
           </View>
         </ScrollView>
       </SafeAreaView>
+
+      {/* LOGOUT CONFIRMATION MODAL */}
+      <Modal
+        visible={logoutModalVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!loggingOut) {
+            setLogoutModalVisible(false);
+          }
+        }}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(15, 18, 24, 0.58)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            paddingHorizontal: 24,
+          }}
+        >
+          <View
+            style={{
+              width: '100%',
+              maxWidth: 380,
+              backgroundColor: theme.background,
+              borderRadius: 26,
+              padding: 24,
+              borderWidth: 1,
+              borderColor: theme.text + '18',
+              alignItems: 'center',
+            }}
+          >
+            <View
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 22,
+                backgroundColor: '#FCE8E6',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 18,
+              }}
+            >
+              <Ionicons name="log-out-outline" size={30} color="#C7463B" />
+            </View>
+
+            <Text
+              style={{
+                color: theme.text,
+                fontSize: 21,
+                fontWeight: '800',
+                textAlign: 'center',
+                marginBottom: 8,
+              }}
+            >
+              {copy.logoutTitle}
+            </Text>
+            <Text
+              style={{
+                color: theme.text,
+                opacity: 0.68,
+                fontSize: 14,
+                lineHeight: 21,
+                textAlign: 'center',
+                marginBottom: 24,
+              }}
+            >
+              {copy.logoutMessage}
+            </Text>
+
+            <TouchableOpacity
+              onPress={confirmLogout}
+              disabled={loggingOut}
+              activeOpacity={0.85}
+              style={{
+                width: '100%',
+                minHeight: 52,
+                borderRadius: 16,
+                backgroundColor: '#C7463B',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexDirection: 'row',
+                marginBottom: 10,
+                opacity: loggingOut ? 0.7 : 1,
+              }}
+            >
+              {loggingOut ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="log-out-outline" size={19} color="#FFFFFF" />
+                  <Text
+                    style={{
+                      color: '#FFFFFF',
+                      fontSize: 15,
+                      fontWeight: '700',
+                      marginLeft: 9,
+                    }}
+                  >
+                    {copy.confirmLogout}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setLogoutModalVisible(false)}
+              disabled={loggingOut}
+              activeOpacity={0.75}
+              style={{
+                width: '100%',
+                minHeight: 48,
+                borderRadius: 16,
+                backgroundColor: theme.white,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderColor: theme.text + '18',
+              }}
+            >
+              <Text
+                style={{
+                  color: theme.text,
+                  fontSize: 15,
+                  fontWeight: '700',
+                }}
+              >
+                {copy.cancel}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* EDIT PROFILE MODAL */}
       <Modal
@@ -749,9 +868,9 @@ const ProfilePage = () => {
             >
               <View style={styles.modalHeader}>
                 <View>
-                  <Text style={styles.modalTitle}>Edit Profile</Text>
+                  <Text style={styles.modalTitle}>{copy.editProfile}</Text>
                   <Text style={styles.modalSubtitle}>
-                    Update your username and email
+                    {copy.editProfileSubtitle}
                   </Text>
                 </View>
 
@@ -765,13 +884,13 @@ const ProfilePage = () => {
 
               {/* USERNAME */}
               <View style={styles.modalInputContainer}>
-                <Text style={styles.modalLabel}>Username</Text>
+                <Text style={styles.modalLabel}>{copy.username}</Text>
 
                 <TextInput
                   style={styles.modalInput}
                   value={editUserName}
                   onChangeText={setEditUserName}
-                  placeholder="Enter username"
+                  placeholder={copy.usernamePlaceholder}
                   placeholderTextColor="#9CA1A7"
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -780,13 +899,13 @@ const ProfilePage = () => {
 
               {/* EMAIL */}
               <View style={styles.modalInputContainer}>
-                <Text style={styles.modalLabel}>Email Address</Text>
+                <Text style={styles.modalLabel}>{copy.emailAddress}</Text>
 
                 <TextInput
                   style={styles.modalInput}
                   value={editEmail}
                   onChangeText={setEditEmail}
-                  placeholder="Enter email"
+                  placeholder={copy.emailPlaceholder}
                   placeholderTextColor="#9CA1A7"
                   keyboardType="email-address"
                   autoCapitalize="none"
@@ -806,7 +925,7 @@ const ProfilePage = () => {
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
                   <Text style={styles.modalPrimaryButtonText}>
-                    Save Changes
+                    {copy.saveChanges}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -830,9 +949,9 @@ const ProfilePage = () => {
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>Change Password</Text>
+                <Text style={styles.modalTitle}>{copy.changePassword}</Text>
                 <Text style={styles.modalSubtitle}>
-                  Create a new secure password
+                  {copy.changePasswordSubtitle}
                 </Text>
               </View>
 
@@ -850,39 +969,39 @@ const ProfilePage = () => {
             </View>
 
             <View style={styles.modalInputContainer}>
-              <Text style={styles.modalLabel}>Current Password</Text>
+              <Text style={styles.modalLabel}>{copy.currentPassword}</Text>
 
               <TextInput
                 style={styles.modalInput}
                 value={currentPassword}
                 onChangeText={setCurrentPassword}
-                placeholder="Enter current password"
+                placeholder={copy.currentPasswordPlaceholder}
                 placeholderTextColor="#9CA1A7"
                 secureTextEntry
               />
             </View>
 
             <View style={styles.modalInputContainer}>
-              <Text style={styles.modalLabel}>New Password</Text>
+              <Text style={styles.modalLabel}>{copy.newPassword}</Text>
 
               <TextInput
                 style={styles.modalInput}
                 value={newPassword}
                 onChangeText={setNewPassword}
-                placeholder="Enter new password"
+                placeholder={copy.newPasswordPlaceholder}
                 placeholderTextColor="#9CA1A7"
                 secureTextEntry
               />
             </View>
 
             <View style={styles.modalInputContainer}>
-              <Text style={styles.modalLabel}>Confirm New Password</Text>
+              <Text style={styles.modalLabel}>{copy.confirmNewPassword}</Text>
 
               <TextInput
                 style={styles.modalInput}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
-                placeholder="Confirm new password"
+                placeholder={copy.confirmNewPasswordPlaceholder}
                 placeholderTextColor="#9CA1A7"
                 secureTextEntry
               />
@@ -900,7 +1019,7 @@ const ProfilePage = () => {
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text style={styles.modalPrimaryButtonText}>
-                  Update Password
+                  {copy.updatePassword}
                 </Text>
               )}
             </TouchableOpacity>
@@ -908,15 +1027,13 @@ const ProfilePage = () => {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* LEAVE REQUEST MODAL */}
+      {/* EMPLOYEE LEAVE REQUEST MODAL */}
       <Modal
         visible={leaveRequestModalVisible}
         transparent
         animationType="slide"
         statusBarTranslucent
-        onRequestClose={() => {
-          setLeaveRequestModalVisible(false);
-        }}
+        onRequestClose={() => setLeaveRequestModalVisible(false)}
       >
         <View
           style={{
@@ -936,7 +1053,6 @@ const ProfilePage = () => {
               overflow: 'hidden',
             }}
           >
-            {/* HEADER */}
             <View
               style={{
                 flexDirection: 'row',
@@ -953,9 +1069,8 @@ const ProfilePage = () => {
                     fontWeight: '700',
                   }}
                 >
-                  {isLeaveManager ? 'Leave Management' : 'Leave Request'}
+                  {copy.leaveRequest}
                 </Text>
-
                 <Text
                   style={{
                     color: theme.text,
@@ -964,9 +1079,7 @@ const ProfilePage = () => {
                     marginTop: 4,
                   }}
                 >
-                  {isLeaveManager
-                    ? 'Review and manage employee leave requests'
-                    : 'Submit a new leave request and track its status'}
+                  {copy.leaveRequestModalSubtitle}
                 </Text>
               </View>
 
@@ -995,61 +1108,10 @@ const ProfilePage = () => {
               }}
             />
 
-            {/* ROLE-BASED CONTENT */}
             <View style={{ flex: 1 }}>
-              {isLeaveManager && <LeaveManagement />}
-
-              {isEmployee && !isLeaveManager && (user?._id || user?.id) && (
+              {(user?._id || user?.id) && (
                 <LeaveRequest employeeId={user._id || user.id} />
               )}
-
-              {!user && (
-                <View
-                  style={{
-                    flex: 1,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <ActivityIndicator size="large" color={theme.primary} />
-                  <Text
-                    style={{
-                      color: theme.text,
-                      marginTop: 12,
-                    }}
-                  >
-                    Loading profile...
-                  </Text>
-                </View>
-              )}
-
-              {user &&
-                !['admin', 'employee'].includes(
-                  user.role?.toLowerCase() || '',
-                ) && (
-                  <View
-                    style={{
-                      flex: 1,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Ionicons
-                      name="lock-closed-outline"
-                      size={36}
-                      color={theme.text}
-                    />
-                    <Text
-                      style={{
-                        color: theme.text,
-                        marginTop: 12,
-                        textAlign: 'center',
-                      }}
-                    >
-                      Leave management is not available for this role.
-                    </Text>
-                  </View>
-                )}
             </View>
           </View>
         </View>
@@ -1095,7 +1157,7 @@ const ProfilePage = () => {
                     fontWeight: '700',
                   }}
                 >
-                  My Documents
+                  {copy.myDocuments}
                 </Text>
 
                 <Text
@@ -1105,7 +1167,7 @@ const ProfilePage = () => {
                     marginTop: 4,
                   }}
                 >
-                  {documents.length} documents
+                  {copy.documentCount(documents.length)}
                 </Text>
               </View>
 
@@ -1139,7 +1201,7 @@ const ProfilePage = () => {
                       opacity: 0.7,
                     }}
                   >
-                    No documents available
+                    {copy.noDocuments}
                   </Text>
                 </View>
               ) : (
@@ -1213,8 +1275,8 @@ const ProfilePage = () => {
                                 }}
                               >
                                 {file.mimeType === 'application/pdf'
-                                  ? 'PDF DOCUMENT'
-                                  : 'OPEN DOCUMENT'}
+                                  ? copy.pdfDocument
+                                  : copy.openDocument}
                               </Text>
                             </View>
                           )}
@@ -1264,7 +1326,7 @@ const ProfilePage = () => {
               setDocumentPreviewVisible(false);
               setSelectedDocument(null);
             }}
-            accessibilityLabel="Close document preview"
+            accessibilityLabel={copy.closeDocumentPreview}
             style={{
               position: 'absolute',
               top: Platform.OS === 'ios' ? 55 : 25,
@@ -1346,7 +1408,7 @@ const ProfilePage = () => {
                     fontWeight: '700',
                   }}
                 >
-                  {isAdmin ? 'Attendance Reports' : 'Attendance History'}
+                  {isAdmin ? copy.attendanceReports : copy.attendanceHistory}
                 </Text>
 
                 <Text
@@ -1358,8 +1420,8 @@ const ProfilePage = () => {
                   }}
                 >
                   {isAdmin
-                    ? 'All employees, by day or month'
-                    : 'View your attendance records'}
+                    ? copy.allEmployeesByPeriod
+                    : copy.viewAttendanceRecords}
                 </Text>
               </View>
 
