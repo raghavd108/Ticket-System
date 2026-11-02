@@ -1,4 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  SafeAreaView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -12,34 +20,49 @@ import SearchPage from '../pages/searchPage';
 import ClientPage from '../pages/userManagement';
 import ManagePage from '../pages/ManagePage';
 import ClientOffersPage from '../pages/clientOfferPage';
-
+import ClientFeedbackScreen from '../pages/feedBack';
 import { useTheme } from '../context/ThemeContext';
 
 const Tab = createBottomTabNavigator();
 
+interface UserPermissions {
+  canViewAllTickets?: boolean;
+  canAssignTickets?: boolean;
+  canManageUsers?: boolean;
+  canPublishOffers?: boolean;
+  canNotifyEmployees?: boolean;
+}
+
 interface User {
-  _id: string;
+  id?: string;
+  _id?: string;
   userName: string;
   email: string;
   role: string;
   designation?: string;
   Hospital?: string;
+  isSuperAdmin?: boolean;
+  permissions?: UserPermissions;
 }
 
 const BottomNavigation: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [userLoading, setUserLoading] = useState(true);
 
   const { theme, isDarkMode } = useTheme();
 
-  useEffect(() => {
-    getUser();
-  }, []);
+  // =====================================================
+  // GET AUTHENTICATED USER
+  // =====================================================
 
-  const getUser = async () => {
+  const getUser = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem('token');
 
-      if (!token) return;
+      if (!token) {
+        setUser(null);
+        return;
+      }
 
       const response = await axios.get(`${Config.API_URL}/api/auth/me`, {
         headers: {
@@ -47,20 +70,60 @@ const BottomNavigation: React.FC = () => {
         },
       });
 
-      setUser(response.data.user);
-    } catch (error) {
-      console.log('GET USER ERROR:', error);
+      const authenticatedUser = response.data?.user;
+
+      if (!authenticatedUser) {
+        setUser(null);
+        return;
+      }
+
+      setUser(authenticatedUser);
+    } catch (error: any) {
+      console.log(
+        'GET AUTHENTICATED USER ERROR:',
+        error?.response?.data || error,
+      );
+
+      setUser(null);
+    } finally {
+      setUserLoading(false);
     }
-  };
+  }, []);
 
-  const role = user?.role?.trim().toLowerCase();
-  const designation = user?.designation?.trim().toLowerCase();
+  useEffect(() => {
+    getUser();
+  }, [getUser]);
 
+  // =====================================================
+  // AUTHENTICATED USER INFORMATION
+  // =====================================================
+
+  const role = String(user?.role || '')
+    .trim()
+    .toLowerCase();
+
+  // Role is used only to identify client-specific navigation.
   const isClient = role === 'client';
 
-  const canManageUsers =
-    role === 'admin' ||
-    (role === 'employee' && ['ceo', 'cto'].includes(designation || ''));
+  // All staff access decisions come from backend permissions.
+  const permissions = user?.permissions;
+
+  const canViewAllTickets = permissions?.canViewAllTickets === true;
+
+  const canManageUsers = permissions?.canManageUsers === true;
+
+  const canPublishOffers = permissions?.canPublishOffers === true;
+
+  const canNotifyEmployees = permissions?.canNotifyEmployees === true;
+
+  // Manage is displayed only when the user has at least
+  // one of the permissions supported by its management features.
+  const canAccessManage =
+    canManageUsers || canPublishOffers || canNotifyEmployees;
+
+  // =====================================================
+  // TAB ICON
+  // =====================================================
 
   const tabIcon = (
     focused: boolean,
@@ -73,6 +136,46 @@ const BottomNavigation: React.FC = () => {
       color={focused ? theme.primary : theme.muted}
     />
   );
+
+  // =====================================================
+  // LOADING SCREEN
+  // =====================================================
+
+  if (userLoading) {
+    return (
+      <SafeAreaView
+        style={[styles.loadingContainer, { backgroundColor: theme.background }]}
+      >
+        <ActivityIndicator size="large" color={theme.primary} />
+
+        <Text style={[styles.loadingText, { color: theme.muted }]}>
+          Loading your account...
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  // =====================================================
+  // NO AUTHENTICATED USER
+  // =====================================================
+
+  if (!user) {
+    return (
+      <SafeAreaView
+        style={[styles.loadingContainer, { backgroundColor: theme.background }]}
+      >
+        <Ionicons name="lock-closed-outline" size={34} color={theme.muted} />
+
+        <Text style={[styles.loadingText, { color: theme.text }]}>
+          Unable to load your account.
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  // =====================================================
+  // TAB NAVIGATION
+  // =====================================================
 
   return (
     <Tab.Navigator
@@ -98,10 +201,12 @@ const BottomNavigation: React.FC = () => {
           elevation: isDarkMode ? 0 : 8,
 
           shadowColor: isDarkMode ? '#000000' : theme.dark,
+
           shadowOffset: {
             width: 0,
             height: -2,
           },
+
           shadowOpacity: isDarkMode ? 0.3 : 0.08,
           shadowRadius: 6,
         },
@@ -125,86 +230,131 @@ const BottomNavigation: React.FC = () => {
         },
       }}
     >
-      {/* TICKETS */}
+      {/* =============================================
+          TICKETS
+      ============================================= */}
+
       <Tab.Screen
         name="Tickets"
         component={ComplainPage}
         options={{
           tabBarLabel: 'Tickets',
+
           tabBarIcon: ({ focused }) =>
             tabIcon(focused, 'document-text', 'document-text-outline'),
         }}
       />
 
-      {/* CLIENT TABS */}
+      {/* =============================================
+          CLIENT NAVIGATION
+      ============================================= */}
+
       {isClient ? (
         <>
           {/* NEW TICKET */}
+
           <Tab.Screen
             name="New Ticket"
             component={ReportPage}
             options={{
               tabBarLabel: 'New Ticket',
+
               tabBarIcon: ({ focused }) =>
                 tabIcon(focused, 'add-circle', 'add-circle-outline'),
             }}
           />
+
           {/* CLIENT OFFERS */}
+
           <Tab.Screen
             name="Client Offers"
             component={ClientOffersPage}
             options={{
               tabBarLabel: 'Offers',
+
               tabBarIcon: ({ focused }) =>
                 tabIcon(focused, 'gift', 'gift-outline'),
+            }}
+          />
+          <Tab.Screen
+            name="ClientFeedback"
+            component={ClientFeedbackScreen}
+            options={{
+              tabBarLabel: 'Feedback',
+              tabBarIcon: ({ focused }) =>
+                tabIcon(focused, 'chatbubbles', 'chatbubbles-outline'),
             }}
           />
         </>
       ) : (
         <>
-          {/* STAFF SEARCH */}
-          <Tab.Screen
-            name="Search"
-            component={SearchPage}
-            options={{
-              tabBarLabel: 'Search',
-              tabBarIcon: ({ focused }) =>
-                tabIcon(focused, 'search', 'search-outline'),
-            }}
-          />
+          {/* =========================================
+              STAFF SEARCH
+              Requires canViewAllTickets
+          ========================================= */}
 
-          {/* USER MANAGEMENT */}
+          {canViewAllTickets && (
+            <Tab.Screen
+              name="Search"
+              component={SearchPage}
+              options={{
+                tabBarLabel: 'Search',
+
+                tabBarIcon: ({ focused }) =>
+                  tabIcon(focused, 'search', 'search-outline'),
+              }}
+            />
+          )}
+
+          {/* =========================================
+              USER MANAGEMENT
+              Requires canManageUsers
+          ========================================= */}
+
           {canManageUsers && (
             <Tab.Screen
               name="User Management"
               component={ClientPage}
               options={{
                 tabBarLabel: 'Users',
+
                 tabBarIcon: ({ focused }) =>
                   tabIcon(focused, 'people', 'people-outline'),
               }}
             />
           )}
 
-          {/* MANAGE */}
-          <Tab.Screen
-            name="Manage"
-            component={ManagePage}
-            options={{
-              tabBarLabel: 'Manage',
-              tabBarIcon: ({ focused }) =>
-                tabIcon(focused, 'grid', 'grid-outline'),
-            }}
-          />
+          {/* =========================================
+              MANAGE
+              Requires at least one supported
+              management permission.
+          ========================================= */}
+
+          {canAccessManage && (
+            <Tab.Screen
+              name="Manage"
+              component={ManagePage}
+              options={{
+                tabBarLabel: 'Manage',
+
+                tabBarIcon: ({ focused }) =>
+                  tabIcon(focused, 'grid', 'grid-outline'),
+              }}
+            />
+          )}
         </>
       )}
 
-      {/* PROFILE */}
+      {/* =============================================
+          PROFILE
+      ============================================= */}
+
       <Tab.Screen
         name="Profile"
         component={ProfilePage}
         options={{
           tabBarLabel: 'Profile',
+
           tabBarIcon: ({ focused }) =>
             tabIcon(focused, 'person', 'person-outline'),
         }}
@@ -212,5 +362,23 @@ const BottomNavigation: React.FC = () => {
     </Tab.Navigator>
   );
 };
+
+// =====================================================
+// STYLES
+// =====================================================
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  loadingText: {
+    marginTop: 12,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+});
 
 export default BottomNavigation;

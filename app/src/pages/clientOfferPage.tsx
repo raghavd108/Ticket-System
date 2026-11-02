@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Config from 'react-native-config';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useTheme } from '../context/ThemeContext';
+import { useRoute } from '@react-navigation/native';
 
 const API_BASE_URL = String(Config.API_URL || '')
   .trim()
@@ -55,6 +62,9 @@ const formatDate = (value?: string | null) => {
 const ClientOffersPage: React.FC<ClientOffersPageProps> = ({
   token: propToken,
 }) => {
+  const route = useRoute<any>();
+  const processedOfferIdRef = useRef<string | null>(null);
+
   const { theme, isDarkMode } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
@@ -117,15 +127,16 @@ const ClientOffersPage: React.FC<ClientOffersPageProps> = ({
           count: list.length,
         });
 
-        setOffers(
-          list
-            .map((item: any) => ({
-              ...item,
-              id: String(item.id || item._id || ''),
-              images: Array.isArray(item.images) ? item.images : [],
-            }))
-            .filter((item: ClientOffer) => !!item.id),
-        );
+        const normalizedOffers = list
+          .map((item: any) => ({
+            ...item,
+            id: String(item.id || item._id || ''),
+            images: Array.isArray(item.images) ? item.images : [],
+          }))
+          .filter((item: ClientOffer) => !!item.id);
+
+        setOffers(normalizedOffers);
+        return normalizedOffers;
       } catch (error: any) {
         const status = error?.response?.status;
         const serverMessage =
@@ -159,6 +170,7 @@ const ClientOffersPage: React.FC<ClientOffersPageProps> = ({
 
         Alert.alert('Unable to load offers', String(message));
         setOffers([]);
+        return [];
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -181,9 +193,15 @@ const ClientOffersPage: React.FC<ClientOffersPageProps> = ({
         `${API_BASE_URL}${CLIENT_OFFERS_ENDPOINT}/${offer.id}`,
         { headers },
       );
-      const detail =
+      const rawDetail =
         response.data?.offer ?? response.data?.data ?? response.data;
-      if (detail?.id) setSelectedOffer(detail);
+      if (rawDetail && (rawDetail.id || rawDetail._id)) {
+        setSelectedOffer({
+          ...rawDetail,
+          id: String(rawDetail.id || rawDetail._id),
+          images: Array.isArray(rawDetail.images) ? rawDetail.images : [],
+        });
+      }
     } catch (error: any) {
       console.log(
         'Client offer detail error:',
@@ -199,6 +217,32 @@ const ClientOffersPage: React.FC<ClientOffersPageProps> = ({
       setDetailLoading(false);
     }
   };
+
+  // Open the exact offer when navigation arrives from a notification tap.
+  // The route parameter is cleared after handling to prevent reopening on focus.
+  useEffect(() => {
+    const requestedId = String(
+      route.params?.openOfferId ?? route.params?.offerId ?? '',
+    ).trim();
+
+    if (!requestedId || loading || !offers.length) return;
+    if (processedOfferIdRef.current === requestedId) return;
+
+    const matchingOffer = offers.find(item => String(item.id) === requestedId);
+    if (!matchingOffer) {
+      processedOfferIdRef.current = requestedId;
+      Alert.alert(
+        'Offer unavailable',
+        'This offer is no longer available to your organisation.',
+      );
+      route.setParams?.({ openOfferId: undefined, offerId: undefined });
+      return;
+    }
+
+    processedOfferIdRef.current = requestedId;
+    openOffer(matchingOffer);
+    route.setParams?.({ openOfferId: undefined, offerId: undefined });
+  }, [route.params?.openOfferId, route.params?.offerId, offers, loading]);
 
   const filteredOffers = useMemo(() => {
     const query = search.trim().toLowerCase();

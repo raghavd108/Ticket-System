@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -23,18 +23,27 @@ interface NotificationItem {
   _id: string;
   title: string;
   body: string;
-  type: 'NEW_TICKET' | 'STATUS_UPDATE' | 'CUSTOM' | 'ANNOUNCEMENT';
+  type: 'NEW_TICKET' | 'STATUS_UPDATE' | 'CUSTOM' | 'ANNOUNCEMENT' | 'OFFER';
   read: boolean;
+  complaintId?: string | null;
+  offerId?: string | null;
   complaint?: {
-    _id: string;
+    _id?: string;
+    id?: string;
     module?: string;
     problem?: string;
     status?: string;
-  };
+  } | null;
+  offer?: {
+    id?: string;
+    _id?: string;
+    title?: string;
+  } | null;
   createdAt: string;
 }
 
 const Notification = () => {
+  const navigation = useNavigation<any>();
   const { theme, isDarkMode } = useTheme();
   const styles = createStyles(theme, isDarkMode);
 
@@ -122,6 +131,42 @@ const Notification = () => {
   };
 
   // =====================================================
+  // OPEN ASSOCIATED TICKET OR OFFER
+  // =====================================================
+
+  const handleNotificationPress = async (item: NotificationItem) => {
+    // Mark as read without blocking navigation if the API request fails.
+    await markAsRead(item._id);
+
+    const complaintId =
+      item.complaintId || item.complaint?._id || item.complaint?.id;
+
+    const offerId = item.offerId || item.offer?._id || item.offer?.id;
+
+    if (complaintId) {
+      console.log('OPENING TICKET FROM IN-APP NOTIFICATION:', complaintId);
+
+      navigation.navigate('Main', {
+        screen: 'Tickets',
+        params: { openTicketId: String(complaintId) },
+      });
+      return;
+    }
+
+    if (offerId) {
+      console.log('OPENING OFFER FROM IN-APP NOTIFICATION:', offerId);
+
+      navigation.navigate('Main', {
+        screen: 'Client Offers',
+        params: { openOfferId: String(offerId) },
+      });
+      return;
+    }
+
+    console.log('Notification has no linked ticket or offer:', item._id);
+  };
+
+  // =====================================================
   // MARK ALL AS READ
   // =====================================================
 
@@ -184,6 +229,7 @@ const Notification = () => {
   const getNotificationIcon = (type: NotificationItem['type']) => {
     if (type === 'NEW_TICKET') return 'ticket-outline';
     if (type === 'STATUS_UPDATE') return 'checkmark-circle-outline';
+    if (type === 'OFFER') return 'pricetag-outline';
     return 'notifications-outline';
   };
 
@@ -194,7 +240,7 @@ const Notification = () => {
   const renderNotification = ({ item }: { item: NotificationItem }) => (
     <TouchableOpacity
       activeOpacity={0.8}
-      onPress={() => markAsRead(item._id)}
+      onPress={() => handleNotificationPress(item)}
       style={[styles.notificationCard, !item.read && styles.unreadCard]}
     >
       <View style={styles.iconContainer}>

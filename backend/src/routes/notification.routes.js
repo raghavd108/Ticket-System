@@ -4,6 +4,7 @@ const Router = express.Router();
 
 const notificationController = require("../controller/notification.controller");
 const authMiddleware = require("../middleware/authMiddleware");
+
 const { notificationLimiter } = require("../middleware/rateLimit.middleware");
 
 // =====================================================
@@ -40,12 +41,15 @@ Router.get(
 // Access:
 // SuperAdmin
 // CEO / CTO (canNotifyEmployees = true)
+//
+// IMPORTANT:
+// Read-only endpoint.
+// Does NOT consume notification send limits.
 // =====================================================
 
 Router.get(
   "/employee-directory",
   authMiddleware.verifyEmployeeNotificationAccess,
-  notificationLimiter,
   notificationController.getEmployeeDirectory,
 );
 
@@ -61,6 +65,9 @@ Router.get(
 // Access:
 // SuperAdmin
 // CEO / CTO (canNotifyEmployees = true)
+//
+// Rate limit:
+// 10 requests per 5 minutes per authenticated user.
 // =====================================================
 
 Router.post(
@@ -98,12 +105,15 @@ Router.patch(
 // POST /api/notification/custom-notification
 //
 // Preserved for existing admin functionality.
+//
+// IMPORTANT:
+// Authenticate admin BEFORE applying rate limiter.
 // =====================================================
 
 Router.post(
   "/custom-notification",
-  notificationLimiter,
   authMiddleware.verifyAdmin,
+  notificationLimiter,
   notificationController.customNotification,
 );
 

@@ -1,4 +1,5 @@
-import notifee, { AndroidImportance } from '@notifee/react-native';
+import notifee, { AndroidImportance, EventType } from '@notifee/react-native';
+
 import { getMessaging, onMessage } from '@react-native-firebase/messaging';
 
 // =====================================================
@@ -18,6 +19,13 @@ type NotificationMessage = {
   };
 };
 
+export type NotificationPressData = {
+  [key: string]: string | object | undefined;
+  type?: string;
+  complaintId?: string;
+  offerId?: string;
+};
+
 // =====================================================
 // NOTIFICATION CHANNEL IDS
 // =====================================================
@@ -26,9 +34,11 @@ const CHANNEL_NEW_TICKET = 'new_ticket';
 const CHANNEL_STATUS_UPDATE = 'status_update';
 const CHANNEL_CUSTOM = 'custom_notification';
 const CHANNEL_LEAVE = 'leave_notifications';
+const CHANNEL_OFFER = 'offer_notifications';
 
 // Android drawable resource name, without extension.
 // Create this resource in android/app/src/main/res/drawable/.
+
 const NOTIFICATION_ICON = 'ic_notification';
 
 // =====================================================
@@ -61,6 +71,14 @@ export const createNotificationChannel = async () => {
     await notifee.createChannel({
       id: CHANNEL_LEAVE,
       name: 'Leave Notifications',
+      importance: AndroidImportance.HIGH,
+      sound: 'default',
+    });
+
+    // NEW: OFFER CHANNEL
+    await notifee.createChannel({
+      id: CHANNEL_OFFER,
+      name: 'Client Offer Notifications',
       importance: AndroidImportance.HIGH,
       sound: 'default',
     });
@@ -135,6 +153,8 @@ const displayNotification = async (
     await notifee.displayNotification({
       title: getMessageTitle(remoteMessage, defaultTitle),
       body: getMessageBody(remoteMessage),
+
+      // Preserve the original payload for notification navigation.
       data: remoteMessage.data,
 
       android: {
@@ -213,6 +233,18 @@ const displayLeaveNotification = async (remoteMessage: NotificationMessage) => {
 };
 
 // =====================================================
+// NEW: DISPLAY OFFER NOTIFICATION
+// =====================================================
+
+const displayOfferNotification = async (remoteMessage: NotificationMessage) => {
+  await displayNotification(
+    remoteMessage,
+    CHANNEL_OFFER,
+    'New Offer Available',
+  );
+};
+
+// =====================================================
 // FOREGROUND NOTIFICATION HANDLER
 // =====================================================
 
@@ -251,6 +283,11 @@ export const setupForegroundNotification = () => {
           await displayCustomNotification(remoteMessage);
           break;
 
+        // NEW: OFFER
+        case 'OFFER':
+          await displayOfferNotification(remoteMessage);
+          break;
+
         default:
           console.log('Notification ignored. Unknown type:', notificationType);
           break;
@@ -261,4 +298,32 @@ export const setupForegroundNotification = () => {
   });
 
   return unsubscribe;
+};
+
+// =====================================================
+// NEW: FOREGROUND NOTIFICATION PRESS HANDLER
+// =====================================================
+
+// Call this from App.tsx.
+// Pass the received data to your existing navigation handler.
+
+export const setupNotificationPressHandler = (
+  onNotificationPress: (data: NotificationPressData) => void,
+) => {
+  return notifee.onForegroundEvent(({ type, detail }) => {
+    if (type !== EventType.PRESS) {
+      return;
+    }
+
+    const data = detail.notification?.data;
+
+    if (!data) {
+      console.log('Notification pressed without data');
+      return;
+    }
+
+    console.log('FOREGROUND NOTIFICATION PRESSED:', data);
+
+    onNotificationPress(data as NotificationPressData);
+  });
 };

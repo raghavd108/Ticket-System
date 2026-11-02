@@ -1134,9 +1134,13 @@ const ClientPage = () => {
 
     if (!userId || (!isEmployee && !isClient)) return;
 
-    // Changing another user's password is a SuperAdmin-only operation.
-    if (newPassword.length > 0 && !isSuperAdmin) {
-      Alert.alert(copy.permissionRequiredTitle, copy.superAdminPasswordOnly);
+    // Managers may request password resets for users below their level.
+    // The backend must independently enforce the management hierarchy.
+    if (newPassword.length > 0 && !canManageUsers) {
+      Alert.alert(
+        copy.permissionRequiredTitle,
+        'You do not have permission to reset this user’s password.',
+      );
       return;
     }
 
@@ -1663,44 +1667,52 @@ const ClientPage = () => {
                   </TouchableOpacity>
                 </View>
               ) : (
-                organisations.map(item => {
-                  const selected = organisation === item._id;
+                organisations
+                  .filter(
+                    item =>
+                      String(item.name || '')
+                        .trim()
+                        .toLowerCase() !==
+                      DEFAULT_EMPLOYEE_ORGANISATION.toLowerCase(),
+                  )
+                  .map(item => {
+                    const selected = organisation === item._id;
 
-                  return (
-                    <TouchableOpacity
-                      key={item._id}
-                      onPress={() => selectOrganisation(item)}
-                      activeOpacity={0.7}
-                      style={{
-                        paddingHorizontal: 15,
-                        paddingVertical: 14,
-                        borderBottomWidth: 1,
-                        borderBottomColor: theme.divider,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <Text
+                    return (
+                      <TouchableOpacity
+                        key={item._id}
+                        onPress={() => selectOrganisation(item)}
+                        activeOpacity={0.7}
                         style={{
-                          fontSize: 15,
-                          color: selected ? theme.primary : theme.ink,
-                          fontWeight: selected ? '700' : '500',
+                          paddingHorizontal: 15,
+                          paddingVertical: 14,
+                          borderBottomWidth: 1,
+                          borderBottomColor: theme.divider,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
                         }}
                       >
-                        {item.name}
-                      </Text>
+                        <Text
+                          style={{
+                            fontSize: 15,
+                            color: selected ? theme.primary : theme.ink,
+                            fontWeight: selected ? '700' : '500',
+                          }}
+                        >
+                          {item.name}
+                        </Text>
 
-                      {selected && (
-                        <Ionicons
-                          name="checkmark"
-                          size={18}
-                          color={theme.primary}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })
+                        {selected && (
+                          <Ionicons
+                            name="checkmark"
+                            size={18}
+                            color={theme.primary}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })
               )}
 
               <TouchableOpacity
@@ -2243,6 +2255,7 @@ const ClientPage = () => {
             allowCreate={canManageUsers}
             isSuperAdmin={isSuperAdmin}
             canManageUsers={canManageUsers}
+            managementLevel={currentUser?.permissions?.managementLevel ?? 0}
           />
         </View>
 
@@ -3669,12 +3682,15 @@ const ClientPage = () => {
                     allowCreate={canManageUsers}
                     isSuperAdmin={isSuperAdmin}
                     canManageUsers={canManageUsers}
+                    managementLevel={
+                      currentUser?.permissions?.managementLevel ?? 0
+                    }
                   />
                 </View>
               )}
 
-              {/* OPTIONAL PASSWORD UPDATE - SUPERADMIN ONLY */}
-              {isSuperAdmin && (
+              {/* OPTIONAL PASSWORD UPDATE - AUTHORIZED MANAGERS */}
+              {canManageUsers && (
                 <View style={{ marginBottom: 14 }}>
                   <Text
                     style={{

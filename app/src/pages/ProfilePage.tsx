@@ -259,7 +259,7 @@ const ProfilePage = () => {
       return;
     }
 
-    if (newPassword.length < 6) {
+    if (newPassword.length < 8) {
       Alert.alert(copy.weakPasswordTitle, copy.passwordMinLength);
       return;
     }

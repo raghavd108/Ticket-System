@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Keyboard,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -39,6 +40,7 @@ const ReportPage = () => {
 
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const scrollViewRef = useRef<React.ElementRef<typeof ScrollView>>(null);
 
   const { theme } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -202,6 +204,10 @@ const ReportPage = () => {
 
       setMessage(copy.submitSuccess);
 
+      // Hide the keyboard and reveal the success message at the top of the page.
+      Keyboard.dismiss();
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+
       setModule('');
       setProblem('');
       setImage([]);
@@ -222,6 +228,7 @@ const ReportPage = () => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        ref={scrollViewRef}
         style={styles.container}
         contentContainerStyle={styles.clientContent}
         keyboardShouldPersistTaps="handled"

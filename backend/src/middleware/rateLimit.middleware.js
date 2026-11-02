@@ -1,7 +1,23 @@
 const { rateLimit } = require("express-rate-limit");
 
 // =====================================================
+// PER-USER KEY GENERATOR
+//
+// Must be used AFTER verifyToken / authentication.
+// Uses the authenticated database user ID.
+// =====================================================
+
+const userKeyGenerator = (req) => {
+  if (!req.user?.id) {
+    return "missing-authenticated-user";
+  }
+
+  return `user:${req.user.id}`;
+};
+
+// =====================================================
 // GENERAL API RATE LIMITER
+// OLD LOGIC PRESERVED
 // =====================================================
 
 const generalLimiter = rateLimit({
@@ -19,6 +35,7 @@ const generalLimiter = rateLimit({
 
 // =====================================================
 // LOGIN RATE LIMITER
+// OLD LOGIC PRESERVED
 // =====================================================
 
 const authLimiter = rateLimit({
@@ -30,17 +47,19 @@ const authLimiter = rateLimit({
   message: {
     success: false,
     code: "AUTH_RATE_LIMIT_EXCEEDED",
-    message: "Too many login attempts. Please try again after 15 minutes.",
+    message: "Too many login attempts. Please try again after 30 seconds.",
   },
 });
 
 // =====================================================
 // REGISTRATION RATE LIMITER
+// 10 REQUESTS / 15 MINUTES / USER
 // =====================================================
 
 const registerLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
+  keyGenerator: userKeyGenerator,
   standardHeaders: "draft-8",
   legacyHeaders: false,
 
@@ -53,11 +72,13 @@ const registerLimiter = rateLimit({
 
 // =====================================================
 // PASSWORD UPDATE RATE LIMITER
+// 5 REQUESTS / 15 MINUTES / USER
 // =====================================================
 
 const passwordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 5,
+  keyGenerator: userKeyGenerator,
   standardHeaders: "draft-8",
   legacyHeaders: false,
 
@@ -70,6 +91,7 @@ const passwordLimiter = rateLimit({
 
 // =====================================================
 // FILE UPLOAD RATE LIMITER
+// OLD LOGIC PRESERVED
 // =====================================================
 
 const uploadLimiter = rateLimit({
@@ -85,6 +107,11 @@ const uploadLimiter = rateLimit({
   },
 });
 
+// =====================================================
+// ATTENDANCE RATE LIMITER
+// OLD LOGIC PRESERVED
+// =====================================================
+
 const attendanceLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 20,
@@ -97,6 +124,11 @@ const attendanceLimiter = rateLimit({
     message: "Too many attendance requests. Please try again after 15 minutes.",
   },
 });
+
+// =====================================================
+// LEAVE RATE LIMITER
+// OLD LOGIC PRESERVED
+// =====================================================
 
 const leaveLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -111,9 +143,15 @@ const leaveLimiter = rateLimit({
   },
 });
 
+// =====================================================
+// NOTIFICATION RATE LIMITER
+// 10 REQUESTS / 5 MINUTES / USER
+// =====================================================
+
 const notificationLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  limit: 3,
+  windowMs: 5 * 60 * 1000,
+  limit: 10,
+  keyGenerator: userKeyGenerator,
 
   standardHeaders: "draft-8",
   legacyHeaders: false,

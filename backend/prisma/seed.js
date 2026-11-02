@@ -30,10 +30,18 @@ const DEFAULT_TICKET_STATUSES = [
 // Higher managementLevel means greater authority.
 // SuperAdmin has an effective level of 999999.
 //
-// canNotifyEmployees:
-// - CEO: true
-// - CTO: true
-// - All other designations: false
+// Permission rules:
+// CEO:
+//   canNotifyEmployees = true
+//   canPublishOffers = true
+//
+// CTO:
+//   canNotifyEmployees = true
+//   canPublishOffers = true
+//
+// All other default designations:
+//   canNotifyEmployees = false
+//   canPublishOffers = false
 //
 // SuperAdmin access is controlled separately through
 // User.isSuperAdmin.
@@ -44,6 +52,7 @@ const DEFAULT_DESIGNATIONS = [
     canViewAllTickets: true,
     canAssignTickets: true,
     canManageUsers: true,
+    canPublishOffers: false,
     canNotifyEmployees: false,
     managementLevel: 80,
   },
@@ -52,6 +61,7 @@ const DEFAULT_DESIGNATIONS = [
     canViewAllTickets: true,
     canAssignTickets: true,
     canManageUsers: true,
+    canPublishOffers: true,
     canNotifyEmployees: true,
     managementLevel: 100,
   },
@@ -60,6 +70,7 @@ const DEFAULT_DESIGNATIONS = [
     canViewAllTickets: true,
     canAssignTickets: true,
     canManageUsers: true,
+    canPublishOffers: true,
     canNotifyEmployees: true,
     managementLevel: 90,
   },
@@ -68,6 +79,7 @@ const DEFAULT_DESIGNATIONS = [
     canViewAllTickets: true,
     canAssignTickets: true,
     canManageUsers: false,
+    canPublishOffers: false,
     canNotifyEmployees: false,
     managementLevel: 0,
   },
@@ -76,6 +88,7 @@ const DEFAULT_DESIGNATIONS = [
     canViewAllTickets: true,
     canAssignTickets: true,
     canManageUsers: false,
+    canPublishOffers: false,
     canNotifyEmployees: false,
     managementLevel: 0,
   },
@@ -84,6 +97,7 @@ const DEFAULT_DESIGNATIONS = [
     canViewAllTickets: true,
     canAssignTickets: true,
     canManageUsers: false,
+    canPublishOffers: false,
     canNotifyEmployees: false,
     managementLevel: 0,
   },
@@ -92,6 +106,7 @@ const DEFAULT_DESIGNATIONS = [
     canViewAllTickets: false,
     canAssignTickets: false,
     canManageUsers: false,
+    canPublishOffers: false,
     canNotifyEmployees: false,
     managementLevel: 0,
   },
@@ -134,6 +149,9 @@ async function main() {
           canAssignTickets: designation.canAssignTickets,
           canManageUsers: designation.canManageUsers,
 
+          // Offer publishing permission
+          canPublishOffers: designation.canPublishOffers,
+
           // Employee notification permission
           canNotifyEmployees: designation.canNotifyEmployees,
 
@@ -145,6 +163,9 @@ async function main() {
           canViewAllTickets: designation.canViewAllTickets,
           canAssignTickets: designation.canAssignTickets,
           canManageUsers: designation.canManageUsers,
+
+          // Offer publishing permission
+          canPublishOffers: designation.canPublishOffers,
 
           // Employee notification permission
           canNotifyEmployees: designation.canNotifyEmployees,
@@ -264,6 +285,10 @@ async function main() {
 
       select: {
         name: true,
+        canViewAllTickets: true,
+        canAssignTickets: true,
+        canManageUsers: true,
+        canPublishOffers: true,
         canNotifyEmployees: true,
         managementLevel: true,
       },
@@ -304,15 +329,19 @@ async function main() {
   console.log("DESIGNATION PERMISSIONS");
 
   result.designations.forEach((designation) => {
-    console.log(
-      `${designation.name}: canNotifyEmployees = ${designation.canNotifyEmployees}`,
-    );
+    console.log("");
+    console.log("Designation:", designation.name);
+    console.log("canViewAllTickets:", designation.canViewAllTickets);
+    console.log("canAssignTickets:", designation.canAssignTickets);
+    console.log("canManageUsers:", designation.canManageUsers);
+    console.log("canPublishOffers:", designation.canPublishOffers);
+    console.log("canNotifyEmployees:", designation.canNotifyEmployees);
+    console.log("managementLevel:", designation.managementLevel);
   });
 
   console.log("--------------------------------------");
 
   console.log("Default password for a newly created account: Admin@123");
-
   console.log("Existing admin passwords are not reset.");
 
   console.log("======================================");

@@ -108,7 +108,7 @@ const en = {
     loginTitle: 'Log in to your account',
     loginSubtitle: 'Enter your account details to continue.',
     usernameLabel: 'Username',
-    usernamePlaceholder: 'Enter your username, email or mobile number',
+    usernamePlaceholder: 'Enter your username, email or mobile',
     passwordLabel: 'Password',
     passwordPlaceholder: 'Enter your password',
     confirmPassword: 'Confirm password',
@@ -245,7 +245,8 @@ const en = {
   // =====================================================
   search: {
     title: 'Search tickets',
-    description: 'Search tickets by organisation or module.',
+    description:
+      'Search tickets by organisation, module, or problem description.',
     placeholder: 'Search tickets...',
     searchButton: 'Search',
     loadingMore: 'Loading more tickets...',

@@ -68,24 +68,15 @@ function getManagementLevel(user) {
   );
 }
 
-function isElevatedDesignation(designation) {
-  return Boolean(
-    designation &&
-    (designation.canManageUsers === true ||
-      designation.canViewAllTickets === true ||
-      Number(designation.managementLevel || 0) > 0),
-  );
-}
-
 function getActorOrganisationId(user) {
   return String(
     user?.organisation?.id || user?.organisationId || user?.organisation || "",
   );
 }
 
-// SuperAdmin can access users across organisations.
-// Other managers can access employees in their organisation
-// and clients assigned to employees in their organisation.
+// =====================================================
+// MANAGEABLE USER QUERY
+// =====================================================
 
 function manageableUserWhere(organisationId, superAdmin = false) {
   if (superAdmin) {
@@ -116,13 +107,18 @@ function manageableUserWhere(organisationId, superAdmin = false) {
   };
 }
 
-// A manager can only modify a strictly lower management level.
-// SuperAdmin can manage all accounts.
+// =====================================================
+// HIERARCHY PERMISSION
+// =====================================================
 
 function canManageTarget(actor, target) {
   if (isSuperAdmin(actor)) return true;
+
   if (!isManagementUser(actor)) return false;
-  if (!target || target.isSuperAdmin === true) return false;
+
+  if (!target || target.isSuperAdmin === true) {
+    return false;
+  }
 
   return getManagementLevel(actor) > getManagementLevel(target);
 }
@@ -161,10 +157,8 @@ function serializeUser(user) {
     _id: user.id,
   };
 
-  // Always return a consistent permissions object.
   result.permissions = buildUserPermissions(user);
 
-  // Return designation permissions to the frontend.
   if (designationRef) {
     result.designationRef = {
       name: designationRef.name || user.designation || null,
@@ -208,7 +202,6 @@ function serializeUser(user) {
 
 // =====================================================
 // REGISTER USER
-// SuperAdmin or users with canManageUsers
 // =====================================================
 
 async function register(req, res) {
@@ -244,7 +237,6 @@ async function register(req, res) {
       });
     }
 
-    // Only SuperAdmin can create admin-role accounts.
     if (role === "admin" && !isSuperAdmin(actor)) {
       return res.status(403).json({
         message: "Only SuperAdmin can create admin accounts",
@@ -283,15 +275,18 @@ async function register(req, res) {
       });
     }
 
-    // Only SuperAdmin can assign elevated designations.
+    // Managers can create only employees below their own level.
     if (
       role === "employee" &&
-      isElevatedDesignation(designationRecord) &&
-      !isSuperAdmin(actor)
+      !canManageTarget(actor, {
+        isSuperAdmin: false,
+        designationRef: designationRecord,
+      })
     ) {
       return res.status(403).json({
         code: "ELEVATED_DESIGNATION_FORBIDDEN",
-        message: "Only SuperAdmin can assign elevated designations",
+        message:
+          "You can only create employees with a designation lower than your own management level",
       });
     }
 
@@ -335,7 +330,10 @@ async function register(req, res) {
       where: {
         OR: [
           { userName: normalizedUserName },
-          { organisationId: org.id, email: normalizedEmail },
+          {
+            organisationId: org.id,
+            email: normalizedEmail,
+          },
         ],
       },
       select: { id: true },
@@ -403,7 +401,6 @@ async function register(req, res) {
         designation: designationRecord ? designationRecord.name : null,
         mobileNumber: role === "employee" ? normalizedMobileNumber : null,
 
-        // Never accept isSuperAdmin from req.body.
         isSuperAdmin: false,
 
         ...(role === "client" && employeeIds.length > 0
@@ -1086,7 +1083,7 @@ async function updateUser(req, res) {
       });
     }
 
-    // Enforce strict management hierarchy.
+    // Strict hierarchy enforcement.
     if (!canManageTarget(actor, target)) {
       return managementDenied(res);
     }
@@ -1144,15 +1141,9 @@ async function updateUser(req, res) {
       data.mobileNumber = value || null;
     }
 
-    // Only SuperAdmin can change another user's password.
+    // A manager who passed the hierarchy check can reset
+    // the password of a strictly lower-level account.
     if (password !== undefined && password !== "") {
-      if (!superAdmin) {
-        return res.status(403).json({
-          code: "PASSWORD_CHANGE_FORBIDDEN",
-          message: "Only SuperAdmin can change another user's password",
-        });
-      }
-
       if (typeof password !== "string" || !password.trim()) {
         return res.status(400).json({
           message: "Password must be a valid non-empty string",
@@ -1166,9 +1157,11 @@ async function updateUser(req, res) {
       }
 
       data.password = await bcrypt.hash(password, 10);
+
       data.tokenVersion = {
         increment: 1,
       };
+
       data.fcmToken = null;
     }
 
@@ -1187,11 +1180,18 @@ async function updateUser(req, res) {
         });
       }
 
-      // Only SuperAdmin can grant elevated permissions.
-      if (isElevatedDesignation(designationRecord) && !superAdmin) {
+      // Prevent promotion to an equal or higher level.
+      if (
+        !canManageTarget(actor, {
+          ...target,
+          isSuperAdmin: false,
+          designationRef: designationRecord,
+        })
+      ) {
         return res.status(403).json({
           code: "ELEVATED_DESIGNATION_FORBIDDEN",
-          message: "Only SuperAdmin can assign elevated designations",
+          message:
+            "You can only assign a designation lower than your own management level",
         });
       }
 
@@ -1540,6 +1540,7 @@ async function revokeUser(req, res) {
       });
     }
 
+    // Strict hierarchy check.
     if (!canManageTarget(actor, target)) {
       return managementDenied(res);
     }
@@ -1630,6 +1631,7 @@ async function restoreUser(req, res) {
       });
     }
 
+    // Strict hierarchy check.
     if (!canManageTarget(actor, target)) {
       return managementDenied(res);
     }

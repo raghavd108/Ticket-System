@@ -37,13 +37,17 @@ function canManageDesignations(user) {
   return isSuperAdmin(user) || getPermissions(user).canManageUsers === true;
 }
 
+function getActorManagementLevel(user) {
+  return getPermissions(user).managementLevel;
+}
+
 function isElevatedDesignation(designation) {
-  return (
+  return Boolean(
     designation?.canManageUsers === true ||
     designation?.canViewAllTickets === true ||
     designation?.canPublishOffers === true ||
     designation?.canNotifyEmployees === true ||
-    Number(designation?.managementLevel || 0) > 0
+    Number(designation?.managementLevel || 0) > 0,
   );
 }
 
@@ -93,6 +97,10 @@ function readPermissions(body, actor) {
     }
   }
 
+  // =====================================================
+  // MANAGEMENT LEVEL
+  // =====================================================
+
   if (body?.managementLevel !== undefined) {
     const level = body.managementLevel;
 
@@ -112,16 +120,15 @@ function readPermissions(body, actor) {
     data.managementLevel = level;
   }
 
-  // Prevent permission escalation.
+  // =====================================================
+  // PREVENT PERMISSION ESCALATION
+  // =====================================================
+
   const finalPermissions = {
     canViewAllTickets: data.canViewAllTickets ?? false,
-
     canManageUsers: data.canManageUsers ?? false,
-
     canPublishOffers: data.canPublishOffers ?? false,
-
     canNotifyEmployees: data.canNotifyEmployees ?? false,
-
     managementLevel: data.managementLevel ?? 0,
   };
 
@@ -144,16 +151,56 @@ function readPermissions(body, actor) {
 
 // =====================================================
 // GET /api/designations
+//
+// SuperAdmin:
+//   Can see all designations.
+//
+// CEO (100):
+//   Can see designations below level 100.
+//
+// CTO (90):
+//   Can see designations below level 90.
+//
+// Other managers:
+//   Can see designations below their own level.
 // =====================================================
 
 async function getDesignations(req, res) {
   try {
+    const actor = req.user;
+
+    if (!canManageDesignations(actor)) {
+      return res.status(403).json({
+        success: false,
+        message: "You do not have permission to view designations",
+      });
+    }
+
+    let where = {};
+
+    if (!isSuperAdmin(actor)) {
+      const actorLevel = getActorManagementLevel(actor);
+
+      where = {
+        managementLevel: {
+          lt: actorLevel,
+        },
+      };
+    }
+
     const designations = await prisma.designation.findMany({
+      where,
+
       select: designationSelect,
 
-      orderBy: {
-        name: "asc",
-      },
+      orderBy: [
+        {
+          managementLevel: "desc",
+        },
+        {
+          name: "asc",
+        },
+      ],
     });
 
     return res.status(200).json({
@@ -176,7 +223,9 @@ async function getDesignations(req, res) {
 
 async function createDesignation(req, res) {
   try {
-    if (!canManageDesignations(req.user)) {
+    const actor = req.user;
+
+    if (!canManageDesignations(actor)) {
       return res.status(403).json({
         success: false,
         message: "You do not have permission to create designations",
@@ -191,7 +240,7 @@ async function createDesignation(req, res) {
       });
     }
 
-    const { data, error, status } = readPermissions(req.body, req.user);
+    const { data, error, status } = readPermissions(req.body, actor);
 
     if (error) {
       return res.status(status || 400).json({
@@ -247,7 +296,9 @@ async function createDesignation(req, res) {
 
 async function updateDesignation(req, res) {
   try {
-    if (!canManageDesignations(req.user)) {
+    const actor = req.user;
+
+    if (!canManageDesignations(actor)) {
       return res.status(403).json({
         success: false,
         message: "You do not have permission to update designations",
@@ -273,9 +324,8 @@ async function updateDesignation(req, res) {
       });
     }
 
-    // Non-SuperAdmin users cannot modify
-    // existing elevated designations.
-    if (!isSuperAdmin(req.user) && isElevatedDesignation(existingDesignation)) {
+    // Only SuperAdmin can modify elevated designation definitions.
+    if (!isSuperAdmin(actor) && isElevatedDesignation(existingDesignation)) {
       return res.status(403).json({
         success: false,
         message:
@@ -283,7 +333,7 @@ async function updateDesignation(req, res) {
       });
     }
 
-    const { data, error, status } = readPermissions(req.body, req.user);
+    const { data, error, status } = readPermissions(req.body, actor);
 
     if (error) {
       return res.status(status || 400).json({
@@ -291,6 +341,10 @@ async function updateDesignation(req, res) {
         message: error,
       });
     }
+
+    // =====================================================
+    // UPDATE NAME
+    // =====================================================
 
     if (req.body?.name !== undefined) {
       const name = String(req.body.name).trim();
@@ -310,21 +364,30 @@ async function updateDesignation(req, res) {
       });
     }
 
+    // =====================================================
+    // FINAL PERMISSION VALIDATION
+    // =====================================================
+
     const finalDesignation = {
       ...existingDesignation,
       ...data,
     };
 
-    if (!isSuperAdmin(req.user) && isElevatedDesignation(finalDesignation)) {
+    if (!isSuperAdmin(actor) && isElevatedDesignation(finalDesignation)) {
       return res.status(403).json({
         success: false,
         message: "Only SuperAdmin can assign elevated permissions",
       });
     }
 
+    // =====================================================
+    // UPDATE DESIGNATION
+    // =====================================================
+
     const designation = await prisma.designation.update({
       where: { id },
       data,
+
       select: designationSelect,
     });
 

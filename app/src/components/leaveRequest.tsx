@@ -514,33 +514,6 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
           </View>
         </View>
 
-        {/* EMPLOYEE INFORMATION */}
-        <View style={styles.employeeBadge}>
-          <Ionicons
-            name="person-circle-outline"
-            size={22}
-            color={colors.primary}
-          />
-
-          <View style={styles.employeeInfo}>
-            <Text style={styles.employeeLabel}>Employee ID</Text>
-
-            <Text
-              style={styles.employeeValue}
-              numberOfLines={1}
-              ellipsizeMode="middle"
-            >
-              {employeeId || 'Loading employee profile...'}
-            </Text>
-          </View>
-
-          <Ionicons
-            name="shield-checkmark-outline"
-            size={19}
-            color={colors.success}
-          />
-        </View>
-
         {/* LEAVE APPLICATION FORM */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>New application</Text>

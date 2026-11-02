@@ -9,6 +9,7 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  RefreshControl,
   KeyboardAvoidingView,
   Platform,
   SafeAreaView,
@@ -37,6 +38,7 @@ type ModalType =
   | 'designation'
   | 'calendar'
   | 'offers'
+  | 'feedback'
   | null;
 
 interface CurrentUser {
@@ -54,17 +56,41 @@ interface CurrentUser {
     canNotifyEmployees?: boolean;
   };
   permissions?: {
+    canViewAllTickets?: boolean;
+    canAssignTickets?: boolean;
     canManageUsers?: boolean;
     canPublishOffers?: boolean;
     canNotifyEmployees?: boolean;
+    managementLevel?: number;
   };
+}
+
+interface ClientFeedbackItem {
+  id: string;
+  rating: number;
+  message: string;
+  createdAt: string;
+  client?: {
+    id?: string;
+    userName?: string;
+    email?: string;
+  };
+  organisation?: {
+    id?: string;
+    name?: string;
+  };
+}
+
+interface FeedbackStatistics {
+  total: number;
+  averageRating: number;
 }
 
 interface ManageItem {
   title: string;
   subtitle: string;
   icon: string;
-  permission: string[];
+  permission: 'canManageUsers' | 'canPublishOffers' | 'canNotifyEmployees';
   modal?: ModalType;
 }
 
@@ -73,54 +99,50 @@ const manageItems: ManageItem[] = [
     title: en.manage.items.sendNotification.title,
     subtitle: en.manage.items.sendNotification.subtitle,
     icon: 'notifications-outline',
-    permission: ['admin', 'ceo', 'cto'],
+    permission: 'canNotifyEmployees',
     modal: 'notification',
   },
   {
     title: en.manage.items.offers.title,
     subtitle: en.manage.items.offers.subtitle,
     icon: 'pricetag-outline',
-    permission: ['admin', 'ceo', 'cto'],
+    permission: 'canPublishOffers',
     modal: 'offers',
   },
   {
     title: en.manage.items.clientFeedback.title,
     subtitle: en.manage.items.clientFeedback.subtitle,
     icon: 'chatbubbles-outline',
-    permission: ['admin', 'ceo', 'cto'],
+    permission: 'canManageUsers',
+    modal: 'feedback',
   },
-  {
-    title: en.manage.items.attendanceReports.title,
-    subtitle: en.manage.items.attendanceReports.subtitle,
-    icon: 'calendar-outline',
-    permission: ['admin', 'ceo', 'cto'],
-  },
+
   {
     title: en.manage.items.leaveManagement.title,
     subtitle: en.manage.items.leaveManagement.subtitle,
     icon: 'briefcase-outline',
-    permission: ['admin', 'ceo', 'cto'],
+    permission: 'canManageUsers',
     modal: 'leave',
   },
   {
     title: en.manage.items.companyCalendar.title,
     subtitle: en.manage.items.companyCalendar.subtitle,
     icon: 'today-outline',
-    permission: ['admin', 'ceo', 'cto'],
+    permission: 'canManageUsers',
     modal: 'calendar',
   },
   {
     title: en.manage.items.designations.title,
     subtitle: en.manage.items.designations.subtitle,
     icon: 'people-outline',
-    permission: ['admin', 'ceo', 'cto'],
+    permission: 'canManageUsers',
     modal: 'designation',
   },
   {
     title: en.manage.items.organisationCategories.title,
     subtitle: en.manage.items.organisationCategories.subtitle,
     icon: 'layers-outline',
-    permission: ['admin', 'ceo', 'cto'],
+    permission: 'canManageUsers',
     modal: 'organisation',
   },
 ];
@@ -141,44 +163,118 @@ const ManagePage: React.FC = () => {
   // Designation
   const [designation, setDesignation] = useState('');
 
+  // Client feedback
+  const [feedbackList, setFeedbackList] = useState<ClientFeedbackItem[]>([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackRefreshing, setFeedbackRefreshing] = useState(false);
+  const [feedbackPage, setFeedbackPage] = useState(1);
+  const [feedbackTotalPages, setFeedbackTotalPages] = useState(1);
+  const [feedbackStatistics, setFeedbackStatistics] =
+    useState<FeedbackStatistics>({ total: 0, averageRating: 0 });
+
   const styles = useMemo(() => createStyles(theme), [theme]);
-
-  const normalizedRole = String(user?.role || '')
-    .trim()
-    .toLowerCase();
-
-  const normalizedDesignation = String(user?.designation || '')
-    .trim()
-    .toLowerCase();
-
-  const isAdmin = normalizedRole === 'admin';
-
-  const isCEOorCTO =
-    normalizedRole === 'employee' &&
-    ['ceo', 'cto'].includes(normalizedDesignation);
+  const permissions = user?.permissions;
 
   const isSuperAdmin = user?.isSuperAdmin === true;
 
-  const canManage = isSuperAdmin || isAdmin || isCEOorCTO;
+  const hasPermission = (
+    permission: 'canManageUsers' | 'canPublishOffers' | 'canNotifyEmployees',
+  ): boolean => {
+    // SuperAdmin has access to all management features.
+    if (isSuperAdmin) {
+      return true;
+    }
 
-  const canManageUsers =
-    isSuperAdmin || user?.permissions?.canManageUsers === true;
+    return permissions?.[permission] === true;
+  };
 
-  // Only SuperAdmin and employees whose designation has
-  // canNotifyEmployees permission can access this feature.
-  const canSendEmployeeNotifications =
+  const canManageUsers = hasPermission('canManageUsers');
+  const canPublishOffers = hasPermission('canPublishOffers');
+  const canSendEmployeeNotifications = hasPermission('canNotifyEmployees');
+
+  const canManage =
     isSuperAdmin ||
-    (normalizedRole === 'employee' &&
-      (user?.permissions?.canNotifyEmployees === true ||
-        user?.designationRef?.canNotifyEmployees === true));
+    canManageUsers ||
+    canPublishOffers ||
+    canSendEmployeeNotifications;
 
-  // -----------------------------------------
-  // GET AUTHENTICATED USER
-  // -----------------------------------------
+  const fetchClientFeedback = async (page = 1, refreshing = false) => {
+    try {
+      if (refreshing) {
+        setFeedbackRefreshing(true);
+      } else {
+        setFeedbackLoading(true);
+      }
+
+      const token = await AsyncStorage.getItem('token');
+
+      if (!token) {
+        throw new Error(en.errors.authentication);
+      }
+
+      const response = await axios.get(`${API_URL}/api/feedback`, {
+        params: { page, limit: 10 },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const payload = response.data || {};
+      const nestedData = payload.data || {};
+      const list =
+        payload.feedback ||
+        payload.items ||
+        (Array.isArray(payload.data) ? payload.data : null) ||
+        nestedData.feedback ||
+        nestedData.items ||
+        [];
+
+      const pagination = payload.pagination || nestedData.pagination || {};
+      const statistics = payload.statistics || nestedData.statistics || {};
+
+      setFeedbackList(Array.isArray(list) ? list : []);
+      setFeedbackPage(Number(pagination.page || page));
+      setFeedbackTotalPages(
+        Math.max(1, Number(pagination.totalPages || pagination.pages || 1)),
+      );
+      setFeedbackStatistics({
+        total: Number(
+          statistics.totalFeedback ??
+            statistics.total ??
+            pagination.total ??
+            (Array.isArray(list) ? list.length : 0),
+        ),
+        averageRating: Number(
+          statistics.averageRating ??
+            statistics.avgRating ??
+            statistics.average ??
+            0,
+        ),
+      });
+    } catch (error: any) {
+      console.log(
+        'FETCH CLIENT FEEDBACK ERROR:',
+        error?.response?.data || error,
+      );
+      Alert.alert(
+        'Unable to load feedback',
+        error?.response?.data?.message || error?.message || 'Please try again.',
+      );
+    } finally {
+      setFeedbackLoading(false);
+      setFeedbackRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     getCurrentUser();
   }, []);
+
+  useEffect(() => {
+    if (activeModal === 'feedback') {
+      fetchClientFeedback(1);
+    }
+  }, [activeModal]);
 
   const getCurrentUser = async () => {
     try {
@@ -224,7 +320,20 @@ const ManagePage: React.FC = () => {
       return;
     }
 
-    if (modal === 'designation' && !canManageUsers) {
+    if (modal === 'offers' && !canPublishOffers) {
+      Alert.alert(en.manage.accessDeniedTitle, en.manage.featureAccessDenied);
+      return;
+    }
+
+    if (modal === 'feedback' && !canManageUsers) {
+      Alert.alert(en.manage.accessDeniedTitle, en.manage.featureAccessDenied);
+      return;
+    }
+
+    if (
+      ['designation', 'organisation', 'leave', 'calendar'].includes(modal) &&
+      !canManageUsers
+    ) {
       Alert.alert(
         en.manage.accessDeniedTitle,
         en.manage.designationAccessDenied,
@@ -355,23 +464,9 @@ const ManagePage: React.FC = () => {
     );
   }
 
-  const visibleItems = manageItems.filter(item => {
-    const hasRoleAccess = item.permission.includes(
-      isSuperAdmin
-        ? 'admin'
-        : isAdmin
-        ? 'admin'
-        : isCEOorCTO
-        ? normalizedDesignation
-        : '',
-    );
-
-    if (item.modal === 'notification') {
-      return hasRoleAccess && canSendEmployeeNotifications;
-    }
-
-    return hasRoleAccess;
-  });
+  const visibleItems = manageItems.filter(item =>
+    hasPermission(item.permission),
+  );
 
   // -----------------------------------------
   // MAIN SCREEN
@@ -381,7 +476,7 @@ const ManagePage: React.FC = () => {
     <SafeAreaView
       style={{
         flex: 1,
-        paddingTop: 15,
+        paddingTop: 20,
         backgroundColor: theme.background,
       }}
     >
@@ -624,6 +719,7 @@ const ManagePage: React.FC = () => {
                 allowCreate={canManageUsers}
                 isSuperAdmin={isSuperAdmin}
                 canManageUsers={canManageUsers}
+                managementLevel={user?.permissions?.managementLevel ?? 0}
               />
 
               <Text
@@ -720,6 +816,456 @@ const ManagePage: React.FC = () => {
 
             <View style={{ flex: 1 }}>
               <OfferPage user={user} />
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* =====================================
+          CLIENT FEEDBACK MODAL
+      ===================================== */}
+
+      <Modal
+        visible={activeModal === 'feedback'}
+        transparent
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={closeModal}
+      >
+        <View style={styles.drawerOverlay}>
+          <SafeAreaView
+            style={[
+              styles.drawer,
+              {
+                height: '94%',
+                padding: 0,
+                backgroundColor: theme.background,
+              },
+            ]}
+          >
+            <View
+              style={{
+                paddingHorizontal: 18,
+                paddingTop: 16,
+                paddingBottom: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: theme.border,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text
+                  style={{
+                    color: theme.text,
+                    fontSize: 20,
+                    fontWeight: '800',
+                  }}
+                >
+                  Client Feedback
+                </Text>
+                <Text
+                  style={{
+                    color: theme.muted,
+                    fontSize: 11,
+                    marginTop: 4,
+                  }}
+                >
+                  Review feedback submitted by your clients
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={closeModal}
+                activeOpacity={0.7}
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backgroundColor: theme.primarySoft,
+                }}
+              >
+                <Ionicons name="close" size={23} color={theme.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View
+              style={{
+                flexDirection: 'row',
+                paddingHorizontal: 16,
+                paddingVertical: 13,
+                gap: 10,
+              }}
+            >
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: theme.white,
+                  borderColor: theme.border,
+                  borderWidth: 1,
+                  borderRadius: 14,
+                  padding: 13,
+                }}
+              >
+                <Text style={{ color: theme.muted, fontSize: 10 }}>
+                  Total feedback
+                </Text>
+                <Text
+                  style={{
+                    color: theme.text,
+                    fontSize: 22,
+                    fontWeight: '800',
+                    marginTop: 4,
+                  }}
+                >
+                  {feedbackStatistics.total}
+                </Text>
+              </View>
+
+              <View
+                style={{
+                  flex: 1,
+                  backgroundColor: theme.white,
+                  borderColor: theme.border,
+                  borderWidth: 1,
+                  borderRadius: 14,
+                  padding: 13,
+                }}
+              >
+                <Text style={{ color: theme.muted, fontSize: 10 }}>
+                  Average rating
+                </Text>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginTop: 4,
+                  }}
+                >
+                  <Ionicons name="star" size={18} color="#E5A83B" />
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontSize: 22,
+                      fontWeight: '800',
+                      marginLeft: 6,
+                    }}
+                  >
+                    {feedbackStatistics.averageRating.toFixed(1)}
+                  </Text>
+                  <Text
+                    style={{
+                      color: theme.muted,
+                      fontSize: 11,
+                      marginLeft: 3,
+                    }}
+                  >
+                    / 5
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View
+              style={{
+                flex: 1,
+                paddingHorizontal: 16,
+                paddingBottom: 12,
+              }}
+            >
+              {feedbackLoading && feedbackList.length === 0 ? (
+                <View
+                  style={{
+                    flex: 1,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <ActivityIndicator size="large" color={theme.primary} />
+                  <Text style={{ color: theme.muted, marginTop: 10 }}>
+                    Loading client feedback...
+                  </Text>
+                </View>
+              ) : feedbackList.length === 0 ? (
+                <View
+                  style={{
+                    flex: 1,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    paddingHorizontal: 28,
+                  }}
+                >
+                  <Ionicons
+                    name="chatbubble-ellipses-outline"
+                    size={42}
+                    color={theme.muted}
+                  />
+                  <Text
+                    style={{
+                      color: theme.text,
+                      fontSize: 16,
+                      fontWeight: '700',
+                      marginTop: 12,
+                    }}
+                  >
+                    No feedback yet
+                  </Text>
+                  <Text
+                    style={{
+                      color: theme.muted,
+                      fontSize: 12,
+                      textAlign: 'center',
+                      marginTop: 6,
+                      lineHeight: 18,
+                    }}
+                  >
+                    Client feedback will appear here when submitted.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => fetchClientFeedback(1, true)}
+                    style={{
+                      marginTop: 16,
+                      paddingHorizontal: 18,
+                      paddingVertical: 10,
+                      borderRadius: 11,
+                      backgroundColor: theme.primarySoft,
+                    }}
+                  >
+                    <Text style={{ color: theme.primary, fontWeight: '700' }}>
+                      Refresh
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  nestedScrollEnabled
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={feedbackRefreshing}
+                      onRefresh={() => fetchClientFeedback(feedbackPage, true)}
+                      tintColor={theme.primary}
+                      colors={[theme.primary]}
+                    />
+                  }
+                  contentContainerStyle={{ paddingBottom: 14 }}
+                >
+                  <TouchableOpacity
+                    onPress={() => fetchClientFeedback(feedbackPage, true)}
+                    activeOpacity={0.75}
+                    style={{
+                      alignSelf: 'flex-end',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      paddingVertical: 8,
+                      paddingHorizontal: 10,
+                    }}
+                  >
+                    {feedbackRefreshing ? (
+                      <ActivityIndicator size="small" color={theme.primary} />
+                    ) : (
+                      <Ionicons
+                        name="refresh"
+                        size={16}
+                        color={theme.primary}
+                      />
+                    )}
+                    <Text
+                      style={{
+                        color: theme.primary,
+                        fontSize: 12,
+                        fontWeight: '700',
+                        marginLeft: 6,
+                      }}
+                    >
+                      Refresh
+                    </Text>
+                  </TouchableOpacity>
+
+                  {feedbackList.map((feedback, index) => {
+                    const clientName =
+                      feedback.client?.userName ||
+                      feedback.client?.email ||
+                      'Client';
+                    const organisationName =
+                      feedback.organisation?.name ||
+                      'Organisation not available';
+                    const createdDate = feedback.createdAt
+                      ? new Date(feedback.createdAt).toLocaleString('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                      : 'Date unavailable';
+
+                    return (
+                      <View
+                        key={feedback.id || `${feedback.createdAt}-${index}`}
+                        style={{
+                          backgroundColor: theme.white,
+                          borderWidth: 1,
+                          borderColor: theme.border,
+                          borderRadius: 16,
+                          padding: 14,
+                          marginBottom: 11,
+                        }}
+                      >
+                        <View
+                          style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                          }}
+                        >
+                          <View style={{ flex: 1, paddingRight: 8 }}>
+                            <Text
+                              style={{
+                                color: theme.text,
+                                fontSize: 14,
+                                fontWeight: '800',
+                              }}
+                            >
+                              {clientName}
+                            </Text>
+                            <Text
+                              style={{
+                                color: theme.muted,
+                                fontSize: 11,
+                                marginTop: 3,
+                              }}
+                            >
+                              {organisationName}
+                            </Text>
+                          </View>
+                          <View
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: theme.primarySoft,
+                              borderRadius: 9,
+                              paddingHorizontal: 8,
+                              paddingVertical: 5,
+                            }}
+                          >
+                            <Ionicons name="star" size={13} color="#E5A83B" />
+                            <Text
+                              style={{
+                                color: theme.text,
+                                fontSize: 12,
+                                fontWeight: '800',
+                                marginLeft: 4,
+                              }}
+                            >
+                              {Number(feedback.rating || 0)}/5
+                            </Text>
+                          </View>
+                        </View>
+
+                        <Text
+                          style={{
+                            color: theme.text,
+                            fontSize: 13,
+                            lineHeight: 20,
+                            marginTop: 12,
+                          }}
+                        >
+                          {feedback.message || 'No written comment provided.'}
+                        </Text>
+
+                        <View
+                          style={{
+                            borderTopWidth: 1,
+                            borderTopColor: theme.border,
+                            marginTop: 12,
+                            paddingTop: 9,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Ionicons
+                            name="time-outline"
+                            size={13}
+                            color={theme.muted}
+                          />
+                          <Text
+                            style={{
+                              color: theme.muted,
+                              fontSize: 10,
+                              marginLeft: 5,
+                            }}
+                          >
+                            {createdDate}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingVertical: 12,
+                    }}
+                  >
+                    <TouchableOpacity
+                      disabled={feedbackPage <= 1 || feedbackLoading}
+                      onPress={() => fetchClientFeedback(feedbackPage - 1)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 9,
+                        borderRadius: 10,
+                        backgroundColor: theme.primarySoft,
+                        opacity: feedbackPage <= 1 ? 0.4 : 1,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: theme.primary,
+                          fontWeight: '700',
+                          fontSize: 12,
+                        }}
+                      >
+                        Previous
+                      </Text>
+                    </TouchableOpacity>
+
+                    <Text style={{ color: theme.muted, fontSize: 11 }}>
+                      Page {feedbackPage} of {feedbackTotalPages}
+                    </Text>
+
+                    <TouchableOpacity
+                      disabled={
+                        feedbackPage >= feedbackTotalPages || feedbackLoading
+                      }
+                      onPress={() => fetchClientFeedback(feedbackPage + 1)}
+                      style={{
+                        paddingHorizontal: 14,
+                        paddingVertical: 9,
+                        borderRadius: 10,
+                        backgroundColor: theme.primarySoft,
+                        opacity: feedbackPage >= feedbackTotalPages ? 0.4 : 1,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: theme.primary,
+                          fontWeight: '700',
+                          fontSize: 12,
+                        }}
+                      >
+                        Next
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              )}
             </View>
           </SafeAreaView>
         </View>

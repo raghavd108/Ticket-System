@@ -8,8 +8,7 @@ const { notifyUsers } = require("../services/fcmService");
 // -----------------------------------------------------
 // admin                         : every ticket
 // employee, canViewAllTickets   : every ticket (CEO, CTO, etc.)
-// employee, other designations  : tickets assigned to them OR raised by
-//                                 a client they are mapped to
+// employee, other designations  : tickets explicitly assigned to them
 // client                        : tickets they raised
 //
 // Assignment permissions:
@@ -104,25 +103,11 @@ function getAccessWhere(user) {
     return {};
   }
 
-  // Employees can see:
-  // 1. Tickets directly assigned to them.
-  // 2. Tickets raised by clients mapped to them.
+  // Employees can see tickets assigned directly to them.
+  // Client mapping alone does not grant access to a ticket.
   if (user?.role === "employee") {
     return {
-      OR: [
-        {
-          assignedEmployeeId: userId,
-        },
-        {
-          user: {
-            assignedEmployees: {
-              some: {
-                employeeId: userId,
-              },
-            },
-          },
-        },
-      ],
+      assignedEmployeeId: userId,
     };
   }
 
@@ -503,30 +488,28 @@ async function complain(req, res) {
     });
 
     // =====================================================
-    // NOTIFY MAPPED EMPLOYEES, ADMINS, CEO AND CTO
+    // NOTIFY SUPERADMIN, CEO/CTO AND CUSTOMER CARE
+    // Do not notify employees merely because they are mapped
+    // to this client. They receive a notification when assigned.
     // =====================================================
 
     try {
-      const [clientEmployees, admins, management] = await Promise.all([
-        // Employees mapped to this client
-        getClientEmployees(userId),
-
-        // All active admins
+      const [superAdmins, management, customerCare] = await Promise.all([
+        // Active SuperAdmin accounts.
         prisma.user.findMany({
           where: {
-            role: "admin",
+            isSuperAdmin: true,
             isRevoked: false,
           },
           select: recipientSelect,
         }),
 
-        // CEO, CTO and other employees
-        // having permission to view all tickets
+        // CEO, CTO and other employees with permission
+        // to view all tickets.
         prisma.user.findMany({
           where: {
             role: "employee",
             isRevoked: false,
-
             designationRef: {
               is: {
                 canViewAllTickets: true,
@@ -535,19 +518,36 @@ async function complain(req, res) {
           },
           select: recipientSelect,
         }),
+
+        // Customer Care employees.
+        prisma.user.findMany({
+          where: {
+            role: "employee",
+            isRevoked: false,
+            OR: [
+              {
+                designationRef: {
+                  is: {
+                    name: "Customer Care",
+                  },
+                },
+              },
+              {
+                designation: "Customer Care",
+              },
+            ],
+          },
+          select: recipientSelect,
+        }),
       ]);
 
-      // Combine all recipients.
-      // notifyUsers already removes duplicate user IDs.
-      await notifyUsers([...clientEmployees, ...admins, ...management], {
+      // notifyUsers handles duplicate recipient IDs.
+      await notifyUsers([...superAdmins, ...management, ...customerCare], {
         title: "New Ticket Created",
-
         body: `${
           user.userName || "A client"
         } raised a ticket: ${complaint.module}`,
-
         type: "NEW_TICKET",
-
         complaintId: complaint.id,
       });
     } catch (notificationError) {
@@ -925,6 +925,7 @@ async function searchComplaint(req, res) {
     }
 
     const searchText = q.trim();
+
     const accessWhere = getAccessWhere(req.user);
 
     if (!accessWhere) {
@@ -937,18 +938,30 @@ async function searchComplaint(req, res) {
       where: {
         AND: [
           accessWhere,
-
           {
             OR: [
+              // Search by module
               {
                 module: {
                   contains: searchText,
                 },
               },
 
+              // Search by problem description
               {
                 problem: {
                   contains: searchText,
+                },
+              },
+
+              // Search by organisation name
+              {
+                organisation: {
+                  is: {
+                    name: {
+                      contains: searchText,
+                    },
+                  },
                 },
               },
             ],

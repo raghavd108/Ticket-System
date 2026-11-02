@@ -36,6 +36,7 @@ type Props = {
   // Permission information from authenticated user.
   isSuperAdmin?: boolean;
   canManageUsers?: boolean;
+  managementLevel?: number;
 
   // Controls whether the New button is displayed.
   allowCreate?: boolean;
@@ -47,6 +48,7 @@ const DesignationPicker = ({
   disabled = false,
   isSuperAdmin = false,
   canManageUsers = false,
+  managementLevel = 0,
   allowCreate = false,
 }: Props) => {
   const { theme } = useTheme();
@@ -67,6 +69,15 @@ const DesignationPicker = ({
   const [newManagementLevel, setNewManagementLevel] = useState('0');
 
   const [saving, setSaving] = useState(false);
+
+  // SuperAdmin can edit permissions on an existing designation.
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editCanViewAll, setEditCanViewAll] = useState(false);
+  const [editCanAssignTickets, setEditCanAssignTickets] = useState(false);
+  const [editCanManageUsers, setEditCanManageUsers] = useState(false);
+  const [editCanPublishOffers, setEditCanPublishOffers] = useState(false);
+  const [editCanNotifyEmployees, setEditCanNotifyEmployees] = useState(false);
+  const [editManagementLevel, setEditManagementLevel] = useState('0');
 
   const canCreateDesignation = allowCreate && canManageUsers && !disabled;
 
@@ -124,18 +135,18 @@ const DesignationPicker = ({
       return designations;
     }
 
-    // Managers cannot assign elevated designations.
-    return designations.filter(item => {
-      const elevated =
-        item.canManageUsers === true ||
-        item.canViewAllTickets === true ||
-        item.canPublishOffers === true ||
-        item.canNotifyEmployees === true ||
-        Number(item.managementLevel || 0) > 0;
+    // A manager can select only designations strictly below their own
+    // management level. This includes lower-level management designations
+    // (for example, CTO 90 can see Administrator 80 and below).
+    //
+    // The backend must repeat this check when creating/updating a user.
+    const actorLevel = Number(managementLevel || 0);
 
-      return !elevated;
+    return designations.filter(item => {
+      const designationLevel = Number(item.managementLevel || 0);
+      return designationLevel < actorLevel;
     });
-  }, [designations, isSuperAdmin]);
+  }, [designations, isSuperAdmin, managementLevel]);
 
   const selected = availableDesignations.find(item => item.name === value);
 
@@ -191,11 +202,15 @@ const DesignationPicker = ({
     // Only SuperAdmin can grant elevated permissions.
     if (
       !isSuperAdmin &&
-      (newCanViewAll || newCanManageUsers || managementLevel > 0)
+      (newCanViewAll ||
+        newCanManageUsers ||
+        newCanPublishOffers ||
+        newCanNotifyEmployees ||
+        managementLevel > 0)
     ) {
       Alert.alert(
         'Permission Denied',
-        'Only SuperAdmin can create elevated designations.',
+        'Only SuperAdmin can create designations with elevated permissions or a management level.',
       );
       return;
     }
@@ -271,6 +286,101 @@ const DesignationPicker = ({
   };
 
   // =====================================================
+  // EDIT EXISTING DESIGNATION (SUPERADMIN)
+  // =====================================================
+
+  const startEditing = (item: Designation) => {
+    if (!isSuperAdmin || disabled) return;
+
+    setEditingId(item.id);
+    setEditCanViewAll(item.canViewAllTickets === true);
+    setEditCanAssignTickets(item.canAssignTickets === true);
+    setEditCanManageUsers(item.canManageUsers === true);
+    setEditCanPublishOffers(item.canPublishOffers === true);
+    setEditCanNotifyEmployees(item.canNotifyEmployees === true);
+    setEditManagementLevel(String(item.managementLevel ?? 0));
+    setAdding(false);
+  };
+
+  const cancelEditing = () => {
+    if (saving) return;
+    setEditingId(null);
+  };
+
+  const updateDesignation = async () => {
+    if (!isSuperAdmin || editingId === null) {
+      Alert.alert(
+        'Permission Denied',
+        'Only SuperAdmin can edit designation permissions.',
+      );
+      return;
+    }
+
+    const managementLevel = Number(editManagementLevel);
+    if (
+      !Number.isInteger(managementLevel) ||
+      managementLevel < 0 ||
+      managementLevel > 1000
+    ) {
+      Alert.alert(
+        'Invalid Management Level',
+        'Management level must be a whole number between 0 and 1000.',
+      );
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        Alert.alert('Session Expired', 'Please log in again.');
+        return;
+      }
+
+      const response = await axios.patch(
+        `${Config.API_URL}/api/designations/${editingId}`,
+        {
+          canViewAllTickets: editCanViewAll,
+          canAssignTickets: editCanAssignTickets,
+          canManageUsers: editCanManageUsers,
+          canPublishOffers: editCanPublishOffers,
+          canNotifyEmployees: editCanNotifyEmployees,
+          managementLevel,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      const updated: Designation | undefined = response.data?.designation;
+      if (!updated) {
+        throw new Error('Updated designation was not returned by the server.');
+      }
+
+      setDesignations(previous =>
+        previous.map(item => (item.id === updated.id ? updated : item)),
+      );
+      setEditingId(null);
+      Alert.alert('Success', 'Designation permissions updated successfully.');
+    } catch (updateError: any) {
+      console.log(
+        'UPDATE DESIGNATION ERROR:',
+        updateError?.response?.data || updateError,
+      );
+      Alert.alert(
+        'Unable to Update Designation',
+        updateError?.response?.data?.message ||
+          updateError?.message ||
+          'Please try again.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // =====================================================
   // SELECTED DESIGNATION DESCRIPTION
   // =====================================================
 
@@ -303,6 +413,26 @@ const DesignationPicker = ({
 
     return permissions.join(' • ');
   };
+
+  const renderEditPermission = (
+    title: string,
+    description: string,
+    value: boolean,
+    onValueChange: (nextValue: boolean) => void,
+  ) => (
+    <View key={title} style={styles.permissionRow}>
+      <View style={styles.permissionInfo}>
+        <Text style={styles.permissionTitle}>{title}</Text>
+        <Text style={styles.permissionDescription}>{description}</Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        disabled={saving}
+        trackColor={{ false: theme.border, true: theme.primary }}
+      />
+    </View>
+  );
 
   // =====================================================
   // UI
@@ -397,10 +527,112 @@ const DesignationPicker = ({
           <Text style={styles.hint}>{getDesignationDescription(selected)}</Text>
 
           {isSuperAdmin && (
-            <Text style={styles.levelText}>
-              Management level: {selected.managementLevel}
-            </Text>
+            <>
+              <Text style={styles.levelText}>
+                Management level: {selected.managementLevel}
+              </Text>
+              <TouchableOpacity
+                onPress={() => startEditing(selected)}
+                disabled={saving}
+                style={[
+                  styles.primaryButton,
+                  { marginTop: 10, alignSelf: 'flex-start' },
+                ]}
+              >
+                <Text style={styles.primaryText}>Edit Permissions</Text>
+              </TouchableOpacity>
+            </>
           )}
+        </View>
+      )}
+
+      {/* EDIT EXISTING DESIGNATION — SUPERADMIN ONLY */}
+
+      {editingId !== null && isSuperAdmin && (
+        <View style={styles.addBox}>
+          <View style={styles.formHeader}>
+            <View>
+              <Text style={styles.formTitle}>Edit Designation Permissions</Text>
+              <Text style={styles.formSubtitle}>
+                Changes apply to all users assigned to this designation.
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={cancelEditing}
+              disabled={saving}
+              style={styles.closeButton}
+            >
+              <Ionicons name="close" size={20} color={theme.text} />
+            </TouchableOpacity>
+          </View>
+
+          {renderEditPermission(
+            'View All Tickets',
+            'Can view all organisation tickets.',
+            editCanViewAll,
+            setEditCanViewAll,
+          )}
+          {renderEditPermission(
+            'Assign Tickets',
+            'Can assign tickets to employees.',
+            editCanAssignTickets,
+            setEditCanAssignTickets,
+          )}
+          {renderEditPermission(
+            'Manage Users',
+            'Can access user management operations.',
+            editCanManageUsers,
+            setEditCanManageUsers,
+          )}
+          {renderEditPermission(
+            'Publish Offers',
+            'Can create and publish company offers.',
+            editCanPublishOffers,
+            setEditCanPublishOffers,
+          )}
+          {renderEditPermission(
+            'Send Employee Notifications',
+            'Can send notifications to employees.',
+            editCanNotifyEmployees,
+            setEditCanNotifyEmployees,
+          )}
+
+          <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
+            Management Level
+          </Text>
+          <TextInput
+            value={editManagementLevel}
+            onChangeText={setEditManagementLevel}
+            placeholder="0"
+            placeholderTextColor={theme.muted}
+            keyboardType="number-pad"
+            editable={!saving}
+            style={styles.input}
+          />
+          <Text style={styles.levelHint}>
+            Higher numbers represent greater management authority.
+          </Text>
+
+          <View style={styles.actions}>
+            <TouchableOpacity
+              onPress={cancelEditing}
+              disabled={saving}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.secondaryText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={updateDesignation}
+              disabled={saving}
+              style={[styles.primaryButton, saving && styles.disabledButton]}
+            >
+              {saving ? (
+                <ActivityIndicator color={theme.everWhite} />
+              ) : (
+                <Text style={styles.primaryText}>Save Changes</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 

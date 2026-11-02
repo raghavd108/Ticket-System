@@ -8,7 +8,11 @@ import React, {
 import createStyles from '../style/complainStyle';
 import { useTheme } from '../context/ThemeContext';
 import en from '../i18n/en';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import {
+  useNavigation,
+  useFocusEffect,
+  useRoute,
+} from '@react-navigation/native';
 import AttendanceToggle from '../components/attendance';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -118,6 +122,8 @@ const normalizeComplaint = (complaint: any): Complaint => ({
 
 const ComplainPage = () => {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const processedTicketIdRef = useRef<string | null>(null);
 
   const { theme, isDarkMode } = useTheme();
 
@@ -348,7 +354,7 @@ const ComplainPage = () => {
 
       if (!token) {
         setMessage(en.common.sessionExpired);
-        return;
+        return [];
       }
 
       const response = await axios.get(
@@ -394,6 +400,7 @@ const ComplainPage = () => {
       hasMoreComplaintsRef.current = nextPageExists;
       setHasMoreComplaints(nextPageExists);
       setMessage('');
+      return normalizedComplaints;
     } catch (error) {
       console.log('GET COMPLAINTS ERROR:', error);
 
@@ -504,6 +511,78 @@ const ComplainPage = () => {
   const closeComplaintDetails = () => {
     setSelectedComplaint(null);
   };
+
+  // Notification navigation sends openTicketId. Search the already loaded
+  // tickets first, then load further pages until the requested ticket is found.
+  useEffect(() => {
+    const requestedId = String(
+      route.params?.openTicketId ??
+        route.params?.ticketId ??
+        route.params?.complaintId ??
+        '',
+    ).trim();
+
+    if (!requestedId || loading || !user) return;
+    if (processedTicketIdRef.current === requestedId) return;
+
+    let cancelled = false;
+    processedTicketIdRef.current = requestedId;
+
+    const openRequestedTicket = async () => {
+      try {
+        let match = complaints.find(item => String(item._id) === requestedId);
+        let page = Math.max(1, currentPageRef.current);
+        let canContinue = hasMoreComplaintsRef.current;
+
+        while (!match && canContinue && !cancelled) {
+          page += 1;
+          const nextItems = await getComplaints(page, true);
+          if (!Array.isArray(nextItems) || nextItems.length === 0) break;
+          match = nextItems.find(item => String(item._id) === requestedId);
+          canContinue = hasMoreComplaintsRef.current;
+        }
+
+        if (cancelled) return;
+        if (match) {
+          openComplaintDetails(match);
+        } else {
+          Alert.alert(
+            'Ticket unavailable',
+            'This ticket could not be found or you do not have access to it.',
+          );
+        }
+      } catch (error) {
+        console.log('OPEN NOTIFIED TICKET ERROR:', error);
+        if (!cancelled) {
+          Alert.alert(
+            'Unable to open ticket',
+            'Please refresh the ticket list and try again.',
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          route.setParams?.({
+            openTicketId: undefined,
+            ticketId: undefined,
+            complaintId: undefined,
+          });
+        }
+      }
+    };
+
+    openRequestedTicket();
+    return () => {
+      cancelled = true;
+    };
+    // Re-run when the first page or route params become available.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    route.params?.openTicketId,
+    route.params?.ticketId,
+    route.params?.complaintId,
+    loading,
+    user,
+  ]);
 
   /* 
      ATTACHMENTS
@@ -795,7 +874,7 @@ const ComplainPage = () => {
           styles.container,
           {
             flex: 1,
-            backgroundColor: isDarkMode ? theme.background : '#F0E7DA',
+            backgroundColor: isDarkMode ? '#24231F' : '#F0E7D9',
           },
         ]}
         edges={['top', 'left', 'right']}
@@ -1653,7 +1732,7 @@ const ComplainPage = () => {
                         {selectedComplaint.module || en.tickets.generalTicket}
                       </Text>
                       <Text style={styles.premiumTicketId}>
-                        {`${en.tickets.ticketPrefix} / #${selectedComplaint._id}`}
+                        {`${en.tickets.ticketPrefix}`}
                       </Text>
                     </View>
 

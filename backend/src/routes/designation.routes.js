@@ -1,40 +1,56 @@
 const express = require("express");
 
 const authMiddleware = require("../middleware/authMiddleware");
-
 const designationController = require("../controller/designation.controller");
 
 const Router = express.Router();
 
-// All authenticated users can view designations.
+// =====================================================
+// GET DESIGNATIONS
+// SuperAdmin: All designations
+// CEO / CTO: Only lower-level designations
+// Other employees / clients: Blocked
+// =====================================================
+
 Router.get(
   "/",
-  authMiddleware.verifyToken,
+  authMiddleware.verifyManagementAccess,
   designationController.getDesignations,
 );
 
-// CEO, CTO and SuperAdmin can create ordinary designations.
-// Only SuperAdmin can grant elevated permissions.
+// =====================================================
+// CREATE DESIGNATION
+// SuperAdmin: Can create all designations.
+// CEO / CTO: Can create ordinary designations.
+// Only SuperAdmin can assign elevated permissions.
+// =====================================================
+
 Router.post(
   "/",
-  authMiddleware.verifyToken,
   authMiddleware.verifyManagementAccess,
   designationController.createDesignation,
 );
 
-// CEO, CTO and SuperAdmin can update permitted designations.
-// Elevated designation changes remain SuperAdmin-only.
+// =====================================================
+// UPDATE DESIGNATION
+// SuperAdmin: Can update all designations.
+// CEO / CTO: Can update permitted ordinary designations.
+// Elevated permission changes remain SuperAdmin-only.
+// =====================================================
+
 Router.patch(
   "/:id",
-  authMiddleware.verifyToken,
   authMiddleware.verifyManagementAccess,
   designationController.updateDesignation,
 );
 
-// Only SuperAdmin can delete designations.
+// =====================================================
+// DELETE DESIGNATION
+// SuperAdmin only
+// =====================================================
+
 Router.delete(
   "/:id",
-  authMiddleware.verifyToken,
   authMiddleware.verifySuperAdmin,
   designationController.deleteDesignation,
 );

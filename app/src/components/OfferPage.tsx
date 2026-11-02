@@ -220,21 +220,18 @@ const OfferPage: React.FC<OfferPageProps> = ({ user, token: propToken }) => {
   // PERMISSION
   // --------------------------------------------------
 
-  const designation = String(
-    user?.designation || user?.designationRef?.name || '',
-  )
-    .trim()
-    .toUpperCase();
-
+  // Read the permission returned by the authenticated-user API.
+  // Do not infer access from role or designation names (for example CEO/CTO).
+  // SuperAdmin is explicitly trusted by the application permission model.
   const canManageOffers =
     user?.isSuperAdmin === true ||
-    user?.canPublishOffers === true ||
-    user?.designationRef?.canPublishOffers === true ||
     user?.permissions?.canPublishOffers === true ||
-    ['CEO', 'CTO'].includes(designation);
+    user?.designationRef?.canPublishOffers === true ||
+    user?.canPublishOffers === true;
 
-  // Backend permission middleware remains authoritative.
-  // Frontend permission checks are only for UI visibility.
+  // This check controls frontend visibility only.
+  // The backend must independently enforce canPublishOffers for every
+  // offer create, update, publish, and archive endpoint.
 
   // --------------------------------------------------
   // AUTH TOKEN

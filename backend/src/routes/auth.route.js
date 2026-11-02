@@ -14,6 +14,7 @@ const Router = express.Router();
 
 // =====================================================
 // GENERAL RATE LIMITING
+// Existing general API protection preserved.
 // =====================================================
 
 Router.use(generalLimiter);
@@ -27,15 +28,25 @@ Router.post("/login", authLimiter, authController.login);
 
 // =====================================================
 // USER REGISTRATION
-// SuperAdmin or users with canManageUsers permission
-// Elevated designations can only be assigned by SuperAdmin
+//
+// Access:
+// SuperAdmin or users with canManageUsers permission.
+//
+// Elevated designations can only be assigned by SuperAdmin.
+//
+// Rate limit:
+// 10 registrations per 15 minutes per authenticated user.
+//
+// IMPORTANT:
+// Authentication and permission checks must execute
+// BEFORE registerLimiter so req.user.id is available.
 // =====================================================
 
 Router.post(
   "/register",
-  registerLimiter,
   authMiddleware.verifyToken,
   authMiddleware.verifyManagementAccess,
+  registerLimiter,
   authController.register,
 );
 
@@ -46,35 +57,54 @@ Router.post(
 // Get current logged-in user
 Router.get("/me", authMiddleware.verifyToken, authController.getMe);
 
-// Update own profile
+// =====================================================
+// UPDATE OWN PROFILE
+// =====================================================
+
 Router.patch(
   "/update-profile",
   authMiddleware.verifyToken,
   authController.updateProfile,
 );
 
-// Update own password
-// Requires current password verification
+// =====================================================
+// UPDATE OWN PASSWORD
+//
+// Requires current password verification.
+//
+// Rate limit:
+// 5 requests per 15 minutes per authenticated user.
+//
+// Authentication must execute before passwordLimiter.
+// =====================================================
+
 Router.patch(
   "/update-password",
-  passwordLimiter,
   authMiddleware.verifyToken,
+  passwordLimiter,
   authController.updatePassword,
 );
 
-// Save FCM token
+// =====================================================
+// SAVE FCM TOKEN
+// =====================================================
+
 Router.post(
   "/fcm-token",
   authMiddleware.verifyToken,
   authController.saveFcmToken,
 );
 
-// Logout
+// =====================================================
+// LOGOUT
+// =====================================================
+
 Router.post("/logout", authMiddleware.verifyToken, authController.logout);
 
 // =====================================================
 // USER MANAGEMENT ROUTES
-// SuperAdmin or users with canManageUsers permission
+//
+// SuperAdmin or users with canManageUsers permission.
 // =====================================================
 
 // Get employees
@@ -94,7 +124,7 @@ Router.get(
 );
 
 // Update employee or client
-// Management-level restrictions are checked in controller
+// Management-level restrictions are checked in controller.
 Router.patch(
   "/update-user/:userId",
   authMiddleware.verifyToken,
@@ -103,7 +133,7 @@ Router.patch(
 );
 
 // Revoke account access
-// Management-level restrictions are checked in controller
+// Management-level restrictions are checked in controller.
 Router.patch(
   "/revoke-user/:userId",
   authMiddleware.verifyToken,
@@ -112,7 +142,7 @@ Router.patch(
 );
 
 // Restore account access
-// Management-level restrictions are checked in controller
+// Management-level restrictions are checked in controller.
 Router.patch(
   "/restore-user/:userId",
   authMiddleware.verifyToken,

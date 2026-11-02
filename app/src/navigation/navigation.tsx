@@ -2,13 +2,20 @@ import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
 
 import { NavigationContainer } from '@react-navigation/native';
+
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import BottomNavigation from './BottomNavigation';
 import LoginPage from '../pages/LoginPage';
 import Notification from '../components/notification';
 import CompanyCalendar from '../components/CompanyCalander';
+
 import { useAuth } from '../context/AuthContext';
+
+import {
+  notificationNavigationRef,
+  setNotificationNavigationEnabled,
+} from './notificationNavigation';
 
 type RootStackParamList = {
   Login: undefined;
@@ -25,14 +32,28 @@ const Navigation = () => {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}
+      >
         <ActivityIndicator size="large" />
       </View>
     );
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      ref={notificationNavigationRef}
+      onReady={() => {
+        console.log('NAVIGATION CONTAINER READY');
+
+        // Pending notification taps can now be processed.
+        void setNotificationNavigationEnabled(true);
+      }}
+    >
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
@@ -41,13 +62,13 @@ const Navigation = () => {
         {isAuthenticated ? (
           <>
             <Stack.Screen name="Main" component={BottomNavigation} />
+
             <Stack.Screen name="Notification" component={Notification} />
+
             <Stack.Screen name="CompanyCalendar" component={CompanyCalendar} />
           </>
         ) : (
-          <>
-            <Stack.Screen name="Login" component={LoginPage} />
-          </>
+          <Stack.Screen name="Login" component={LoginPage} />
         )}
       </Stack.Navigator>
     </NavigationContainer>

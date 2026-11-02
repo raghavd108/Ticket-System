@@ -72,6 +72,9 @@ model Organisation {
   complaints     Complaint[]
   targetedOffers OfferOrganisation[]
 
+  // Client feedback
+  clientFeedback ClientFeedback[]
+
   @@index([createdBy])
   @@index([orgType])
 }
@@ -117,6 +120,9 @@ model User {
   leaves             Leave[]
 
   offersCreated Offer[] @relation("OfferCreator")
+
+  // Client feedback
+  clientFeedback ClientFeedback[]
 
   @@index([organisationId])
   @@index([email])
@@ -422,4 +428,29 @@ model OfferOrganisation {
 
   @@unique([offerId, organisationId])
   @@index([organisationId])
+}
+
+// =====================================================
+// CLIENT FEEDBACK
+// =====================================================
+
+model ClientFeedback {
+  id             String @id @default(cuid())
+  clientId       String
+  organisationId String
+
+  rating  Int
+  message String @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client User @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  organisation Organisation @relation(fields: [organisationId], references: [id], onDelete: Restrict)
+
+  @@index([clientId, createdAt])
+  @@index([organisationId, createdAt])
+  @@index([rating])
+  @@index([createdAt])
 }
