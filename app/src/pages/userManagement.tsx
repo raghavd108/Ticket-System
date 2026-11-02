@@ -171,6 +171,16 @@ const ClientPage = () => {
 
   const [newOrganisationName, setNewOrganisationName] = useState('');
   const [newOrganisationType, setNewOrganisationType] = useState('');
+  const [showOrganisationTypeList, setShowOrganisationTypeList] =
+    useState(false);
+
+  const organisationTypes = [
+    'Hospital',
+    'School',
+    'Real Estate',
+    'Inventory & Accounting',
+    'Games',
+  ];
 
   // THE DEFAULT EMPLOYEE ORGANISATION
 
@@ -747,6 +757,8 @@ const ClientPage = () => {
       Alert.alert(copy.organisationCreatedTitle, copy.organisationCreated);
 
       setNewOrganisationName('');
+      setNewOrganisationType('');
+      setShowOrganisationTypeList(false);
       setShowOrganisationModal(false);
 
       await getOrganisations();
@@ -927,6 +939,8 @@ const ClientPage = () => {
 
   const openOrganisationModal = () => {
     setNewOrganisationName('');
+    setNewOrganisationType('');
+    setShowOrganisationTypeList(false);
     setShowOrganisationModal(true);
   };
 
@@ -2819,6 +2833,7 @@ const ClientPage = () => {
         statusBarTranslucent
         onRequestClose={() => {
           if (!creatingOrganisation) {
+            setShowOrganisationTypeList(false);
             setShowOrganisationModal(false);
           }
         }}
@@ -2896,6 +2911,7 @@ const ClientPage = () => {
               <TouchableOpacity
                 onPress={() => {
                   if (!creatingOrganisation) {
+                    setShowOrganisationTypeList(false);
                     setShowOrganisationModal(false);
                   }
                 }}
@@ -2928,25 +2944,102 @@ const ClientPage = () => {
               {copy.organisationTypeLabel}
             </Text>
 
-            <TextInput
-              value={newOrganisationType}
-              onChangeText={setNewOrganisationType}
-              placeholder={copy.organisationTypePlaceholder}
-              placeholderTextColor={theme.muted}
-              autoCapitalize="words"
-              editable={!creatingOrganisation}
+            <TouchableOpacity
+              onPress={() => setShowOrganisationTypeList(previous => !previous)}
+              disabled={creatingOrganisation}
+              activeOpacity={0.8}
               style={{
-                height: 52,
+                minHeight: 52,
                 borderWidth: 1,
-                borderColor: theme.border,
+                borderColor: showOrganisationTypeList
+                  ? theme.primary
+                  : theme.border,
                 borderRadius: 12,
                 paddingHorizontal: 15,
-                fontSize: 14,
-                color: theme.ink,
                 backgroundColor: theme.background,
-                marginBottom: 18,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: showOrganisationTypeList ? 8 : 18,
               }}
-            />
+            >
+              <Text
+                style={{
+                  fontSize: 14,
+                  color: newOrganisationType ? theme.ink : theme.muted,
+                  fontWeight: newOrganisationType ? '600' : '400',
+                  flex: 1,
+                }}
+              >
+                {newOrganisationType || 'Select organization type'}
+              </Text>
+
+              <Ionicons
+                name={showOrganisationTypeList ? 'chevron-up' : 'chevron-down'}
+                size={19}
+                color={theme.muted}
+              />
+            </TouchableOpacity>
+
+            {showOrganisationTypeList && (
+              <View
+                style={{
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  borderRadius: 12,
+                  backgroundColor: theme.background,
+                  overflow: 'hidden',
+                  marginBottom: 18,
+                }}
+              >
+                {organisationTypes.map((item, index) => {
+                  const selected = newOrganisationType === item;
+
+                  return (
+                    <TouchableOpacity
+                      key={item}
+                      activeOpacity={0.7}
+                      disabled={creatingOrganisation}
+                      onPress={() => {
+                        setNewOrganisationType(item);
+                        setShowOrganisationTypeList(false);
+                      }}
+                      style={{
+                        paddingHorizontal: 15,
+                        paddingVertical: 14,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        borderBottomWidth:
+                          index === organisationTypes.length - 1 ? 0 : 1,
+                        borderBottomColor: theme.divider,
+                        backgroundColor: selected
+                          ? theme.primarySoft
+                          : theme.background,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          color: selected ? theme.primary : theme.ink,
+                          fontWeight: selected ? '700' : '500',
+                        }}
+                      >
+                        {item}
+                      </Text>
+
+                      {selected && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={19}
+                          color={theme.primary}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
 
             <Text
               style={{

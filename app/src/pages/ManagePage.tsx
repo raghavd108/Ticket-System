@@ -158,7 +158,17 @@ const ManagePage: React.FC = () => {
   // Organisation
   const [organisationName, setOrganisationName] = useState('');
   const [organisationType, setOrganisationType] = useState('');
+  const [showOrganisationTypeList, setShowOrganisationTypeList] =
+    useState(false);
   const [creatingOrganisation, setCreatingOrganisation] = useState(false);
+
+  const organisationTypes = [
+    'Hospital',
+    'School',
+    'Real Estate',
+    'Inventory & Accounting',
+    'Games',
+  ];
 
   // Designation
   const [designation, setDesignation] = useState('');
@@ -346,6 +356,7 @@ const ManagePage: React.FC = () => {
 
   const closeModal = () => {
     if (creatingOrganisation) return;
+    setShowOrganisationTypeList(false);
     setActiveModal(null);
   };
 
@@ -409,6 +420,7 @@ const ManagePage: React.FC = () => {
 
       setOrganisationName('');
       setOrganisationType('');
+      setShowOrganisationTypeList(false);
       setActiveModal(null);
     } catch (error: any) {
       console.log('CREATE ORGANISATION ERROR:', error?.response?.data || error);
@@ -623,16 +635,98 @@ const ManagePage: React.FC = () => {
                 {en.manage.organisationTypeLabel}
               </Text>
 
-              <TextInput
-                value={organisationType}
-                onChangeText={setOrganisationType}
-                placeholder={en.manage.organisationTypePlaceholder}
-                placeholderTextColor={theme.muted}
-                editable={!creatingOrganisation}
-                returnKeyType="next"
-                blurOnSubmit={false}
-                style={styles.input}
-              />
+              <TouchableOpacity
+                activeOpacity={0.75}
+                disabled={creatingOrganisation}
+                onPress={() =>
+                  setShowOrganisationTypeList(previous => !previous)
+                }
+                style={[
+                  styles.input,
+                  {
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    opacity: creatingOrganisation ? 0.6 : 1,
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: organisationType ? theme.text : theme.muted,
+                    fontSize: 14,
+                  }}
+                >
+                  {organisationType ||
+                    en.manage.organisationTypePlaceholder ||
+                    'Select organisation type'}
+                </Text>
+                <Ionicons
+                  name={
+                    showOrganisationTypeList ? 'chevron-up' : 'chevron-down'
+                  }
+                  size={19}
+                  color={theme.muted}
+                />
+              </TouchableOpacity>
+
+              {showOrganisationTypeList && (
+                <View
+                  style={{
+                    marginTop: 7,
+                    borderWidth: 1,
+                    borderColor: theme.border,
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                    backgroundColor: theme.white,
+                  }}
+                >
+                  {organisationTypes.map((type, index) => {
+                    const selected = organisationType === type;
+
+                    return (
+                      <TouchableOpacity
+                        key={type}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setOrganisationType(type);
+                          setShowOrganisationTypeList(false);
+                        }}
+                        style={{
+                          minHeight: 46,
+                          paddingHorizontal: 14,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          backgroundColor: selected
+                            ? theme.primarySoft
+                            : theme.white,
+                          borderBottomWidth:
+                            index === organisationTypes.length - 1 ? 0 : 1,
+                          borderBottomColor: theme.border,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: selected ? theme.primary : theme.text,
+                            fontSize: 13,
+                            fontWeight: selected ? '700' : '500',
+                          }}
+                        >
+                          {type}
+                        </Text>
+                        {selected && (
+                          <Ionicons
+                            name="checkmark"
+                            size={18}
+                            color={theme.primary}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
 
               <Text style={styles.inputLabel}>
                 {en.manage.organisationNameLabel}
