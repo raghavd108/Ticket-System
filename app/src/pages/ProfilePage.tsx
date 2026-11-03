@@ -640,37 +640,6 @@ const ProfilePage = () => {
                   </TouchableOpacity>
                 )}
 
-                {/* ATTENDANCE REPORTS (admin) */}
-                {isAdmin && (
-                  <>
-                    <View style={styles.divider} />
-                    <TouchableOpacity
-                      style={styles.settingItem}
-                      activeOpacity={0.7}
-                      onPress={() => setEmployeeModal('attendance')}
-                    >
-                      <View style={styles.settingIcon}>
-                        <Ionicons
-                          name="stats-chart-outline"
-                          size={22}
-                          color={theme.primary}
-                        />
-                      </View>
-
-                      <View style={styles.settingContent}>
-                        <Text style={styles.settingTitle}>
-                          {copy.attendanceReports}
-                        </Text>
-                        <Text style={styles.settingDescription}>
-                          {copy.attendanceReportsDescription}
-                        </Text>
-                      </View>
-
-                      <Text style={styles.settingArrow}>›</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-
                 <View style={styles.divider} />
 
                 {/* CHANGE PASSWORD */}
