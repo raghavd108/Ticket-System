@@ -125,7 +125,8 @@ async function notifyLeaveRecipients(
   try {
     await notifyUsers(uniqueRecipients, {
       title,
-      body: `${body} (Leave ID: ${leaveId})`,
+      // The leave ID travels in the push data only; it is not shown to users.
+      body,
 
       // The notification database stores leave notifications
       // as CUSTOM, while FCM receives the actual leave type.
@@ -145,10 +146,21 @@ async function notifyLeaveRecipients(
   }
 }
 
+// Human-readable date for notifications, e.g. "14 Dec 2026".
 function formatDate(date) {
-  return DateTime.fromJSDate(new Date(date), {
-    zone: "utc",
-  }).toISODate();
+  const value =
+    typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)
+      ? DateTime.fromISO(date, { zone: "utc" })
+      : DateTime.fromJSDate(new Date(date), { zone: "utc" });
+
+  return value.toFormat("dd LLL yyyy");
+}
+
+// "Casual Leave" -> "Casual Leave"; "Casual" -> "Casual leave".
+// Avoids messages such as "Casual Leave leave".
+function leaveLabel(leaveType) {
+  const type = String(leaveType || "").trim();
+  return /\bleave$/i.test(type) ? type : `${type} leave`;
 }
 
 // =====================================================
@@ -330,7 +342,7 @@ exports.applyLeave = async (req, res) => {
 
     const body =
       `${employee.userName || "An employee"} has requested ` +
-      `${leave.leaveType} from ${startDate} to ${endDate}.`;
+      `${leave.leaveType} from ${formatDate(startDate)} to ${formatDate(endDate)}.`;
 
     // Send notifications to Admin, CEO and CTO.
     await notifyLeaveRecipients(approvers, {
@@ -675,10 +687,10 @@ exports.updateLeaveStatus = async (req, res) => {
       : "Leave Request Rejected";
 
     const body = approved
-      ? `Your ${leave.leaveType} leave from ${formatDate(
+      ? `Your ${leaveLabel(leave.leaveType)} from ${formatDate(
           leave.startDate,
         )} to ${formatDate(leave.endDate)} has been approved.`
-      : `Your ${leave.leaveType} leave from ${formatDate(
+      : `Your ${leaveLabel(leave.leaveType)} from ${formatDate(
           leave.startDate,
         )} to ${formatDate(leave.endDate)} has been rejected.`;
 

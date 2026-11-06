@@ -7,6 +7,10 @@ const { generalLimiter } = require("./middleware/rateLimit.middleware");
 
 const app = express();
 
+// The API runs behind nginx. Trust the first proxy hop so req.ip is the
+// real client address; otherwise every user shares one rate-limit key.
+app.set("trust proxy", 1);
+
 // =====================================================
 // ROUTES
 // =====================================================
@@ -60,6 +64,13 @@ app.use("/api/company-calendar", companyCalendarRoutes);
 app.use("/api/designations", designationRoutes);
 app.use("/api/offers", offerRoutes);
 app.use("/api/feedback", feedbackRoutes);
+
+// Unknown API routes return JSON instead of Express's HTML error page.
+app.use("/api", (req, res) => {
+  res.status(404).json({
+    message: "API route not found",
+  });
+});
 
 // =====================================================
 // GLOBAL ERROR HANDLER

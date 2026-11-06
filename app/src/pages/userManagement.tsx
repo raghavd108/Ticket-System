@@ -685,7 +685,9 @@ const ClientPage = () => {
         setShowEmployeeModal(false);
       }
 
-      await getUser();
+      // Reload the employee list too, so a newly created employee can be
+      // assigned to a client straight away without leaving this screen.
+      await Promise.all([getUser(), getEmployees()]);
     } catch (error: any) {
       console.log('CREATE ACCOUNT ERROR:', error);
 
@@ -1148,9 +1150,9 @@ const ClientPage = () => {
 
     if (!userId || (!isEmployee && !isClient)) return;
 
-    // Managers may request password resets for users below their level.
-    // The backend must independently enforce the management hierarchy.
-    if (newPassword.length > 0 && !canManageUsers) {
+    // Only the SuperAdmin may set another user's password; the API
+    // enforces the same rule.
+    if (newPassword.length > 0 && !isSuperAdmin) {
       Alert.alert(
         copy.permissionRequiredTitle,
         'You do not have permission to reset this user’s password.',
@@ -3782,8 +3784,8 @@ const ClientPage = () => {
                 </View>
               )}
 
-              {/* OPTIONAL PASSWORD UPDATE - AUTHORIZED MANAGERS */}
-              {canManageUsers && (
+              {/* OPTIONAL PASSWORD UPDATE - SUPERADMIN ONLY (matches API) */}
+              {isSuperAdmin && (
                 <View style={{ marginBottom: 14 }}>
                   <Text
                     style={{

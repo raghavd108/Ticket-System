@@ -136,15 +136,15 @@ const DesignationPicker = ({
     }
 
     // A manager can select only designations strictly below their own
-    // management level. This includes lower-level management designations
-    // (for example, CTO 90 can see Administrator 80 and below).
+    // management level, and never one that grants user management
+    // (e.g. Administrator) - only the SuperAdmin may assign those.
     //
-    // The backend must repeat this check when creating/updating a user.
+    // The backend repeats both checks when creating/updating a user.
     const actorLevel = Number(managementLevel || 0);
 
     return designations.filter(item => {
       const designationLevel = Number(item.managementLevel || 0);
-      return designationLevel < actorLevel;
+      return designationLevel < actorLevel && item.canManageUsers !== true;
     });
   }, [designations, isSuperAdmin, managementLevel]);
 

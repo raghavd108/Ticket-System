@@ -1,6 +1,7 @@
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
+const { notifyUsers } = require("../services/fcmService");
 
 // =====================================================
 // HELPER: GET AUTHENTICATED USER ID
@@ -153,6 +154,58 @@ exports.submitFeedback = async (req, res) => {
         },
       },
     });
+
+    // Notify the people responsible for client feedback (Requirement 8):
+    // SuperAdmin, staff who can manage feedback (canManageUsers, e.g. CEO/CTO)
+    // and the Business Development Manager mapped to this client.
+    // A notification failure must never fail the submission.
+    try {
+      const recipientSelect = { id: true, role: true, fcmToken: true };
+
+      const [superAdmins, managers, mappedBdms, clientInfo] =
+        await Promise.all([
+          prisma.user.findMany({
+            where: { isSuperAdmin: true, isRevoked: false },
+            select: recipientSelect,
+          }),
+          prisma.user.findMany({
+            where: {
+              role: "employee",
+              isRevoked: false,
+              designationRef: { is: { canManageUsers: true } },
+            },
+            select: recipientSelect,
+          }),
+          prisma.user.findMany({
+            where: {
+              role: "employee",
+              isRevoked: false,
+              designation: "Business Development Manager",
+              assignedToClients: { some: { clientId: client.id } },
+            },
+            select: recipientSelect,
+          }),
+          prisma.user.findUnique({
+            where: { id: client.id },
+            select: { userName: true },
+          }),
+        ]);
+
+      const orgName = feedback.organisation?.name || "A client";
+      const who = clientInfo?.userName ? ` (${clientInfo.userName})` : "";
+
+      await notifyUsers([...superAdmins, ...managers, ...mappedBdms], {
+        title: "New client feedback",
+        body: `${orgName}${who} rated ${numericRating}/5: ${cleanMessage.slice(0, 120)}`,
+        type: "CUSTOM",
+        data: { feedbackId: feedback.id },
+      });
+    } catch (notificationError) {
+      console.error(
+        "FEEDBACK NOTIFICATION ERROR:",
+        notificationError.message,
+      );
+    }
 
     return res.status(201).json({
       success: true,

@@ -200,8 +200,14 @@ const ComplainPage = () => {
       setorganisationFilter(user.organisation?.name);
     }
 
-    // SP Infocom staff start with the pending queue.
-    if (['admin', 'employee'].includes(user?.role?.toLowerCase() ?? '')) {
+    // Staff who triage/assign tickets start with the pending queue. Others
+    // (e.g. Developers) only see tickets assigned to them, which are no
+    // longer "Pending", so they start with all of their tickets.
+    const role = user?.role?.toLowerCase() ?? '';
+    if (
+      role === 'admin' ||
+      (role === 'employee' && user?.permissions?.canAssignTickets === true)
+    ) {
       setStatusFilter('pending');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -316,11 +322,18 @@ const ComplainPage = () => {
         await getComplaints();
       }
 
+      const assigneeName =
+        updated?.assignedEmployee?.userName ??
+        employees.find(emp => emp.id === selectedEmployeeId)?.userName ??
+        'the selected employee';
+
       Alert.alert(
         selectedEmployeeId
           ? en.tickets.assignedTitle
           : en.tickets.unassignedTitle,
-        en.tickets.statusUpdated,
+        selectedEmployeeId
+          ? en.tickets.assignedMessage(assigneeName)
+          : en.tickets.unassignedMessage,
       );
     } catch (error: any) {
       console.log('ASSIGN TICKET ERROR:', error?.response?.data ?? error);
@@ -534,6 +547,18 @@ const ComplainPage = () => {
         let page = Math.max(1, currentPageRef.current);
         let canContinue = hasMoreComplaintsRef.current;
 
+        // A notification is usually about a ticket created or changed after
+        // the list was loaded, so reload the first page before paging on.
+        if (!match) {
+          const freshItems = await getComplaints(1, false);
+          if (cancelled) return;
+          match = Array.isArray(freshItems)
+            ? freshItems.find(item => String(item._id) === requestedId)
+            : undefined;
+          page = 1;
+          canContinue = hasMoreComplaintsRef.current;
+        }
+
         while (!match && canContinue && !cancelled) {
           page += 1;
           const nextItems = await getComplaints(page, true);
@@ -699,11 +724,22 @@ const ComplainPage = () => {
     }
   }, []);
 
+  // Always call the latest getComplaints from focus/push handlers.
+  const getComplaintsRef = useRef(getComplaints);
+  getComplaintsRef.current = getComplaints;
+  const hasFocusedOnceRef = useRef(false);
+
   // Refresh when ComplainPage gains focus (including after returning from
-  // the Notification screen).
+  // the Notification screen or the New Ticket tab). The first focus is
+  // skipped because getUser() already loads the list on mount.
   useFocusEffect(
     useCallback(() => {
       checkUnreadNotifications();
+
+      if (hasFocusedOnceRef.current) {
+        getComplaintsRef.current(1, false);
+      }
+      hasFocusedOnceRef.current = true;
     }, [checkUnreadNotifications]),
   );
 
@@ -714,6 +750,7 @@ const ComplainPage = () => {
 
     const unsubscribe = onMessage(messagingInstance, async () => {
       await checkUnreadNotifications();
+      await getComplaintsRef.current(1, false);
     });
 
     return unsubscribe;
@@ -842,6 +879,10 @@ const ComplainPage = () => {
   const isAdmin = user?.role?.toLowerCase() === 'admin';
   const isEmployee = user?.role?.toLowerCase() === 'employee';
   const canAssign = isAdmin || Boolean(user?.permissions?.canAssignTickets);
+  // Staff without "view all tickets" (e.g. Developers) only see tickets
+  // assigned to them, so the heading must not say "All tickets".
+  const canViewAllTickets =
+    isAdmin || Boolean(user?.permissions?.canViewAllTickets);
 
   /* 
      LOADING
@@ -914,13 +955,15 @@ const ComplainPage = () => {
                   </Text>
 
                   <Text style={styles.title}>
-                    {isAdmin || isEmployee
+                    {(isAdmin || isEmployee) && canViewAllTickets
                       ? en.tickets.title
                       : en.tickets.myTickets}
                   </Text>
 
                   <Text style={styles.subtitle}>
-                    {isAdmin || isEmployee
+                    {isEmployee && !canViewAllTickets
+                      ? en.tickets.assignedToYouSubtitle
+                      : isAdmin || isEmployee
                       ? `Manage support requests from ${
                           user?.organisation?.name ||
                           en.common.yourOrganisations
@@ -1839,7 +1882,7 @@ const ComplainPage = () => {
                         </View>
 
                         <Ionicons
-                          name="arrow-up-right"
+                          name="open-outline"
                           size={20}
                           color={theme.text}
                         />
@@ -2122,6 +2165,12 @@ const ComplainPage = () => {
                             />
                           </TouchableOpacity>
 
+                          {/* Hide the action when nothing is selected and the
+                              ticket is not assigned ("Remove assignment"
+                              would be meaningless). */}
+                          {(!!selectedEmployeeId ||
+                            !!selectedComplaint.assignedEmployeeId ||
+                            !!selectedComplaint.assignedEmployee) && (
                           <TouchableOpacity
                             style={[
                               styles.premiumAssignButton,
@@ -2144,6 +2193,7 @@ const ComplainPage = () => {
                               </Text>
                             )}
                           </TouchableOpacity>
+                          )}
                         </>
                       ) : (
                         <View style={styles.premiumEmpty}>

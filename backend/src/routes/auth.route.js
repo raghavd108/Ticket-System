@@ -4,7 +4,6 @@ const authController = require("../controller/auth.controller");
 const authMiddleware = require("../middleware/authMiddleware");
 
 const {
-  generalLimiter,
   authLimiter,
   registerLimiter,
   passwordLimiter,
@@ -12,12 +11,8 @@ const {
 
 const Router = express.Router();
 
-// =====================================================
-// GENERAL RATE LIMITING
-// Existing general API protection preserved.
-// =====================================================
-
-Router.use(generalLimiter);
+// The general API limiter is already applied to every /api route in
+// app.js; applying it again here counted each auth request twice.
 
 // =====================================================
 // PUBLIC ROUTES

@@ -355,11 +355,20 @@ const Filter = ({
     ...modules.map(item => ({ label: item, value: item })),
   ];
 
+  // Organisation types are stored as entered when the organisation was
+  // created, so offer the types actually in use (exact values) instead of a
+  // fixed list that may never match.
   const organisationTypeOptions: Option[] = [
     { label: 'All types', value: 'all' },
-    { label: 'Hospital', value: 'Hospital' },
-    { label: 'Clinic', value: 'Clinic' },
-    { label: 'Laboratory', value: 'Laboratory' },
+    ...Array.from(
+      new Set(
+        organisations
+          .map(item => (item.orgType || '').trim())
+          .filter(type => type.length > 0),
+      ),
+    )
+      .sort((a, b) => a.localeCompare(b))
+      .map(type => ({ label: type, value: type })),
   ];
 
   const statusOptions: Option[] = [

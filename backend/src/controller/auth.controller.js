@@ -68,6 +68,13 @@ function getManagementLevel(user) {
   );
 }
 
+// Designations that grant user-management rights (e.g. Administrator,
+// CEO, CTO) can only be assigned by the SuperAdmin. Managers may still
+// onboard staff such as Customer Care, BDM or Sales below their own level.
+function grantsUserManagement(designation) {
+  return designation?.canManageUsers === true;
+}
+
 function getActorOrganisationId(user) {
   return String(
     user?.organisation?.id || user?.organisationId || user?.organisation || "",
@@ -272,6 +279,18 @@ async function register(req, res) {
     if (role === "employee" && !designationRecord) {
       return res.status(400).json({
         message: "Select a valid designation",
+      });
+    }
+
+    if (
+      role === "employee" &&
+      grantsUserManagement(designationRecord) &&
+      !isSuperAdmin(actor)
+    ) {
+      return res.status(403).json({
+        code: "ELEVATED_DESIGNATION_FORBIDDEN",
+        message:
+          "Only SuperAdmin can assign designations with user management access",
       });
     }
 
@@ -1141,9 +1160,16 @@ async function updateUser(req, res) {
       data.mobileNumber = value || null;
     }
 
-    // A manager who passed the hierarchy check can reset
-    // the password of a strictly lower-level account.
+    // Only SuperAdmin can change another user's password. This prevents a
+    // manager from taking over another manager's account (H1, 31 Oct report).
     if (password !== undefined && password !== "") {
+      if (!superAdmin) {
+        return res.status(403).json({
+          code: "PASSWORD_CHANGE_FORBIDDEN",
+          message: "Only SuperAdmin can change another user's password",
+        });
+      }
+
       if (typeof password !== "string" || !password.trim()) {
         return res.status(400).json({
           message: "Password must be a valid non-empty string",
@@ -1177,6 +1203,14 @@ async function updateUser(req, res) {
       if (!designationRecord) {
         return res.status(400).json({
           message: "Select a valid designation",
+        });
+      }
+
+      if (grantsUserManagement(designationRecord) && !superAdmin) {
+        return res.status(403).json({
+          code: "ELEVATED_DESIGNATION_FORBIDDEN",
+          message:
+            "Only SuperAdmin can assign designations with user management access",
         });
       }
 

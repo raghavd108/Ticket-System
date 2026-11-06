@@ -1,4 +1,4 @@
-const { rateLimit } = require("express-rate-limit");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 
 // =====================================================
 // PER-USER KEY GENERATOR
@@ -29,7 +29,7 @@ const generalLimiter = rateLimit({
   message: {
     success: false,
     code: "RATE_LIMIT_EXCEEDED",
-    message: "Too many requests. Please try again after 15 minutes.",
+    message: "Too many requests. Please try again in a minute.",
   },
 });
 
@@ -38,9 +38,23 @@ const generalLimiter = rateLimit({
 // OLD LOGIC PRESERVED
 // =====================================================
 
+// Keyed by client IP + login ID so one person's failed attempts can never
+// lock out other users (P0-1 / C1). Successful logins are not counted.
+// Requires app.set("trust proxy", 1) so req.ip is the real client address.
+const loginKeyGenerator = (req) => {
+  const loginId = String(req.body?.userName ?? "")
+    .trim()
+    .toLowerCase()
+    .slice(0, 191);
+
+  return `login:${ipKeyGenerator(req.ip || "")}:${loginId}`;
+};
+
 const authLimiter = rateLimit({
   windowMs: 30 * 1000,
   limit: 5,
+  keyGenerator: loginKeyGenerator,
+  skipSuccessfulRequests: true,
   standardHeaders: "draft-8",
   legacyHeaders: false,
 
