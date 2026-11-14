@@ -70,10 +70,18 @@ const ReportPage = () => {
   };
 
   const pickImage = () => {
+    const remainingSlots = MAX_ATTACHMENTS - image.length;
+
+    if (remainingSlots <= 0) {
+      Alert.alert(copy.errorTitle, copy.attachmentLimit(MAX_ATTACHMENTS));
+      return;
+    }
+
     const options: ImageLibraryOptions = {
       mediaType: 'photo',
       quality: 0.8,
-      selectionLimit: MAX_ATTACHMENTS,
+      // Allow selecting multiple photos in one go, up to the remaining limit.
+      selectionLimit: remainingSlots,
     };
 
     launchImageLibrary(options, response => {
@@ -83,18 +91,38 @@ const ReportPage = () => {
 
       if (response.errorCode) {
         console.log('Image Picker Error:', response.errorMessage);
-
         Alert.alert(copy.errorTitle, copy.imageSelectionError);
         return;
       }
 
-      if (response.assets && response.assets.length > 0) {
-        setImage(response.assets);
+      if (response.assets?.length) {
+        setImage(previousImages => {
+          // Keep already-selected photos and add newly selected ones.
+          // URI checks prevent the same photo from appearing twice.
+          const combinedImages = [...previousImages];
+
+          response.assets?.forEach(asset => {
+            if (
+              asset.uri &&
+              !combinedImages.some(existing => existing.uri === asset.uri) &&
+              combinedImages.length < MAX_ATTACHMENTS
+            ) {
+              combinedImages.push(asset);
+            }
+          });
+
+          return combinedImages;
+        });
       }
     });
   };
 
   const takePhoto = async () => {
+    if (image.length >= MAX_ATTACHMENTS) {
+      Alert.alert(copy.errorTitle, copy.attachmentLimit(MAX_ATTACHMENTS));
+      return;
+    }
+
     try {
       if (Platform.OS === 'android') {
         const permission = await PermissionsAndroid.request(
@@ -139,7 +167,19 @@ const ReportPage = () => {
         }
 
         if (response.assets?.length) {
-          setImage(prev => [...prev, response.assets![0]]);
+          const capturedPhoto = response.assets[0];
+
+          setImage(prev => {
+            if (
+              prev.length >= MAX_ATTACHMENTS ||
+              !capturedPhoto.uri ||
+              prev.some(item => item.uri === capturedPhoto.uri)
+            ) {
+              return prev;
+            }
+
+            return [...prev, capturedPhoto];
+          });
         }
       });
     } catch (error) {
@@ -350,6 +390,9 @@ const ReportPage = () => {
                   numberOfLines={7}
                   textAlignVertical="top"
                   maxLength={1000}
+                  returnKeyType="done"
+                  blurOnSubmit
+                  onSubmitEditing={() => Keyboard.dismiss()}
                 />
 
                 <Text style={styles.characterCount}>

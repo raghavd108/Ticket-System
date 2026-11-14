@@ -1,12 +1,5 @@
 const prisma = require("../config/prisma");
 
-// =====================================================
-// ADD ORGANISATION
-// POST /api/org/add-org/:adminId
-// The creator is always the authenticated admin; the URL parameter is
-// kept only for compatibility with existing app builds.
-// =====================================================
-
 async function addOrganisation(req, res) {
   try {
     const id = String(req.user.id);
@@ -45,10 +38,25 @@ async function addOrganisation(req, res) {
       });
     }
 
+    // Validate organisation type against saved types.
+    const selectedType = orgType.trim();
+
+    const organisationType = await prisma.organisationType.findFirst({
+      where: {
+        name: selectedType,
+      },
+    });
+
+    if (!organisationType) {
+      return res.status(400).json({
+        message: "Invalid organisation type. Please select a valid type.",
+      });
+    }
+
     const org = await prisma.organisation.create({
       data: {
         name: name.trim(),
-        orgType: orgType.trim(),
+        orgType: organisationType.name,
         createdBy: user.id,
       },
       include: {
@@ -132,7 +140,139 @@ async function getAllOrg(req, res) {
   }
 }
 
+// =====================================================
+// GET ORGANISATION TYPES
+// GET /api/org/types
+// =====================================================
+
+async function getOrganisationTypes(req, res) {
+  try {
+    const types = await prisma.organisationType.findMany({
+      orderBy: {
+        name: "asc",
+      },
+    });
+
+    const organisationTypes = types.map((type) => ({
+      ...type,
+      _id: type.id,
+    }));
+
+    return res.status(200).json({
+      message: "Organisation types fetched successfully",
+      types: organisationTypes,
+    });
+  } catch (error) {
+    console.error("GET ORGANISATION TYPES ERROR:", error);
+
+    return res.status(500).json({
+      message: "Unable to fetch organisation types",
+    });
+  }
+}
+
+// =====================================================
+// ADD ORGANISATION TYPE
+// POST /api/org/add-type
+// Only admins can add organisation types.
+// =====================================================
+
+async function addOrganisationType(req, res) {
+  try {
+    const userId = String(req.user.id);
+    const { name } = req.body;
+
+    if (typeof name !== "string" || !name.trim()) {
+      return res.status(400).json({
+        message: "Organisation type name is required",
+      });
+    }
+
+    const cleanName = name.trim().replace(/\s+/g, " ");
+
+    if (cleanName.length > 100) {
+      return res.status(400).json({
+        message: "Organisation type cannot exceed 100 characters",
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: {
+        id: userId,
+      },
+      select: {
+        id: true,
+        role: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
+
+    // Only admins can add organisation types.
+    if (user.role !== "admin") {
+      return res.status(403).json({
+        message: "Only admins can add organisation types",
+      });
+    }
+
+    // Check duplicates without depending on database collation.
+    const existingTypes = await prisma.organisationType.findMany({
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    const duplicate = existingTypes.find(
+      (type) => type.name.trim().toLowerCase() === cleanName.toLowerCase(),
+    );
+
+    if (duplicate) {
+      return res.status(409).json({
+        message: "This organisation type already exists",
+      });
+    }
+
+    const newType = await prisma.organisationType.create({
+      data: {
+        name: cleanName,
+      },
+    });
+
+    return res.status(201).json({
+      message: "Organisation type added successfully",
+      type: {
+        ...newType,
+        _id: newType.id,
+      },
+    });
+  } catch (error) {
+    // Handles duplicate unique-key errors, including concurrent requests.
+    if (error.code === "P2002") {
+      return res.status(409).json({
+        message: "This organisation type already exists",
+      });
+    }
+
+    console.error("ADD ORGANISATION TYPE ERROR:", error);
+
+    return res.status(500).json({
+      message: "Unable to add organisation type",
+    });
+  }
+}
+
+// =====================================================
+// EXPORT CONTROLLERS
+// =====================================================
+
 module.exports = {
   addOrganisation,
   getAllOrg,
+  getOrganisationTypes,
+  addOrganisationType,
 };

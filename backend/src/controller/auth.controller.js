@@ -194,6 +194,7 @@ function serializeUser(user) {
 
       return {
         _id: assignment.employee.id,
+        name: assignment.employee.name,
         userName: assignment.employee.userName,
         email: assignment.employee.email,
         mobileNumber: assignment.employee.mobileNumber ?? null,
@@ -223,6 +224,7 @@ async function register(req, res) {
 
     const {
       organisation,
+      name,
       userName,
       email,
       password,
@@ -250,8 +252,22 @@ async function register(req, res) {
       });
     }
 
+    const normalizedName = String(name || "").trim();
     const normalizedUserName = String(userName).trim();
     const normalizedEmail = String(email).trim().toLowerCase();
+
+    if (!normalizedName) {
+      return res.status(400).json({
+        message: "Name is required",
+      });
+    }
+
+    if (normalizedName.length > 191) {
+      return res.status(400).json({
+        message: "Name cannot exceed 191 characters",
+      });
+    }
+
     const normalizedMobileNumber = String(mobileNumber || "").trim();
     const normalizedDesignation = String(designation || "").trim();
 
@@ -412,6 +428,7 @@ async function register(req, res) {
 
     const user = await prisma.user.create({
       data: {
+        name: normalizedName,
         userName: normalizedUserName,
         email: normalizedEmail,
         password: hashedPassword,
@@ -454,6 +471,7 @@ async function register(req, res) {
             employee: {
               select: {
                 id: true,
+                name: true,
                 userName: true,
                 email: true,
                 designation: true,
@@ -594,6 +612,7 @@ async function login(req, res) {
       token,
       user: {
         id: user.id,
+        name: user.name,
         userName: user.userName,
         email: user.email,
         mobileNumber: user.mobileNumber ?? null,
@@ -629,6 +648,7 @@ async function login(req, res) {
     });
   }
 }
+
 // =====================================================
 // LOGOUT
 // =====================================================
@@ -696,6 +716,7 @@ async function getMe(req, res) {
             employee: {
               select: {
                 id: true,
+                name: true,
                 userName: true,
                 email: true,
                 designation: true,
@@ -733,17 +754,19 @@ async function getMe(req, res) {
 
 async function updateProfile(req, res) {
   try {
-    const { userName, email, mobileNumber } = req.body;
-
-    if (!userName || !email) {
-      return res.status(400).json({
-        message: "Username and email are required",
-      });
-    }
+    const { name, userName, email, mobileNumber } = req.body;
 
     const userId = String(req.user.id);
     const normalizedUserName = String(userName).trim();
     const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedName =
+      name === undefined || name === null ? undefined : String(name).trim();
+
+    if (normalizedName !== undefined && normalizedName.length > 191) {
+      return res.status(400).json({
+        message: "Name cannot exceed 191 characters",
+      });
+    }
 
     if (!normalizedUserName || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
       return res.status(400).json({
@@ -807,6 +830,7 @@ async function updateProfile(req, res) {
         id: userId,
       },
       data: {
+        ...(normalizedName !== undefined ? { name: normalizedName } : {}),
         userName: normalizedUserName,
         email: normalizedEmail,
         ...(normalizedMobileNumber !== undefined
@@ -838,6 +862,7 @@ async function updateProfile(req, res) {
             employee: {
               select: {
                 id: true,
+                name: true,
                 userName: true,
                 email: true,
                 designation: true,
@@ -965,6 +990,7 @@ async function getUser(req, res) {
       where: manageableUserWhere(organisationId, superAdmin),
       select: {
         id: true,
+        name: true,
         userName: true,
         email: true,
         role: true,
@@ -997,6 +1023,7 @@ async function getUser(req, res) {
             employee: {
               select: {
                 id: true,
+                name: true,
                 userName: true,
                 designation: true,
                 email: true,
@@ -1108,6 +1135,7 @@ async function updateUser(req, res) {
     }
 
     const {
+      name,
       userName,
       email,
       mobileNumber,
@@ -1117,6 +1145,24 @@ async function updateUser(req, res) {
     } = req.body || {};
 
     const data = {};
+
+    if (name !== undefined) {
+      const value = String(name).trim();
+
+      if (!value) {
+        return res.status(400).json({
+          message: "Name cannot be empty",
+        });
+      }
+
+      if (value.length > 191) {
+        return res.status(400).json({
+          message: "Name cannot exceed 191 characters",
+        });
+      }
+
+      data.name = value;
+    }
 
     if (userName !== undefined) {
       const value = String(userName).trim();
@@ -1356,6 +1402,7 @@ async function updateUser(req, res) {
             employee: {
               select: {
                 id: true,
+                name: true,
                 userName: true,
                 email: true,
                 mobileNumber: true,
@@ -1393,6 +1440,7 @@ async function updateUser(req, res) {
     });
   }
 }
+
 // =====================================================
 // SAVE FCM TOKEN
 // =====================================================
@@ -1461,6 +1509,7 @@ async function getEmployees(req, res) {
       },
       select: {
         id: true,
+        name: true,
         userName: true,
         email: true,
         mobileNumber: true,
@@ -1517,6 +1566,7 @@ async function findManageableUser(userId, actor) {
     },
     select: {
       id: true,
+      name: true,
       userName: true,
       role: true,
       organisationId: true,

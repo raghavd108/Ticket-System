@@ -6,15 +6,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
-  TextInput,
   Alert,
   ActivityIndicator,
   RefreshControl,
-  KeyboardAvoidingView,
   Platform,
   SafeAreaView,
 } from 'react-native';
-
+import { KeyboardAvoidingView } from 'react-native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -28,6 +26,7 @@ import DesignationPicker from '../components/DesignationPicker';
 import CompanyCalendarScreen from '../components/CompanyCalander';
 import OfferPage from '../components/OfferPage';
 import SendNotificationModal from '../components/SendNotificationModal';
+import OrganisationManagement from '../components/OrganisationManagement';
 
 const API_URL = Config.API_URL;
 
@@ -154,21 +153,6 @@ const ManagePage: React.FC = () => {
   const [userLoading, setUserLoading] = useState(true);
 
   const [activeModal, setActiveModal] = useState<ModalType>(null);
-
-  // Organisation
-  const [organisationName, setOrganisationName] = useState('');
-  const [organisationType, setOrganisationType] = useState('');
-  const [showOrganisationTypeList, setShowOrganisationTypeList] =
-    useState(false);
-  const [creatingOrganisation, setCreatingOrganisation] = useState(false);
-
-  const organisationTypes = [
-    'Hospital',
-    'School',
-    'Real Estate',
-    'Inventory & Accounting',
-    'Games',
-  ];
 
   // Designation
   const [designation, setDesignation] = useState('');
@@ -355,85 +339,7 @@ const ManagePage: React.FC = () => {
   };
 
   const closeModal = () => {
-    if (creatingOrganisation) return;
-    setShowOrganisationTypeList(false);
     setActiveModal(null);
-  };
-
-  // -----------------------------------------
-  // CREATE ORGANISATION
-  // -----------------------------------------
-
-  const createOrganisation = async () => {
-    const cleanName = organisationName.trim();
-    const cleanType = organisationType.trim();
-
-    if (!cleanType || !cleanName) {
-      Alert.alert(
-        en.manage.requiredFieldsTitle,
-        en.manage.organisationFieldsRequired,
-      );
-      return;
-    }
-
-    try {
-      setCreatingOrganisation(true);
-
-      const token = await AsyncStorage.getItem('token');
-
-      if (!token) {
-        throw new Error(en.errors.authentication);
-      }
-
-      const userResponse = await axios.get(`${API_URL}/api/auth/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const currentUserId =
-        userResponse.data?.user?._id || userResponse.data?.user?.id;
-
-      if (!currentUserId) {
-        throw new Error(en.manage.userIdentificationError);
-      }
-
-      const response = await axios.post(
-        `${API_URL}/api/org/add-org/${currentUserId}`,
-        {
-          orgType: cleanType,
-          name: cleanName,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      console.log('ORGANISATION CREATED:', response.data);
-
-      Alert.alert(
-        en.manage.organisationCreatedTitle,
-        en.manage.organisationCreatedMessage,
-      );
-
-      setOrganisationName('');
-      setOrganisationType('');
-      setShowOrganisationTypeList(false);
-      setActiveModal(null);
-    } catch (error: any) {
-      console.log('CREATE ORGANISATION ERROR:', error?.response?.data || error);
-
-      Alert.alert(
-        en.manage.creationFailedTitle,
-        error?.response?.data?.message ||
-          error?.message ||
-          en.manage.createOrganisationError,
-      );
-    } finally {
-      setCreatingOrganisation(false);
-    }
   };
 
   // -----------------------------------------
@@ -600,167 +506,13 @@ const ManagePage: React.FC = () => {
       </Modal>
 
       {/* =====================================
-          ORGANISATION CREATION MODAL
+          ORGANISATION MANAGEMENT COMPONENT
       ===================================== */}
-
-      <Modal
+      <OrganisationManagement
         visible={activeModal === 'organisation'}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        onRequestClose={closeModal}
-      >
-        <KeyboardAvoidingView
-          style={styles.overlay}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
-        >
-          <SafeAreaView style={styles.modalCard}>
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode={
-                Platform.OS === 'ios' ? 'interactive' : 'on-drag'
-              }
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 18, flexGrow: 1 }}
-            >
-              <ModalHeader
-                title={en.manage.addOrganisationTitle}
-                subtitle={en.manage.addOrganisationSubtitle}
-                onClose={closeModal}
-                theme={theme}
-              />
-
-              <Text style={styles.inputLabel}>
-                {en.manage.organisationTypeLabel}
-              </Text>
-
-              <TouchableOpacity
-                activeOpacity={0.75}
-                disabled={creatingOrganisation}
-                onPress={() =>
-                  setShowOrganisationTypeList(previous => !previous)
-                }
-                style={[
-                  styles.input,
-                  {
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    opacity: creatingOrganisation ? 0.6 : 1,
-                  },
-                ]}
-              >
-                <Text
-                  style={{
-                    color: organisationType ? theme.text : theme.muted,
-                    fontSize: 14,
-                  }}
-                >
-                  {organisationType ||
-                    en.manage.organisationTypePlaceholder ||
-                    'Select organisation type'}
-                </Text>
-                <Ionicons
-                  name={
-                    showOrganisationTypeList ? 'chevron-up' : 'chevron-down'
-                  }
-                  size={19}
-                  color={theme.muted}
-                />
-              </TouchableOpacity>
-
-              {showOrganisationTypeList && (
-                <View
-                  style={{
-                    marginTop: 7,
-                    borderWidth: 1,
-                    borderColor: theme.border,
-                    borderRadius: 12,
-                    overflow: 'hidden',
-                    backgroundColor: theme.white,
-                  }}
-                >
-                  {organisationTypes.map((type, index) => {
-                    const selected = organisationType === type;
-
-                    return (
-                      <TouchableOpacity
-                        key={type}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          setOrganisationType(type);
-                          setShowOrganisationTypeList(false);
-                        }}
-                        style={{
-                          minHeight: 46,
-                          paddingHorizontal: 14,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          backgroundColor: selected
-                            ? theme.primarySoft
-                            : theme.white,
-                          borderBottomWidth:
-                            index === organisationTypes.length - 1 ? 0 : 1,
-                          borderBottomColor: theme.border,
-                        }}
-                      >
-                        <Text
-                          style={{
-                            color: selected ? theme.primary : theme.text,
-                            fontSize: 13,
-                            fontWeight: selected ? '700' : '500',
-                          }}
-                        >
-                          {type}
-                        </Text>
-                        {selected && (
-                          <Ionicons
-                            name="checkmark"
-                            size={18}
-                            color={theme.primary}
-                          />
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-
-              <Text style={styles.inputLabel}>
-                {en.manage.organisationNameLabel}
-              </Text>
-
-              <TextInput
-                value={organisationName}
-                onChangeText={setOrganisationName}
-                placeholder={en.organisation.namePlaceholder}
-                placeholderTextColor={theme.muted}
-                editable={!creatingOrganisation}
-                returnKeyType="done"
-                onSubmitEditing={createOrganisation}
-                style={styles.input}
-              />
-
-              <TouchableOpacity
-                style={styles.primaryButton}
-                onPress={createOrganisation}
-                disabled={creatingOrganisation}
-                activeOpacity={0.8}
-              >
-                {creatingOrganisation ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>
-                    {en.manage.createOrganisationButton}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </ScrollView>
-          </SafeAreaView>
-        </KeyboardAvoidingView>
-      </Modal>
+        currentUser={user}
+        onClose={closeModal}
+      />
 
       {/* =====================================
           DESIGNATION CREATION / MANAGEMENT

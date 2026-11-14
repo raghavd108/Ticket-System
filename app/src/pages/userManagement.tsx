@@ -25,11 +25,13 @@ import {
 import createstyles from '../style/userManagement';
 import AttendanceHistory from '../components/AttendanceHistory';
 import DesignationPicker from '../components/DesignationPicker';
+import OrganisationManagement from '../components/OrganisationManagement';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import en from '../i18n/en';
 
 interface AssignedEmployee {
   _id: string;
+  name?: string;
   userName: string;
   email: string;
   designation?: string;
@@ -46,6 +48,7 @@ interface AssignedEmployee {
 interface User {
   id: string;
   _id?: string;
+  name?: string;
   userName: string;
   email: string;
   mobileNumber?: string;
@@ -103,6 +106,7 @@ const ClientPage = () => {
   // USER FORM
 
   const [organisation, setOrganisation] = useState('');
+  const [name, setName] = useState('');
   const [userName, setUserName] = useState('');
   const [email, setEmail] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
@@ -138,6 +142,7 @@ const ClientPage = () => {
   const [attendanceVisible, setAttendanceVisible] = useState(false);
   const [editEmployeeVisible, setEditEmployeeVisible] = useState(false);
   const [savingEmployee, setSavingEmployee] = useState(false);
+  const [editFullName, setEditFullName] = useState('');
   const [editEmployeeName, setEditEmployeeName] = useState('');
   const [editEmployeeEmail, setEditEmployeeEmail] = useState('');
   const [editEmployeeMobile, setEditEmployeeMobile] = useState('');
@@ -155,8 +160,6 @@ const ClientPage = () => {
   const [showClientModal, setShowClientModal] = useState(false);
   const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
-
-  // Existing organisation modal
   const [showOrganisationModal, setShowOrganisationModal] = useState(false);
 
   const [showOrganisationList, setShowOrganisationList] = useState(false);
@@ -166,21 +169,7 @@ const ClientPage = () => {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [loadingOrganisations, setLoadingOrganisations] = useState(false);
-  const [creatingOrganisation, setCreatingOrganisation] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
-  const [newOrganisationName, setNewOrganisationName] = useState('');
-  const [newOrganisationType, setNewOrganisationType] = useState('');
-  const [showOrganisationTypeList, setShowOrganisationTypeList] =
-    useState(false);
-
-  const organisationTypes = [
-    'Hospital',
-    'School',
-    'Real Estate',
-    'Inventory & Accounting',
-    'Games',
-  ];
 
   // THE DEFAULT EMPLOYEE ORGANISATION
 
@@ -274,6 +263,7 @@ const ClientPage = () => {
 
       const normalizedUsers: User[] = users.map((item: any) => ({
         ...item,
+        name: item.name || '',
         id: String(item.id || item._id || ''),
         _id: String(item._id || item.id || ''),
         mobileNumber:
@@ -305,6 +295,7 @@ const ClientPage = () => {
           return {
             ...employee,
             _id: String(employee?._id || employee?.id || ''),
+            name: employee?.name || '',
             userName: employee?.userName || copy.employee,
             email: employee?.email || '',
           };
@@ -433,6 +424,7 @@ const ClientPage = () => {
       setEmployees(
         list.map((item: any) => ({
           ...item,
+          name: item.name || '',
           _id: String(item._id || item.id || ''),
           mobileNumber:
             item.mobileNumber ?? item.phoneNumber ?? item.mobile ?? '',
@@ -470,34 +462,6 @@ const ClientPage = () => {
           .trim()
           .toLowerCase() === DEFAULT_EMPLOYEE_ORGANISATION.toLowerCase(),
     );
-  };
-
-  // GET CURRENT USER ID
-
-  const getCurrentUserId = async () => {
-    try {
-      const token = await AsyncStorage.getItem('token');
-
-      if (!token) {
-        throw new Error(copy.authenticationTokenMissing);
-      }
-
-      const res = await axios.get(`${Config.API_URL}/api/auth/me`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      return (
-        res.data?.user?._id ||
-        res.data?.user?.id ||
-        res.data?._id ||
-        res.data?.id
-      );
-    } catch (error) {
-      console.log('GET CURRENT USER ID ERROR:', error);
-      throw error;
-    }
   };
 
   // CREATE CLIENT
@@ -555,6 +519,7 @@ const ClientPage = () => {
   // CREATE USER
 
   const signUp = async (selectedRole: 'client' | 'employee') => {
+    const cleanFullName = name.trim();
     const cleanUserName = userName.trim().toLowerCase();
     const cleanEmail = email.trim().toLowerCase();
     const cleanRole = selectedRole.trim().toLowerCase();
@@ -580,6 +545,16 @@ const ClientPage = () => {
       }
 
       employeeOrganisationId = spinfocomOrganisation._id;
+    }
+
+    if (!cleanFullName) {
+      Alert.alert('Name required', 'Please enter the full name.');
+      return;
+    }
+
+    if (cleanFullName.length > 191) {
+      Alert.alert('Invalid name', 'Name cannot exceed 191 characters.');
+      return;
     }
 
     if (!cleanUserName) {
@@ -643,6 +618,7 @@ const ClientPage = () => {
 
       const payload: any = {
         organisation: employeeOrganisationId,
+        name: cleanFullName,
         userName: cleanUserName,
         email: cleanEmail,
         password,
@@ -700,90 +676,11 @@ const ClientPage = () => {
     }
   };
 
-  // CREATE ORGANISATION
-
-  const createOrganisation = async () => {
-    const cleanName = newOrganisationName.trim();
-    const cleanOrgType = newOrganisationType.trim();
-
-    if (!cleanOrgType) {
-      Alert.alert(
-        copy.organisationTypeRequiredTitle,
-        copy.enterOrganisationType,
-      );
-      return;
-    }
-
-    if (!cleanName) {
-      Alert.alert(
-        copy.organisationNameRequiredTitle,
-        copy.enterOrganisationName,
-      );
-      return;
-    }
-
-    try {
-      setCreatingOrganisation(true);
-
-      const token = await AsyncStorage.getItem('token');
-
-      if (!token) {
-        Alert.alert(copy.authenticationErrorTitle, copy.loginAgain);
-        return;
-      }
-
-      const currentUserId = await getCurrentUserId();
-
-      if (!currentUserId) {
-        Alert.alert(copy.userIdMissingTitle, copy.identifySignedInUser);
-        return;
-      }
-
-      const res = await axios.post(
-        `${Config.API_URL}/api/org/add-org/${currentUserId}`,
-        {
-          orgType: cleanOrgType,
-          name: cleanName,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      console.log('CREATE ORGANISATION RESPONSE:', res.data);
-
-      const createdOrganisation = res.data?.org || res.data?.organisation;
-
-      Alert.alert(copy.organisationCreatedTitle, copy.organisationCreated);
-
-      setNewOrganisationName('');
-      setNewOrganisationType('');
-      setShowOrganisationTypeList(false);
-      setShowOrganisationModal(false);
-
-      await getOrganisations();
-
-      if (createdOrganisation?._id) {
-        setOrganisation(createdOrganisation._id);
-      }
-    } catch (error: any) {
-      console.log('CREATE ORGANISATION ERROR:', error);
-
-      Alert.alert(
-        copy.createOrganisationErrorTitle,
-        error.response?.data?.message || copy.createOrganisationError,
-      );
-    } finally {
-      setCreatingOrganisation(false);
-    }
-  };
-
   // RESET USER FORM
 
   const resetUserForm = () => {
     setOrganisation('');
+    setName('');
     setUserName('');
     setEmail('');
     setMobileNumber('');
@@ -847,6 +744,7 @@ const ClientPage = () => {
 
       const matchesSearch =
         !value ||
+        item.name?.toLowerCase().includes(value) ||
         item.userName?.toLowerCase().includes(value) ||
         item.email?.toLowerCase().includes(value) ||
         item.organisation?.name?.toLowerCase().includes(value) ||
@@ -938,11 +836,7 @@ const ClientPage = () => {
   };
 
   // OPEN ADD ORGANISATION
-
   const openOrganisationModal = () => {
-    setNewOrganisationName('');
-    setNewOrganisationType('');
-    setShowOrganisationTypeList(false);
     setShowOrganisationModal(true);
   };
 
@@ -1114,6 +1008,7 @@ const ClientPage = () => {
       !['employee', 'client'].includes(selectedClient.role)
     )
       return;
+    setEditFullName(selectedClient.name || '');
     setEditEmployeeName(selectedClient.userName || '');
     setEditEmployeeEmail(selectedClient.email || '');
     setEditEmployeeMobile(selectedClient.mobileNumber || '');
@@ -1142,7 +1037,8 @@ const ClientPage = () => {
     const userId = selectedClient?._id || selectedClient?.id;
     const isEmployee = selectedClient?.role === 'employee';
     const isClient = selectedClient?.role === 'client';
-    const cleanName = editEmployeeName.trim();
+    const cleanFullName = editFullName.trim();
+    const cleanUserName = editEmployeeName.trim();
     const cleanEmail = editEmployeeEmail.trim().toLowerCase();
     const cleanMobile = editEmployeeMobile.trim();
     const cleanDesignation = editEmployeeDesignation.trim();
@@ -1168,8 +1064,16 @@ const ClientPage = () => {
       Alert.alert(copy.invalidPasswordTitle, copy.passwordMinLength);
       return;
     }
-    if (!cleanName || !cleanEmail) {
-      Alert.alert(copy.missingDetailsTitle, copy.usernameEmailRequired);
+    if (!cleanFullName || !cleanUserName || !cleanEmail) {
+      Alert.alert(
+        copy.missingDetailsTitle,
+        'Full name, username and email are required.',
+      );
+      return;
+    }
+
+    if (cleanFullName.length > 191) {
+      Alert.alert('Invalid name', 'Name cannot exceed 191 characters.');
       return;
     }
     if (cleanMobile && !/^\d{10}$/.test(cleanMobile)) {
@@ -1196,7 +1100,8 @@ const ClientPage = () => {
       if (!token) throw new Error(copy.authenticationTokenMissing);
 
       const payload: any = {
-        userName: cleanName,
+        name: cleanFullName,
+        userName: cleanUserName,
         email: cleanEmail,
         mobileNumber: cleanMobile || null,
       };
@@ -1217,7 +1122,8 @@ const ClientPage = () => {
         ...updated,
         id: updated.id || updated._id || userId,
         _id: updated._id || updated.id || userId,
-        userName: updated.userName ?? cleanName,
+        name: updated.name ?? cleanFullName,
+        userName: updated.userName ?? cleanUserName,
         email: updated.email ?? cleanEmail,
         mobileNumber: updated.mobileNumber ?? cleanMobile,
         designation:
@@ -1368,7 +1274,8 @@ const ClientPage = () => {
   // USER CARD
 
   const renderClient = (item: User) => {
-    const initial = item.userName ? item.userName.charAt(0).toUpperCase() : 'U';
+    const displayName = item.name?.trim() || item.userName || 'User';
+    const initial = displayName.charAt(0).toUpperCase();
 
     return (
       <View style={styles.clientCard} key={item._id || item.id}>
@@ -1384,7 +1291,7 @@ const ClientPage = () => {
           <View style={styles.clientInfo}>
             <View style={styles.nameRow}>
               <Text style={styles.clientName} numberOfLines={1}>
-                {item.userName}
+                {displayName}
               </Text>
 
               <View
@@ -1414,7 +1321,7 @@ const ClientPage = () => {
             </View>
 
             <Text style={styles.clientEmail} numberOfLines={1}>
-              {item.email}
+              {item.userName} · {item.email}
             </Text>
 
             <View style={styles.hospitalRow}>
@@ -1462,6 +1369,7 @@ const ClientPage = () => {
             activeOpacity={0.75}
             onPress={() => {
               setSelectedClient(item);
+              setEditFullName(item.name || '');
               setEditEmployeeName(item.userName || '');
               setEditEmployeeEmail(item.email || '');
               setEditEmployeeMobile(item.mobileNumber || '');
@@ -1502,6 +1410,26 @@ const ClientPage = () => {
           { flexGrow: 1, paddingBottom: 50 },
         ]}
       >
+        {/* =====================================================
+            FULL NAME
+        ===================================================== */}
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Full Name</Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="Enter full name"
+            placeholderTextColor="#A1A1AA"
+            value={name}
+            onChangeText={setName}
+            autoCapitalize="words"
+            autoCorrect={false}
+            returnKeyType="next"
+            editable={!creating}
+          />
+        </View>
+
         {/* =====================================================
             USERNAME
         ===================================================== */}
@@ -1870,7 +1798,7 @@ const ClientPage = () => {
                     }}
                     numberOfLines={1}
                   >
-                    {employee.userName}
+                    {employee.name || employee.userName}
                   </Text>
 
                   <Text
@@ -1948,7 +1876,7 @@ const ClientPage = () => {
                           }}
                           numberOfLines={1}
                         >
-                          {employee.userName}
+                          {employee.name || employee.userName}
                         </Text>
 
                         <Text
@@ -2156,6 +2084,26 @@ const ClientPage = () => {
           >
             {copy.employeesAutoAssigned}
           </Text>
+        </View>
+
+        {/* =====================================================
+            FULL NAME
+        ===================================================== */}
+
+        <View style={styles.field}>
+          <Text style={styles.label}>Full Name</Text>
+
+          <TextInput
+            style={styles.input}
+            placeholder="Enter full name"
+            placeholderTextColor="#A1A1AA"
+            value={name}
+            onChangeText={setName}
+            autoCapitalize="words"
+            autoCorrect={false}
+            returnKeyType="next"
+            editable={!creating}
+          />
         </View>
 
         {/* =====================================================
@@ -2824,327 +2772,18 @@ const ClientPage = () => {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* =====================================================
-          ADD ORGANISATION MODAL
-      ===================================================== */}
-
-      <Modal
+      <OrganisationManagement
         visible={showOrganisationModal}
-        animationType="fade"
-        transparent
-        statusBarTranslucent
-        onRequestClose={() => {
-          if (!creatingOrganisation) {
-            setShowOrganisationTypeList(false);
-            setShowOrganisationModal(false);
+        currentUser={currentUser}
+        onClose={() => setShowOrganisationModal(false)}
+        onCreated={async createdOrganisation => {
+          setShowOrganisationModal(false);
+          await getOrganisations();
+          if (createdOrganisation?._id) {
+            setOrganisation(createdOrganisation._id);
           }
         }}
-      >
-        <View
-          style={{
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.55)',
-            justifyContent: 'center',
-            padding: 20,
-          }}
-        >
-          <View
-            style={{
-              backgroundColor: theme.background,
-              borderRadius: 22,
-              padding: 22,
-              borderWidth: 1,
-              borderColor: theme.border,
-            }}
-          >
-            <View
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: 22,
-              }}
-            >
-              <View style={{ flex: 1, paddingRight: 12 }}>
-                <View
-                  style={{
-                    alignSelf: 'flex-start',
-                    backgroundColor: theme.primarySoft,
-                    paddingHorizontal: 10,
-                    paddingVertical: 6,
-                    borderRadius: 8,
-                    marginBottom: 9,
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 10,
-                      fontWeight: '800',
-                      color: theme.primary,
-                      letterSpacing: 1,
-                    }}
-                  >
-                    {copy.newOrganisationEyebrow}
-                  </Text>
-                </View>
-
-                <Text
-                  style={{
-                    fontSize: 23,
-                    fontWeight: '800',
-                    color: theme.ink,
-                  }}
-                >
-                  {copy.addOrganisationTitle}
-                </Text>
-
-                <Text
-                  style={{
-                    fontSize: 13,
-                    lineHeight: 20,
-                    color: theme.muted,
-                    marginTop: 6,
-                  }}
-                >
-                  {copy.createOrganisationSubtitle}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                onPress={() => {
-                  if (!creatingOrganisation) {
-                    setShowOrganisationTypeList(false);
-                    setShowOrganisationModal(false);
-                  }
-                }}
-                disabled={creatingOrganisation}
-                activeOpacity={0.7}
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 12,
-                  backgroundColor: theme.primarySoft,
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons name="close" size={23} color={theme.ink} />
-              </TouchableOpacity>
-            </View>
-
-            <Text
-              style={{
-                fontSize: 11,
-                fontWeight: '800',
-                color: theme.text,
-                marginBottom: 8,
-                letterSpacing: 0.5,
-              }}
-            >
-              {copy.organisationTypeLabel}
-            </Text>
-
-            <TouchableOpacity
-              onPress={() => setShowOrganisationTypeList(previous => !previous)}
-              disabled={creatingOrganisation}
-              activeOpacity={0.8}
-              style={{
-                minHeight: 52,
-                borderWidth: 1,
-                borderColor: showOrganisationTypeList
-                  ? theme.primary
-                  : theme.border,
-                borderRadius: 12,
-                paddingHorizontal: 15,
-                backgroundColor: theme.background,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: showOrganisationTypeList ? 8 : 18,
-              }}
-            >
-              <Text
-                style={{
-                  fontSize: 14,
-                  color: newOrganisationType ? theme.ink : theme.muted,
-                  fontWeight: newOrganisationType ? '600' : '400',
-                  flex: 1,
-                }}
-              >
-                {newOrganisationType || 'Select organization type'}
-              </Text>
-
-              <Ionicons
-                name={showOrganisationTypeList ? 'chevron-up' : 'chevron-down'}
-                size={19}
-                color={theme.muted}
-              />
-            </TouchableOpacity>
-
-            {showOrganisationTypeList && (
-              <View
-                style={{
-                  borderWidth: 1,
-                  borderColor: theme.border,
-                  borderRadius: 12,
-                  backgroundColor: theme.background,
-                  overflow: 'hidden',
-                  marginBottom: 18,
-                }}
-              >
-                {organisationTypes.map((item, index) => {
-                  const selected = newOrganisationType === item;
-
-                  return (
-                    <TouchableOpacity
-                      key={item}
-                      activeOpacity={0.7}
-                      disabled={creatingOrganisation}
-                      onPress={() => {
-                        setNewOrganisationType(item);
-                        setShowOrganisationTypeList(false);
-                      }}
-                      style={{
-                        paddingHorizontal: 15,
-                        paddingVertical: 14,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        borderBottomWidth:
-                          index === organisationTypes.length - 1 ? 0 : 1,
-                        borderBottomColor: theme.divider,
-                        backgroundColor: selected
-                          ? theme.primarySoft
-                          : theme.background,
-                      }}
-                    >
-                      <Text
-                        style={{
-                          fontSize: 14,
-                          color: selected ? theme.primary : theme.ink,
-                          fontWeight: selected ? '700' : '500',
-                        }}
-                      >
-                        {item}
-                      </Text>
-
-                      {selected && (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={19}
-                          color={theme.primary}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-
-            <Text
-              style={{
-                fontSize: 11,
-                fontWeight: '800',
-                color: theme.text,
-                marginBottom: 8,
-                letterSpacing: 0.5,
-              }}
-            >
-              {copy.organisationNameLabel}
-            </Text>
-
-            <TextInput
-              value={newOrganisationName}
-              onChangeText={setNewOrganisationName}
-              placeholder={copy.organisationNamePlaceholder}
-              placeholderTextColor={theme.muted}
-              autoCapitalize="words"
-              editable={!creatingOrganisation}
-              returnKeyType="done"
-              style={{
-                height: 52,
-                borderWidth: 1,
-                borderColor: theme.border,
-                borderRadius: 12,
-                paddingHorizontal: 15,
-                fontSize: 14,
-                color: theme.ink,
-                backgroundColor: theme.background,
-                marginBottom: 20,
-              }}
-            />
-
-            <TouchableOpacity
-              onPress={createOrganisation}
-              disabled={creatingOrganisation}
-              activeOpacity={0.8}
-              style={{
-                height: 52,
-                borderRadius: 14,
-                backgroundColor: theme.primary,
-                justifyContent: 'center',
-                alignItems: 'center',
-                flexDirection: 'row',
-                opacity: creatingOrganisation ? 0.7 : 1,
-              }}
-            >
-              {creatingOrganisation ? (
-                <>
-                  <ActivityIndicator size="small" color={theme.everWhite} />
-                  <Text
-                    style={{
-                      color: theme.everWhite,
-                      fontWeight: '800',
-                      marginLeft: 9,
-                      fontSize: 14,
-                    }}
-                  >
-                    {copy.creating}
-                  </Text>
-                </>
-              ) : (
-                <Text
-                  style={{
-                    color: theme.everWhite,
-                    fontWeight: '800',
-                    fontSize: 14,
-                  }}
-                >
-                  {copy.createOrganisationButton}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => {
-                if (!creatingOrganisation) {
-                  setShowOrganisationModal(false);
-                }
-              }}
-              disabled={creatingOrganisation}
-              activeOpacity={0.7}
-              style={{
-                height: 46,
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginTop: 5,
-              }}
-            >
-              <Text
-                style={{
-                  color: theme.muted,
-                  fontWeight: '700',
-                  fontSize: 13,
-                }}
-              >
-                {copy.cancel}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      />
 
       <Modal
         visible={detailsVisible}
@@ -3191,13 +2830,15 @@ const ClientPage = () => {
                   <Text
                     style={[styles.clientAvatarText, { color: theme.primary }]}
                   >
-                    {selectedClient?.userName?.charAt(0)?.toUpperCase() || 'U'}
+                    {(selectedClient?.name || selectedClient?.userName)
+                      ?.charAt(0)
+                      ?.toUpperCase() || 'U'}
                   </Text>
                 </View>
 
                 <View style={styles.clientHeaderInfo}>
                   <Text style={[styles.clientModalName, { color: theme.ink }]}>
-                    {selectedClient?.userName}
+                    {selectedClient?.name || selectedClient?.userName}
                   </Text>
 
                   <View
@@ -3264,6 +2905,31 @@ const ClientPage = () => {
               />
 
               <View style={styles.detailsSection}>
+                <View style={styles.detailRow}>
+                  <View
+                    style={[
+                      styles.detailIcon,
+                      { backgroundColor: theme.primarySoft },
+                    ]}
+                  >
+                    <Ionicons
+                      name="person-outline"
+                      size={18}
+                      color={theme.primary}
+                    />
+                  </View>
+
+                  <View style={styles.detailContent}>
+                    <Text style={[styles.detailLabel, { color: theme.muted }]}>
+                      {copy.usernameLabel}
+                    </Text>
+
+                    <Text style={[styles.detailValue, { color: theme.ink }]}>
+                      {selectedClient?.userName || copy.notAvailable}
+                    </Text>
+                  </View>
+                </View>
+
                 <View style={styles.detailRow}>
                   <View
                     style={[
@@ -3557,7 +3223,7 @@ const ClientPage = () => {
                                     { color: theme.ink },
                                   ]}
                                 >
-                                  {employee.userName}
+                                  {employee.name || employee.userName}
                                 </Text>
 
                                 {employee.designation && (
@@ -3693,6 +3359,13 @@ const ClientPage = () => {
               showsVerticalScrollIndicator
             >
               {[
+                {
+                  label: 'Full Name',
+                  value: editFullName,
+                  set: setEditFullName,
+                  placeholder: 'Enter full name',
+                  keyboard: 'default',
+                },
                 {
                   label: copy.usernameLabel,
                   value: editEmployeeName,
@@ -3935,7 +3608,7 @@ const ClientPage = () => {
                                   fontSize: 13,
                                 }}
                               >
-                                {employee.userName}
+                                {employee.name || employee.userName}
                               </Text>
 
                               <Text
@@ -4086,7 +3759,9 @@ const ClientPage = () => {
                     marginTop: 4,
                   }}
                 >
-                  {selectedClient?.userName || copy.employee}
+                  {selectedClient?.name ||
+                    selectedClient?.userName ||
+                    copy.employee}
                 </Text>
               </View>
 
@@ -4126,7 +3801,7 @@ const ClientPage = () => {
                 <AttendanceHistory
                   key={selectedClient._id || selectedClient.id}
                   employeeId={selectedClient._id || selectedClient.id}
-                  employeeName={selectedClient.userName}
+                  employeeName={selectedClient.name || selectedClient.userName}
                 />
               ) : (
                 <View
@@ -4242,7 +3917,9 @@ const ClientPage = () => {
                     color: theme.ink,
                   }}
                 >
-                  {selectedClient?.userName || copy.unknownEmployee}
+                  {selectedClient?.name ||
+                    selectedClient?.userName ||
+                    copy.unknownEmployee}
                 </Text>
 
                 <Text
