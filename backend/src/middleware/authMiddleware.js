@@ -60,6 +60,14 @@ function getPermissions(user) {
     canManageUsers: isSuperAdmin || designation.canManageUsers === true,
 
     // ================================================
+    // ORGANISATION PERMISSION
+    // Admin, SuperAdmin and management employees
+    // ================================================
+
+    canCreateOrganisation:
+      isSuperAdmin || role === "admin" || designation.canManageUsers === true,
+
+    // ================================================
     // OFFERS PERMISSION
     // ================================================
 
@@ -67,9 +75,6 @@ function getPermissions(user) {
 
     // ================================================
     // EMPLOYEE NOTIFICATION PERMISSION
-    //
-    // SuperAdmin OR employee with designation permission
-    // CEO / CTO are configured through Designation table.
     // ================================================
 
     canNotifyEmployees:
@@ -149,6 +154,7 @@ async function authenticate(req, res) {
           // EMPLOYEE NOTIFICATION PERMISSION
           canNotifyEmployees: true,
 
+          // MANAGEMENT LEVEL
           managementLevel: true,
         },
       },
@@ -294,7 +300,42 @@ async function verifyManagementAccess(req, res, next) {
     console.error("MANAGEMENT AUTH ERROR:", error);
 
     return res.status(500).json({
-      message: "Unable to verify management access",
+      message: "Unable to verify session",
+    });
+  }
+}
+
+// =====================================================
+// VERIFY ORGANISATION ACCESS
+//
+// Admin OR SuperAdmin OR canManageUsers
+//
+// CEO / CTO get access through their
+// designation's canManageUsers permission.
+// =====================================================
+
+async function verifyOrganisationAccess(req, res, next) {
+  try {
+    const user = await authenticate(req, res);
+
+    if (!user) return;
+
+    if (user.permissions.canCreateOrganisation !== true) {
+      return res.status(403).json({
+        code: "ORGANISATION_ACCESS_DENIED",
+        message:
+          "Access denied. You do not have permission to create organisations.",
+      });
+    }
+
+    req.user = user;
+
+    next();
+  } catch (error) {
+    console.error("ORGANISATION AUTH ERROR:", error);
+
+    return res.status(500).json({
+      message: "Unable to verify organisation permissions",
     });
   }
 }
@@ -324,7 +365,7 @@ async function verifySuperAdmin(req, res, next) {
     console.error("SUPERADMIN AUTH ERROR:", error);
 
     return res.status(500).json({
-      message: "Unable to verify SuperAdmin access",
+      message: "Unable to verify session",
     });
   }
 }
@@ -365,8 +406,6 @@ async function verifyOfferAccess(req, res, next) {
 //
 // SuperAdmin OR employee whose designation has
 // canNotifyEmployees = true
-//
-// Developer and unauthorized users are blocked.
 // =====================================================
 
 async function verifyEmployeeNotificationAccess(req, res, next) {
@@ -403,6 +442,7 @@ module.exports = {
   verifyToken,
   verifyAdmin,
   verifyManagementAccess,
+  verifyOrganisationAccess,
   verifySuperAdmin,
   verifyOfferAccess,
   verifyEmployeeNotificationAccess,

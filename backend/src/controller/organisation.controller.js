@@ -5,23 +5,29 @@ async function addOrganisation(req, res) {
     const id = String(req.user.id);
     const { name, orgType } = req.body;
 
+    // VALIDATE ORGANISATION NAME
     if (typeof name !== "string" || !name.trim()) {
       return res.status(400).json({
         message: "Organisation name is required",
       });
     }
 
+    // VALIDATE ORGANISATION TYPE
     if (typeof orgType !== "string" || !orgType.trim()) {
       return res.status(400).json({
         message: "Organisation type is required",
       });
     }
 
+    // FETCH CURRENT USER
     const user = await prisma.user.findUnique({
-      where: { id },
+      where: {
+        id,
+      },
       select: {
         id: true,
         role: true,
+        isSuperAdmin: true,
       },
     });
 
@@ -31,14 +37,20 @@ async function addOrganisation(req, res) {
       });
     }
 
-    // Only admins can create organisations.
-    if (user.role !== "admin") {
+    // VERIFY ORGANISATION CREATION PERMISSION
+    const hasAccess =
+      user.role?.toLowerCase() === "admin" ||
+      user.isSuperAdmin === true ||
+      req.user.permissions?.canCreateOrganisation === true;
+
+    if (!hasAccess) {
       return res.status(403).json({
-        message: "Only admins can create organisations",
+        code: "ORGANISATION_ACCESS_DENIED",
+        message: "You do not have permission to create organisations.",
       });
     }
 
-    // Validate organisation type against saved types.
+    // VALIDATE ORGANISATION TYPE AGAINST SAVED TYPES
     const selectedType = orgType.trim();
 
     const organisationType = await prisma.organisationType.findFirst({
@@ -53,6 +65,7 @@ async function addOrganisation(req, res) {
       });
     }
 
+    // CREATE ORGANISATION
     const org = await prisma.organisation.create({
       data: {
         name: name.trim(),
@@ -174,7 +187,8 @@ async function getOrganisationTypes(req, res) {
 // =====================================================
 // ADD ORGANISATION TYPE
 // POST /api/org/add-type
-// Only admins can add organisation types.
+//
+// Only Admins can add organisation types.
 // =====================================================
 
 async function addOrganisationType(req, res) {
@@ -182,6 +196,7 @@ async function addOrganisationType(req, res) {
     const userId = String(req.user.id);
     const { name } = req.body;
 
+    // VALIDATE TYPE NAME
     if (typeof name !== "string" || !name.trim()) {
       return res.status(400).json({
         message: "Organisation type name is required",
@@ -196,6 +211,7 @@ async function addOrganisationType(req, res) {
       });
     }
 
+    // FETCH CURRENT USER
     const user = await prisma.user.findUnique({
       where: {
         id: userId,
@@ -203,6 +219,7 @@ async function addOrganisationType(req, res) {
       select: {
         id: true,
         role: true,
+        isSuperAdmin: true,
       },
     });
 
@@ -212,14 +229,14 @@ async function addOrganisationType(req, res) {
       });
     }
 
-    // Only admins can add organisation types.
-    if (user.role !== "admin") {
+    // ONLY ADMINS AND SUPERADMIN CAN ADD TYPES
+    if (user.role?.toLowerCase() !== "admin" && user.isSuperAdmin !== true) {
       return res.status(403).json({
         message: "Only admins can add organisation types",
       });
     }
 
-    // Check duplicates without depending on database collation.
+    // CHECK DUPLICATES WITHOUT DEPENDING ON DATABASE COLLATION
     const existingTypes = await prisma.organisationType.findMany({
       select: {
         id: true,
@@ -237,6 +254,7 @@ async function addOrganisationType(req, res) {
       });
     }
 
+    // CREATE ORGANISATION TYPE
     const newType = await prisma.organisationType.create({
       data: {
         name: cleanName,
@@ -251,7 +269,7 @@ async function addOrganisationType(req, res) {
       },
     });
   } catch (error) {
-    // Handles duplicate unique-key errors, including concurrent requests.
+    // HANDLE DUPLICATE UNIQUE-KEY ERRORS
     if (error.code === "P2002") {
       return res.status(409).json({
         message: "This organisation type already exists",
