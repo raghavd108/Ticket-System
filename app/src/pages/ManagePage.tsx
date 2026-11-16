@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -146,8 +146,26 @@ const manageItems: ManageItem[] = [
   },
 ];
 
-const ManagePage: React.FC = () => {
+interface ManagePageProps {
+  route?: {
+    params?: {
+      openLeaveId?: string;
+      notificationType?: string;
+    };
+  };
+}
+
+const ManagePage: React.FC<ManagePageProps> = ({ route }) => {
   const { theme } = useTheme();
+
+  const openLeaveId =
+    typeof route?.params?.openLeaveId === 'string'
+      ? route.params.openLeaveId
+      : undefined;
+  const notificationType = String(
+    route?.params?.notificationType || '',
+  ).toUpperCase();
+  const handledLeaveId = useRef<string | null>(null);
 
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [userLoading, setUserLoading] = useState(true);
@@ -269,6 +287,21 @@ const ManagePage: React.FC = () => {
       fetchClientFeedback(1);
     }
   }, [activeModal]);
+
+  // Open Leave Management automatically when arriving from a
+  // LEAVE_REQUEST notification.
+  useEffect(() => {
+    if (
+      !openLeaveId ||
+      notificationType !== 'LEAVE_REQUEST' ||
+      handledLeaveId.current === openLeaveId
+    ) {
+      return;
+    }
+
+    handledLeaveId.current = openLeaveId;
+    setActiveModal('leave');
+  }, [openLeaveId, notificationType]);
 
   const getCurrentUser = async () => {
     try {
@@ -499,7 +532,7 @@ const ManagePage: React.FC = () => {
             />
 
             <View style={{ flex: 1 }}>
-              <LeaveManagement />
+              <LeaveManagement initialLeaveId={openLeaveId} />
             </View>
           </SafeAreaView>
         </View>

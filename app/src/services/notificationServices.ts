@@ -15,7 +15,7 @@ type NotificationMessage = {
   };
 
   data?: {
-    [key: string]: string | object;
+    [key: string]: string | object | undefined;
   };
 };
 
@@ -23,7 +23,9 @@ export type NotificationPressData = {
   [key: string]: string | object | undefined;
   type?: string;
   complaintId?: string;
+  ticketId?: string;
   offerId?: string;
+  leaveId?: string;
 };
 
 // =====================================================
@@ -75,7 +77,7 @@ export const createNotificationChannel = async () => {
       sound: 'default',
     });
 
-    // NEW: OFFER CHANNEL
+    // OFFER CHANNEL
     await notifee.createChannel({
       id: CHANNEL_OFFER,
       name: 'Client Offer Notifications',
@@ -150,12 +152,19 @@ const displayNotification = async (
   defaultTitle: string,
 ) => {
   try {
+    // Remove undefined values because Notifee does not allow them.
+    const notificationData = Object.fromEntries(
+      Object.entries(remoteMessage.data ?? {}).filter(
+        ([, value]) => value !== undefined,
+      ),
+    ) as Record<string, string | number | object>;
+
     await notifee.displayNotification({
       title: getMessageTitle(remoteMessage, defaultTitle),
       body: getMessageBody(remoteMessage),
 
-      // Preserve the original payload for notification navigation.
-      data: remoteMessage.data,
+      // Preserve notification payload for navigation.
+      data: notificationData,
 
       android: {
         channelId,
@@ -217,23 +226,46 @@ const displayCustomNotification = async (
 // =====================================================
 
 const displayLeaveNotification = async (remoteMessage: NotificationMessage) => {
-  const type = remoteMessage.data?.type;
+  const type =
+    typeof remoteMessage.data?.type === 'string'
+      ? remoteMessage.data.type.toUpperCase()
+      : '';
 
   let defaultTitle = 'Leave Notification';
 
-  if (type === 'LEAVE_REQUEST') {
-    defaultTitle = 'New Leave Request';
-  } else if (type === 'LEAVE_APPROVED') {
-    defaultTitle = 'Leave Request Approved';
-  } else if (type === 'LEAVE_REJECTED') {
-    defaultTitle = 'Leave Request Rejected';
+  switch (type) {
+    case 'LEAVE_REQUEST':
+      defaultTitle = 'New Leave Request';
+      break;
+
+    case 'LEAVE_APPROVED':
+      defaultTitle = 'Leave Request Approved';
+      break;
+
+    case 'LEAVE_REJECTED':
+      defaultTitle = 'Leave Request Rejected';
+      break;
+
+    default:
+      defaultTitle = 'Leave Notification';
+      break;
+  }
+
+  // Validate leave ID without changing the original payload.
+  const leaveId = remoteMessage.data?.leaveId;
+
+  if (!leaveId) {
+    console.log(
+      'Leave notification received without leaveId:',
+      remoteMessage.data,
+    );
   }
 
   await displayNotification(remoteMessage, CHANNEL_LEAVE, defaultTitle);
 };
 
 // =====================================================
-// NEW: DISPLAY OFFER NOTIFICATION
+// DISPLAY OFFER NOTIFICATION
 // =====================================================
 
 const displayOfferNotification = async (remoteMessage: NotificationMessage) => {
@@ -260,7 +292,10 @@ export const setupForegroundNotification = () => {
       console.log('Data:', remoteMessage.data);
       console.log('=================================');
 
-      const notificationType = remoteMessage.data?.type;
+      const notificationType =
+        typeof remoteMessage.data?.type === 'string'
+          ? remoteMessage.data.type.toUpperCase()
+          : '';
 
       console.log('Notification type:', notificationType);
 
@@ -273,6 +308,7 @@ export const setupForegroundNotification = () => {
           await displayStatusUpdateNotification(remoteMessage);
           break;
 
+        // ALL LEAVE NOTIFICATION TYPES
         case 'LEAVE_REQUEST':
         case 'LEAVE_APPROVED':
         case 'LEAVE_REJECTED':
@@ -283,7 +319,7 @@ export const setupForegroundNotification = () => {
           await displayCustomNotification(remoteMessage);
           break;
 
-        // NEW: OFFER
+        // OFFER
         case 'OFFER':
           await displayOfferNotification(remoteMessage);
           break;
@@ -301,7 +337,38 @@ export const setupForegroundNotification = () => {
 };
 
 // =====================================================
-// NEW: FOREGROUND NOTIFICATION PRESS HANDLER
+// NORMALIZE NOTIFICATION PRESS DATA
+// =====================================================
+
+const normalizeNotificationPressData = (
+  data: Record<string, any>,
+): NotificationPressData => {
+  const getString = (value: unknown): string | undefined => {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+
+    if (typeof value === 'number') {
+      return String(value);
+    }
+
+    return undefined;
+  };
+
+  return {
+    ...data,
+
+    type: getString(data.type)?.toUpperCase(),
+
+    complaintId: getString(data.complaintId),
+    ticketId: getString(data.ticketId),
+    offerId: getString(data.offerId),
+    leaveId: getString(data.leaveId),
+  };
+};
+
+// =====================================================
+// FOREGROUND NOTIFICATION PRESS HANDLER
 // =====================================================
 
 // Call this from App.tsx.
@@ -324,6 +391,10 @@ export const setupNotificationPressHandler = (
 
     console.log('FOREGROUND NOTIFICATION PRESSED:', data);
 
-    onNotificationPress(data as NotificationPressData);
+    const normalizedData = normalizeNotificationPressData(data);
+
+    console.log('NORMALIZED NOTIFICATION PRESS DATA:', normalizedData);
+
+    onNotificationPress(normalizedData);
   });
 };

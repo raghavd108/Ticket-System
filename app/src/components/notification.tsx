@@ -23,10 +23,27 @@ interface NotificationItem {
   _id: string;
   title: string;
   body: string;
-  type: 'NEW_TICKET' | 'STATUS_UPDATE' | 'CUSTOM' | 'ANNOUNCEMENT' | 'OFFER';
+  type:
+    | 'NEW_TICKET'
+    | 'STATUS_UPDATE'
+    | 'CUSTOM'
+    | 'ANNOUNCEMENT'
+    | 'OFFER'
+    | 'LEAVE_REQUEST'
+    | 'LEAVE_APPROVED'
+    | 'LEAVE_REJECTED'
+    | string;
   read: boolean;
   complaintId?: string | null;
   offerId?: string | null;
+  leaveId?: string | null;
+  data?: {
+    leaveId?: string | null;
+    complaintId?: string | null;
+    ticketId?: string | null;
+    offerId?: string | null;
+    [key: string]: unknown;
+  } | null;
   complaint?: {
     _id?: string;
     id?: string;
@@ -141,7 +158,34 @@ const Notification = () => {
     const complaintId =
       item.complaintId || item.complaint?._id || item.complaint?.id;
 
-    const offerId = item.offerId || item.offer?._id || item.offer?.id;
+    const offerId =
+      item.offerId || item.offer?._id || item.offer?.id || item.data?.offerId;
+
+    const leaveId = item.leaveId || item.data?.leaveId;
+
+    const notificationType = String(item.type || '').toUpperCase();
+
+    // Leave requests are opened in Leave Management for approvers.
+    // Approval/rejection updates are opened in the employee's leave history.
+    if (leaveId && notificationType.startsWith('LEAVE_')) {
+      const destination =
+        notificationType === 'LEAVE_REQUEST' ? 'Manage' : 'Profile';
+
+      console.log('OPENING LEAVE FROM IN-APP NOTIFICATION:', {
+        leaveId,
+        notificationType,
+        destination,
+      });
+
+      navigation.navigate('Main', {
+        screen: destination,
+        params: {
+          openLeaveId: String(leaveId),
+          notificationType,
+        },
+      });
+      return;
+    }
 
     if (complaintId) {
       console.log('OPENING TICKET FROM IN-APP NOTIFICATION:', complaintId);
@@ -163,7 +207,10 @@ const Notification = () => {
       return;
     }
 
-    console.log('Notification has no linked ticket or offer:', item._id);
+    console.log(
+      'Notification has no linked ticket, offer, or leave:',
+      item._id,
+    );
   };
 
   // =====================================================

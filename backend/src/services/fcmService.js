@@ -19,6 +19,21 @@ const CHANNEL_BY_TYPE = {
 };
 
 // =====================================================
+// VALID NOTIFICATION TYPES
+// Must match Prisma NotificationType enum.
+// =====================================================
+
+const VALID_NOTIFICATION_TYPES = new Set([
+  "NEW_TICKET",
+  "STATUS_UPDATE",
+  "CUSTOM",
+  "OFFER",
+  "LEAVE_REQUEST",
+  "LEAVE_APPROVED",
+  "LEAVE_REJECTED",
+]);
+
+// =====================================================
 // INVALID FCM TOKEN ERROR CODES
 // =====================================================
 
@@ -60,7 +75,10 @@ const sendNotification = async ({
     const stringData = Object.fromEntries(
       Object.entries(data || {})
         .filter(([, value]) => value !== undefined && value !== null)
-        .map(([key, value]) => [key, String(value)]),
+        .map(([key, value]) => [
+          key,
+          typeof value === "object" ? JSON.stringify(value) : String(value),
+        ]),
     );
 
     const notificationType = String(type || "GENERAL");
@@ -141,7 +159,15 @@ const sendNotification = async ({
 
 const notifyUsers = async (
   recipients,
-  { title, body, type, complaintId = null, offerId = null, data = {} } = {},
+  {
+    title,
+    body,
+    type,
+    complaintId = null,
+    offerId = null,
+    leaveId = null,
+    data = {},
+  } = {},
 ) => {
   try {
     // -------------------------------------------------
@@ -168,17 +194,24 @@ const notifyUsers = async (
     }
 
     // -------------------------------------------------
-    // 2. Validate notification type
+    // 2. Extract leaveId
+    // Supports both:
+    // leaveId: "..."
+    // data: { leaveId: "..." }
     // -------------------------------------------------
 
-    const notificationType = ["NEW_TICKET", "STATUS_UPDATE", "OFFER"].includes(
-      type,
-    )
+    const linkedLeaveId = leaveId || data?.leaveId || null;
+
+    // -------------------------------------------------
+    // 3. Validate notification type
+    // -------------------------------------------------
+
+    const notificationType = VALID_NOTIFICATION_TYPES.has(type)
       ? type
       : "CUSTOM";
 
     // -------------------------------------------------
-    // 3. Create in-app notifications
+    // 4. Create in-app notifications
     // -------------------------------------------------
 
     let inAppNotificationsCreated = 0;
@@ -192,6 +225,7 @@ const notifyUsers = async (
           type: notificationType,
           complaintId,
           offerId,
+          leaveId: linkedLeaveId,
         })),
 
         skipDuplicates: true,
@@ -203,7 +237,7 @@ const notifyUsers = async (
     }
 
     // -------------------------------------------------
-    // 4. Find users having FCM tokens
+    // 5. Find users having FCM tokens
     // -------------------------------------------------
 
     const usersWithFcmToken = uniqueRecipients.filter(
@@ -211,7 +245,7 @@ const notifyUsers = async (
     );
 
     // -------------------------------------------------
-    // 5. Send push notifications
+    // 6. Send push notifications
     // -------------------------------------------------
 
     const pushResults = await Promise.allSettled(
@@ -232,13 +266,15 @@ const notifyUsers = async (
             ...(complaintId ? { complaintId } : {}),
 
             ...(offerId ? { offerId } : {}),
+
+            ...(linkedLeaveId ? { leaveId: String(linkedLeaveId) } : {}),
           },
         }),
       ),
     );
 
     // -------------------------------------------------
-    // 6. Calculate actual push delivery attempts
+    // 7. Calculate actual push delivery attempts
     // -------------------------------------------------
 
     const pushNotificationsSent = pushResults.filter(
@@ -252,7 +288,7 @@ const notifyUsers = async (
     }
 
     // -------------------------------------------------
-    // 7. Return notification summary
+    // 8. Return notification summary
     // -------------------------------------------------
 
     return {

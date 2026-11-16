@@ -52,6 +52,15 @@ interface Document {
   updatedAt: string;
 }
 
+interface ProfilePageProps {
+  route?: {
+    params?: {
+      openLeaveId?: string;
+      notificationType?: string;
+    };
+  };
+}
+
 interface User {
   _id?: string;
   id?: string;
@@ -62,7 +71,7 @@ interface User {
   designation?: string;
 }
 
-const ProfilePage = () => {
+const ProfilePage: React.FC<ProfilePageProps> = ({ route }) => {
   const { logout } = useAuth();
   const copy = en.profilePage;
 
@@ -99,6 +108,15 @@ const ProfilePage = () => {
   const [leaveRequestModalVisible, setLeaveRequestModalVisible] =
     useState(false);
 
+  const openLeaveId =
+    typeof route?.params?.openLeaveId === 'string'
+      ? route.params.openLeaveId
+      : undefined;
+  const notificationType = String(
+    route?.params?.notificationType || '',
+  ).toUpperCase();
+  const handledLeaveId = useRef<string | null>(null);
+
   const [employeeModal, setEmployeeModal] = useState<
     'documents' | 'attendance' | null
   >(null);
@@ -122,6 +140,25 @@ const ProfilePage = () => {
       }).start();
     }
   }, [employeeMenuVisible, drawerSlide]);
+
+  // Open the employee leave-request drawer when an approval/rejection
+  // notification is tapped.
+  useEffect(() => {
+    const isLeaveUpdate =
+      notificationType === 'LEAVE_APPROVED' ||
+      notificationType === 'LEAVE_REJECTED';
+
+    if (
+      !openLeaveId ||
+      !isLeaveUpdate ||
+      handledLeaveId.current === openLeaveId
+    ) {
+      return;
+    }
+
+    handledLeaveId.current = openLeaveId;
+    setLeaveRequestModalVisible(true);
+  }, [openLeaveId, notificationType]);
 
   const getOrganisationName = (
     organisation?: string | Organisation | null,
@@ -1110,7 +1147,10 @@ const ProfilePage = () => {
 
             <View style={{ flex: 1 }}>
               {(user?._id || user?.id) && (
-                <LeaveRequest employeeId={user._id || user.id} />
+                <LeaveRequest
+                  employeeId={user._id || user.id}
+                  initialLeaveId={openLeaveId}
+                />
               )}
             </View>
           </View>

@@ -393,9 +393,12 @@ async function notifyStatusChange({ complaint, statusName, actorId }) {
     }
   }
 
+  const organisationName =
+    complaint.organisation?.name || "Unknown Organisation";
+
   await notifyUsers([...uniqueRecipients.values()], {
     title: "Ticket Status Updated",
-    body: `Ticket "${complaint.module}" is now ${statusName}`,
+    body: `${organisationName} ${complaint.module} module was updated`,
     type: "STATUS_UPDATE",
     complaintId: complaint.id,
   });

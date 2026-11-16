@@ -512,10 +512,10 @@ exports.checkIn = async (req, res) => {
 
     const date = getAttendanceDate(today);
 
-    // Late if check-in occurs strictly after noon IST.
+    // Late if check-in occurs strictly after 10:30 AM IST.
     const noon = today.set({
-      hour: 12,
-      minute: 0,
+      hour: 10,
+      minute: 30,
       second: 0,
       millisecond: 0,
     });

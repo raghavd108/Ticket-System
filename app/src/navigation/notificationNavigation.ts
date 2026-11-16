@@ -12,6 +12,7 @@ export type NotificationTapData = {
   complaintId?: string;
   ticketId?: string;
   offerId?: string;
+  leaveId?: string;
   type?: string;
   [key: string]: any;
 };
@@ -28,8 +29,9 @@ const normalizeNotificationData = (data: any): NotificationTapData | null => {
   const complaintId = getString(data.complaintId) || getString(data.ticketId);
 
   const offerId = getString(data.offerId);
+  const leaveId = getString(data.leaveId);
 
-  if (!complaintId && !offerId) {
+  if (!complaintId && !offerId && !leaveId) {
     console.log('Notification has no valid navigation target:', data);
     return null;
   }
@@ -38,6 +40,8 @@ const normalizeNotificationData = (data: any): NotificationTapData | null => {
     ...data,
     complaintId: complaintId || undefined,
     offerId: offerId || undefined,
+    leaveId: leaveId || undefined,
+    type: getString(data.type).toUpperCase() || undefined,
   };
 };
 
@@ -111,10 +115,13 @@ export const flushPendingNotificationNavigation = async () => {
       return;
     }
 
-    const complaintId = getString(data.complaintId);
-    const offerId = getString(data.offerId);
+    const complaintId = getString(data.complaintId) || getString(data.ticketId);
 
-    if (!complaintId && !offerId) {
+    const offerId = getString(data.offerId);
+    const leaveId = getString(data.leaveId);
+    const notificationType = getString(data.type).toUpperCase();
+
+    if (!complaintId && !offerId && !leaveId) {
       await AsyncStorage.removeItem(PENDING_NOTIFICATION_KEY);
       return;
     }
@@ -162,6 +169,35 @@ export const flushPendingNotificationNavigation = async () => {
           openOfferId: offerId,
         },
       });
+
+      return;
+    }
+
+    // =================================================
+    // OPEN LEAVE FROM NOTIFICATION
+    // =================================================
+
+    if (leaveId) {
+      console.log('OPENING LEAVE FROM NOTIFICATION:', {
+        leaveId,
+        notificationType,
+      });
+
+      // Leave request notifications go to management.
+      // All other leave notifications go to employee leave history.
+      const isLeaveRequest = notificationType === 'LEAVE_REQUEST';
+
+      const targetScreen = isLeaveRequest ? 'Manage' : 'Profile';
+
+      notificationNavigationRef.navigate('Main', {
+        screen: targetScreen,
+        params: {
+          openLeaveId: leaveId,
+          notificationType,
+        },
+      });
+
+      return;
     }
   } catch (error) {
     console.log('FLUSH NOTIFICATION NAVIGATION ERROR:', error);

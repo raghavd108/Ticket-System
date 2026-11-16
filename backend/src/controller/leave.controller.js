@@ -125,13 +125,15 @@ async function notifyLeaveRecipients(
   try {
     await notifyUsers(uniqueRecipients, {
       title,
-      // The leave ID travels in the push data only; it is not shown to users.
       body,
 
-      // The notification database stores leave notifications
-      // as CUSTOM, while FCM receives the actual leave type.
+      // Must match the Prisma NotificationType enum.
       type: pushType,
 
+      // Persist the exact leave request ID in the database.
+      leaveId: String(leaveId),
+
+      // Include the same ID in the FCM payload.
       data: {
         leaveId: String(leaveId),
       },
@@ -146,17 +148,18 @@ async function notifyLeaveRecipients(
   }
 }
 
-// Human-readable date for notifications, e.g. "14 Dec 2026".
+// Human-readable date for notifications.
 function formatDate(date) {
   const value =
     typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)
       ? DateTime.fromISO(date, { zone: "utc" })
-      : DateTime.fromJSDate(new Date(date), { zone: "utc" });
+      : DateTime.fromJSDate(new Date(date), {
+          zone: "utc",
+        });
 
   return value.toFormat("dd LLL yyyy");
 }
 
-// "Casual Leave" -> "Casual Leave"; "Casual" -> "Casual leave".
 // Avoids messages such as "Casual Leave leave".
 function leaveLabel(leaveType) {
   const type = String(leaveType || "").trim();
@@ -344,7 +347,6 @@ exports.applyLeave = async (req, res) => {
       `${employee.userName || "An employee"} has requested ` +
       `${leave.leaveType} from ${formatDate(startDate)} to ${formatDate(endDate)}.`;
 
-    // Send notifications to Admin, CEO and CTO.
     await notifyLeaveRecipients(approvers, {
       title,
       body,
@@ -478,7 +480,6 @@ exports.getAllLeaves = async (req, res) => {
 
 exports.updateLeaveStatus = async (req, res) => {
   try {
-    // Admin, CEO and CTO authorization.
     const approver = await getLeaveApprover(req);
 
     if (!approver) {
@@ -489,29 +490,49 @@ exports.updateLeaveStatus = async (req, res) => {
     }
 
     const { leaveId } = req.params;
-    const { status } = req.body;
-
+    const { status, reviewComment } = req.body || {};
     const organisationId = approver.organisationId;
 
     if (!leaveId || typeof leaveId !== "string") {
       return res.status(400).json({
+        success: false,
         message: "Invalid leave request ID.",
       });
     }
 
     if (!["approved", "rejected"].includes(status)) {
       return res.status(400).json({
+        success: false,
         message: "Status must be approved or rejected.",
+      });
+    }
+
+    const trimmedReviewComment =
+      typeof reviewComment === "string" ? reviewComment.trim() : "";
+
+    // Validate rejection reason.
+    if (status === "rejected" && !trimmedReviewComment) {
+      return res.status(400).json({
+        success: false,
+        message: "A rejection reason is required.",
+      });
+    }
+
+    if (status === "rejected" && trimmedReviewComment.length > 1000) {
+      return res.status(400).json({
+        success: false,
+        message: "Rejection reason cannot exceed 1000 characters.",
       });
     }
 
     if (!organisationId) {
       return res.status(400).json({
+        success: false,
         message: "Organisation not found.",
       });
     }
 
-    // Verify request belongs to an employee
+    // Verify request belongs to an active employee
     // in the approver's organisation.
     const leave = await prisma.leave.findFirst({
       where: {
@@ -531,75 +552,80 @@ exports.updateLeaveStatus = async (req, res) => {
 
     if (!leave || !leave.employee) {
       return res.status(404).json({
+        success: false,
         message: "Leave request not found.",
       });
     }
 
-    // Only pending requests can be processed.
     if (leave.status !== "pending") {
       return res.status(409).json({
+        success: false,
         message: `This leave request has already been ${leave.status}.`,
       });
     }
 
-    // =================================================
-    // BUILD REQUESTED DATE RANGE
-    // =================================================
+    // Rejection does not need calendar or attendance queries.
+    // Only calculate working days when approving leave.
+    let attendanceDates = [];
 
-    const startDay = DateTime.fromJSDate(new Date(leave.startDate), {
-      zone: "utc",
-    })
-      .setZone(TIMEZONE)
-      .startOf("day");
+    if (status === "approved") {
+      const startDay = DateTime.fromJSDate(new Date(leave.startDate), {
+        zone: "utc",
+      })
+        .setZone(TIMEZONE)
+        .startOf("day");
 
-    const endDay = DateTime.fromJSDate(new Date(leave.endDate), { zone: "utc" })
-      .setZone(TIMEZONE)
-      .startOf("day");
+      const endDay = DateTime.fromJSDate(new Date(leave.endDate), {
+        zone: "utc",
+      })
+        .setZone(TIMEZONE)
+        .startOf("day");
 
-    const startDate = getAttendanceDate(startDay);
-    const endDate = getAttendanceDate(endDay);
+      const startDate = getAttendanceDate(startDay);
+      const endDate = getAttendanceDate(endDay);
 
-    // Load company calendar overrides.
-    const calendarEntries = await prisma.companyCalendarDay.findMany({
-      where: {
-        date: {
-          gte: startDate,
-          lte: endDate,
+      // Load company calendar overrides.
+      const calendarEntries = await prisma.companyCalendarDay.findMany({
+        where: {
+          date: {
+            gte: startDate,
+            lte: endDate,
+          },
         },
-      },
-      select: {
-        date: true,
-        type: true,
-      },
-    });
+        select: {
+          date: true,
+          type: true,
+        },
+      });
 
-    const calendarByDate = new Map(
-      calendarEntries.map((entry) => [
-        DateTime.fromJSDate(new Date(entry.date), { zone: "utc" }).toISODate(),
-        entry.type,
-      ]),
-    );
+      const calendarByDate = new Map(
+        calendarEntries.map((entry) => [
+          DateTime.fromJSDate(new Date(entry.date), {
+            zone: "utc",
+          }).toISODate(),
+          entry.type,
+        ]),
+      );
 
-    const attendanceDates = [];
+      // Include working days only.
+      // Custom company calendar takes priority
+      // over regular weekend holidays.
+      for (
+        let day = startDay;
+        day.toMillis() <= endDay.toMillis();
+        day = day.plus({ days: 1 })
+      ) {
+        const dateKey = day.toISODate();
+        const calendarType = calendarByDate.get(dateKey);
 
-    // Include working days only.
-    // Custom company calendar takes priority
-    // over regular weekend holidays.
-    for (
-      let day = startDay;
-      day.toMillis() <= endDay.toMillis();
-      day = day.plus({ days: 1 })
-    ) {
-      const dateKey = day.toISODate();
-      const calendarType = calendarByDate.get(dateKey);
+        const isHoliday =
+          calendarType !== undefined
+            ? calendarType === "HOLIDAY"
+            : isRegularHoliday(day);
 
-      const isHoliday =
-        calendarType !== undefined
-          ? calendarType === "HOLIDAY"
-          : isRegularHoliday(day);
-
-      if (!isHoliday) {
-        attendanceDates.push(getAttendanceDate(day));
+        if (!isHoliday) {
+          attendanceDates.push(getAttendanceDate(day));
+        }
       }
     }
 
@@ -615,23 +641,19 @@ exports.updateLeaveStatus = async (req, res) => {
         where: {
           id: leaveId,
           status: "pending",
-          employee: {
-            organisationId,
-            role: "employee",
-          },
         },
         data: {
           status,
+          reviewComment: status === "rejected" ? trimmedReviewComment : null,
         },
       });
 
-      if (result.count === 0) {
+      if (result.count !== 1) {
         const error = new Error(
           "This leave request has already been processed.",
         );
 
         error.code = "LEAVE_ALREADY_PROCESSED";
-
         throw error;
       }
 
@@ -646,8 +668,6 @@ exports.updateLeaveStatus = async (req, res) => {
             outTime: null,
             location: "",
           })),
-
-          // Do not overwrite existing attendance.
           skipDuplicates: true,
         });
       }
@@ -664,11 +684,14 @@ exports.updateLeaveStatus = async (req, res) => {
       });
     });
 
+    if (!updatedLeave) {
+      throw new Error("The updated leave request could not be retrieved.");
+    }
+
     // =================================================
     // NOTIFY EMPLOYEE
     // =================================================
 
-    // Notification happens after the transaction succeeds.
     const employeeRecipient = await prisma.user.findUnique({
       where: {
         id: leave.employeeId,
@@ -692,7 +715,9 @@ exports.updateLeaveStatus = async (req, res) => {
         )} to ${formatDate(leave.endDate)} has been approved.`
       : `Your ${leaveLabel(leave.leaveType)} from ${formatDate(
           leave.startDate,
-        )} to ${formatDate(leave.endDate)} has been rejected.`;
+        )} to ${formatDate(
+          leave.endDate,
+        )} has been rejected. Reason: ${trimmedReviewComment}`;
 
     if (employeeRecipient) {
       await notifyLeaveRecipients([employeeRecipient], {
@@ -717,14 +742,25 @@ exports.updateLeaveStatus = async (req, res) => {
   } catch (error) {
     if (error.code === "LEAVE_ALREADY_PROCESSED") {
       return res.status(409).json({
+        success: false,
         message: error.message,
       });
     }
 
-    console.error("UPDATE LEAVE STATUS ERROR:", error);
+    console.error("UPDATE LEAVE STATUS ERROR:", {
+      message: error.message,
+      code: error.code,
+      meta: error.meta,
+      stack: error.stack,
+    });
 
     return res.status(500).json({
+      success: false,
       message: "Unable to update leave request.",
+      ...(process.env.NODE_ENV !== "production" && {
+        error: error.message,
+        code: error.code || null,
+      }),
     });
   }
 };

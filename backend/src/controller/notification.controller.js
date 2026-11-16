@@ -195,8 +195,16 @@ function formatOffer(offer) {
 function formatNotification(notification) {
   if (!notification) return null;
 
-  const { id, userId, complaintId, complaint, offerId, offer, ...rest } =
-    notification;
+  const {
+    id,
+    userId,
+    complaintId,
+    complaint,
+    offerId,
+    offer,
+    leaveId,
+    ...rest
+  } = notification;
 
   return {
     ...rest,
@@ -209,6 +217,9 @@ function formatNotification(notification) {
 
     offerId: offerId || null,
     offer: formatOffer(offer),
+
+    // Exact leave request ID for notification navigation.
+    leaveId: leaveId || null,
   };
 }
 

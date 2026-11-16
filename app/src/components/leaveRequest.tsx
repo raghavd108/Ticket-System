@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   View,
   Text,
@@ -25,6 +31,7 @@ const API_URL = `${Config.API_URL}/api/leave`;
 
 const LEAVE_TYPES = [
   'Casual Leave',
+  'Partial Leave',
   'Sick Leave',
   'Earned Leave',
   'Annual Leave',
@@ -33,6 +40,8 @@ const LEAVE_TYPES = [
 ];
 
 type LeaveStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
+type PartialSession = 'first-half' | 'second-half';
 
 interface LeaveRequestItem {
   _id: string;
@@ -43,6 +52,8 @@ interface LeaveRequestItem {
   status: LeaveStatus | string;
   createdAt?: string;
   reviewComment?: string;
+  isPastLeave?: boolean;
+  partialSession?: PartialSession | string;
 }
 
 interface LeaveApiError {
@@ -68,6 +79,7 @@ interface LeaveColors {
 
 interface LeaveRequestProps {
   employeeId?: string;
+  initialLeaveId?: string;
 }
 
 const toDateKey = (date: Date): string => {
@@ -91,7 +103,6 @@ const formatDate = (value?: string): string => {
     return '—';
   }
 
-  // Parse date-only values locally to avoid timezone date shifts.
   const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
 
   const date = dateOnlyMatch
@@ -152,7 +163,7 @@ const getApiErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
+const LeaveRequest = ({ employeeId, initialLeaveId }: LeaveRequestProps) => {
   const { theme, isDarkMode } = useTheme();
 
   const colors = useMemo<LeaveColors>(
@@ -185,6 +196,11 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
   // Form state
   const [leaveType, setLeaveType] = useState<string>('Casual Leave');
 
+  const [isPastLeave, setIsPastLeave] = useState<boolean>(false);
+
+  const [partialSession, setPartialSession] =
+    useState<PartialSession>('first-half');
+
   const [startDate, setStartDate] = useState<Date | null>(null);
 
   const [endDate, setEndDate] = useState<Date | null>(null);
@@ -208,6 +224,12 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
   const [leaves, setLeaves] = useState<LeaveRequestItem[]>([]);
 
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const leaveScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const leaveCardPositions = useRef<Record<string, number>>({});
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [highlightedLeaveId, setHighlightedLeaveId] = useState<string | null>(
+    initialLeaveId || null,
+  );
 
   // Authentication headers
   const getAuthHeaders = async () => {
@@ -260,9 +282,45 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
     void fetchLeaves();
   }, [fetchLeaves]);
 
+  // Scroll to and highlight the leave request opened from a notification.
+  useEffect(() => {
+    if (!initialLeaveId) {
+      return;
+    }
+
+    setHighlightedLeaveId(initialLeaveId);
+
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    if (fetching || !leaves.some(leave => leave._id === initialLeaveId)) {
+      return;
+    }
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      const targetY = leaveCardPositions.current[initialLeaveId];
+
+      if (typeof targetY === 'number') {
+        leaveScrollRef.current?.scrollTo({
+          y: Math.max(0, targetY - 18),
+          animated: true,
+        });
+      }
+    }, 350);
+
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, [initialLeaveId, fetching, leaves]);
+
   // Reset form after a successful application.
   const resetForm = () => {
     setLeaveType('Casual Leave');
+    setIsPastLeave(false);
+    setPartialSession('first-half');
     setStartDate(null);
     setEndDate(null);
     setReason('');
@@ -288,6 +346,12 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
     selected.setHours(12, 0, 0, 0);
 
     setStartDate(selected);
+
+    // Partial leave always covers one selected date.
+    if (leaveType === 'Partial Leave') {
+      setEndDate(selected);
+      return;
+    }
 
     // Clear the end date if it is now before the start date.
     setEndDate((previousEnd: Date | null) => {
@@ -328,7 +392,10 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
       return;
     }
 
-    if (!leaveType || !startDate || !endDate || !reason.trim()) {
+    const effectiveEndDate =
+      leaveType === 'Partial Leave' ? startDate : endDate;
+
+    if (!leaveType || !startDate || !effectiveEndDate || !reason.trim()) {
       Alert.alert(
         'Missing information',
         'Please complete all the fields before submitting.',
@@ -337,11 +404,15 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
     }
 
     const start = toDateKey(startDate);
-    const end = toDateKey(endDate);
+    const end = toDateKey(effectiveEndDate);
     const today = getTodayKey();
 
-    if (start < today) {
-      Alert.alert('Invalid start date', 'Leave cannot start before today.');
+    // Previous dates are permitted only for Past / Emergency Leave.
+    if (!isPastLeave && start < today) {
+      Alert.alert(
+        'Invalid start date',
+        'Select Past / Emergency Leave to submit a previous leave date.',
+      );
       return;
     }
 
@@ -366,7 +437,6 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
 
       const headers = await getAuthHeaders();
 
-      // The backend obtains employeeId from the authenticated user.
       const response = await axios.post(
         `${API_URL}/apply`,
         {
@@ -374,6 +444,8 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
           startDate: start,
           endDate: end,
           reason: reason.trim(),
+          isPastLeave,
+          ...(leaveType === 'Partial Leave' ? { partialSession } : {}),
         },
         { headers },
       );
@@ -412,7 +484,16 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
     const statusColor = getStatusColor(status, colors);
 
     return (
-      <View key={leave._id} style={styles.leaveCard}>
+      <View
+        key={leave._id}
+        onLayout={event => {
+          leaveCardPositions.current[leave._id] = event.nativeEvent.layout.y;
+        }}
+        style={[
+          styles.leaveCard,
+          highlightedLeaveId === leave._id && styles.highlightedLeaveCard,
+        ]}
+      >
         <View style={styles.leaveCardTop}>
           <View style={styles.leaveIcon}>
             <Ionicons
@@ -423,7 +504,18 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
           </View>
 
           <View style={styles.leaveInfo}>
-            <Text style={styles.leaveTitle}>{leave.leaveType || 'Leave'}</Text>
+            <Text style={styles.leaveTitle}>
+              {leave.leaveType || 'Leave'}
+              {leave.isPastLeave ? ' · Past / Emergency' : ''}
+            </Text>
+
+            {leave.partialSession ? (
+              <Text style={styles.submittedDate}>
+                {leave.partialSession === 'first-half'
+                  ? 'First Half'
+                  : 'Second Half'}
+              </Text>
+            ) : null}
 
             <Text style={styles.submittedDate}>
               Applied {formatDate(leave.createdAt)}
@@ -487,6 +579,7 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
+        ref={leaveScrollRef}
         style={styles.scroll}
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
@@ -521,6 +614,66 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
           <Text style={styles.sectionSubtitle}>
             Enter the details of your requested leave.
           </Text>
+
+          {/* APPLICATION TYPE */}
+          <Text style={styles.label}>Application type</Text>
+
+          <View style={styles.dateRow}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={[
+                styles.applicationTypeButton,
+                !isPastLeave && styles.applicationTypeButtonSelected,
+              ]}
+              onPress={() => setIsPastLeave(false)}
+            >
+              <Ionicons
+                name="calendar-outline"
+                size={17}
+                color={!isPastLeave ? colors.primary : colors.muted}
+              />
+
+              <Text
+                style={[
+                  styles.applicationTypeText,
+                  !isPastLeave && styles.applicationTypeTextSelected,
+                ]}
+              >
+                Regular leave
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={[
+                styles.applicationTypeButton,
+                isPastLeave && styles.applicationTypeButtonSelected,
+              ]}
+              onPress={() => setIsPastLeave(true)}
+            >
+              <Ionicons
+                name="time-outline"
+                size={17}
+                color={isPastLeave ? colors.primary : colors.muted}
+              />
+
+              <Text
+                style={[
+                  styles.applicationTypeText,
+                  isPastLeave && styles.applicationTypeTextSelected,
+                ]}
+              >
+                Past / Emergency
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {isPastLeave ? (
+            <Text style={styles.hint}>
+              Use this option when you could not submit your leave request on
+              the actual day. The request will be sent to admin for review.
+            </Text>
+          ) : null}
 
           {/* LEAVE TYPE */}
           <Text style={styles.label}>Leave type</Text>
@@ -559,6 +712,10 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
                   onPress={() => {
                     setLeaveType(type);
                     setShowLeaveTypes(false);
+
+                    if (type === 'Partial Leave' && startDate) {
+                      setEndDate(startDate);
+                    }
                   }}
                 >
                   <Text
@@ -582,10 +739,81 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
             </View>
           )}
 
+          {/* PARTIAL LEAVE SESSION */}
+          {leaveType === 'Partial Leave' ? (
+            <>
+              <Text style={styles.label}>Partial leave session</Text>
+
+              <View style={styles.dateRow}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  style={[
+                    styles.applicationTypeButton,
+                    partialSession === 'first-half' &&
+                      styles.applicationTypeButtonSelected,
+                  ]}
+                  onPress={() => setPartialSession('first-half')}
+                >
+                  <Ionicons
+                    name="sunny-outline"
+                    size={17}
+                    color={
+                      partialSession === 'first-half'
+                        ? colors.primary
+                        : colors.muted
+                    }
+                  />
+
+                  <Text
+                    style={[
+                      styles.applicationTypeText,
+                      partialSession === 'first-half' &&
+                        styles.applicationTypeTextSelected,
+                    ]}
+                  >
+                    First Half
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  style={[
+                    styles.applicationTypeButton,
+                    partialSession === 'second-half' &&
+                      styles.applicationTypeButtonSelected,
+                  ]}
+                  onPress={() => setPartialSession('second-half')}
+                >
+                  <Ionicons
+                    name="partly-sunny-outline"
+                    size={17}
+                    color={
+                      partialSession === 'second-half'
+                        ? colors.primary
+                        : colors.muted
+                    }
+                  />
+
+                  <Text
+                    style={[
+                      styles.applicationTypeText,
+                      partialSession === 'second-half' &&
+                        styles.applicationTypeTextSelected,
+                    ]}
+                  >
+                    Second Half
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : null}
+
           {/* DATE PICKERS */}
           <View style={styles.dateRow}>
             <View style={styles.dateInputColumn}>
-              <Text style={styles.label}>Start date</Text>
+              <Text style={styles.label}>
+                {leaveType === 'Partial Leave' ? 'Leave date' : 'Start date'}
+              </Text>
 
               <TouchableOpacity
                 activeOpacity={0.8}
@@ -613,38 +841,42 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.dateInputColumn}>
-              <Text style={styles.label}>End date</Text>
+            {leaveType !== 'Partial Leave' ? (
+              <View style={styles.dateInputColumn}>
+                <Text style={styles.label}>End date</Text>
 
-              <TouchableOpacity
-                activeOpacity={0.8}
-                style={styles.datePickerButton}
-                onPress={() => {
-                  setShowStartPicker(false);
-                  setShowEndPicker(true);
-                }}
-              >
-                <Ionicons
-                  name="calendar-outline"
-                  size={18}
-                  color={colors.muted}
-                />
-
-                <Text
-                  style={[
-                    styles.datePickerText,
-                    !endDate && styles.placeholderText,
-                  ]}
-                  numberOfLines={1}
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  style={styles.datePickerButton}
+                  onPress={() => {
+                    setShowStartPicker(false);
+                    setShowEndPicker(true);
+                  }}
                 >
-                  {endDate ? formatDate(toDateKey(endDate)) : 'Select date'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Ionicons
+                    name="calendar-outline"
+                    size={18}
+                    color={colors.muted}
+                  />
+
+                  <Text
+                    style={[
+                      styles.datePickerText,
+                      !endDate && styles.placeholderText,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {endDate ? formatDate(toDateKey(endDate)) : 'Select date'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
 
           <Text style={styles.hint}>
-            Select the first and last day of your leave.
+            {leaveType === 'Partial Leave'
+              ? 'Select the date for your half-day leave.'
+              : 'Select the first and last day of your leave.'}
           </Text>
 
           {/* START DATE CALENDAR */}
@@ -660,8 +892,16 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
                 }
                 mode="date"
                 display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
-                minimumDate={parseDateKey(getTodayKey())}
-                maximumDate={new Date(2100, 11, 31)}
+                minimumDate={
+                  isPastLeave
+                    ? new Date(2000, 0, 1)
+                    : parseDateKey(getTodayKey())
+                }
+                maximumDate={
+                  isPastLeave
+                    ? parseDateKey(getTodayKey())
+                    : new Date(2100, 11, 31)
+                }
                 onChange={handleStartDateChange}
               />
 
@@ -677,7 +917,7 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
           )}
 
           {/* END DATE CALENDAR */}
-          {showEndPicker && (
+          {showEndPicker && leaveType !== 'Partial Leave' && (
             <View style={styles.pickerContainer}>
               <DateTimePicker
                 value={endDate || startDate || parseDateKey(getTodayKey())}
@@ -700,11 +940,17 @@ const LeaveRequest = ({ employeeId }: LeaveRequestProps) => {
           )}
 
           {/* REASON */}
-          <Text style={styles.label}>Reason for leave</Text>
+          <Text style={styles.label}>
+            {isPastLeave ? 'Reason for late application' : 'Reason for leave'}
+          </Text>
 
           <TextInput
             style={styles.reasonInput}
-            placeholder="Explain why you need leave..."
+            placeholder={
+              isPastLeave
+                ? 'Explain why you could not apply on that day...'
+                : 'Explain why you need leave...'
+            }
             placeholderTextColor={colors.muted}
             value={reason}
             onChangeText={setReason}
@@ -907,6 +1153,32 @@ const createStyles = (colors: LeaveColors) =>
       marginBottom: 8,
       marginTop: 15,
     },
+    applicationTypeButton: {
+      flex: 1,
+      minHeight: 48,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.input,
+      borderRadius: 13,
+      paddingHorizontal: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 7,
+    },
+    applicationTypeButtonSelected: {
+      borderColor: colors.primary,
+      backgroundColor: colors.softPrimary,
+    },
+    applicationTypeText: {
+      color: colors.muted,
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    applicationTypeTextSelected: {
+      color: colors.primary,
+      fontWeight: '800',
+    },
     selectInput: {
       minHeight: 50,
       borderWidth: 1,
@@ -1074,6 +1346,10 @@ const createStyles = (colors: LeaveColors) =>
       borderWidth: 1,
       borderColor: colors.border,
       marginBottom: 13,
+    },
+    highlightedLeaveCard: {
+      borderColor: colors.primary,
+      borderWidth: 2,
     },
     leaveCardTop: {
       flexDirection: 'row',

@@ -1,11 +1,22 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -101,30 +112,28 @@ const getErrorMessage = (error: unknown, fallback: string): string => {
   return fallback;
 };
 
-const LeaveManagement = () => {
+interface LeaveManagementProps {
+  initialLeaveId?: string;
+}
+
+const LeaveManagement: React.FC<LeaveManagementProps> = ({
+  initialLeaveId,
+}) => {
   const { theme, isDarkMode } = useTheme();
 
   const colors = useMemo<Colors>(
     () => ({
       background: theme.background || (isDarkMode ? '#151715' : '#F7F6F2'),
-
       card: theme.white || (isDarkMode ? '#202320' : '#FFFFFF'),
-
       text: theme.text || (isDarkMode ? '#F4F4EF' : '#242720'),
-
       muted: isDarkMode ? '#A7ADA4' : '#777D72',
-
       border: theme.border || (isDarkMode ? '#3A4039' : '#E6E5DD'),
-
       primary: '#A47745',
       primarySoft: isDarkMode ? '#3A3025' : '#F5EDE2',
-
       success: '#238653',
       successSoft: isDarkMode ? '#1D3829' : '#E7F5EC',
-
       danger: '#C34D4D',
       dangerSoft: isDarkMode ? '#3D2525' : '#FCECEC',
-
       warning: '#A66C13',
       warningSoft: isDarkMode ? '#3D3320' : '#FFF3D9',
     }),
@@ -139,6 +148,23 @@ const LeaveManagement = () => {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string>('');
+  const [rejectingLeave, setRejectingLeave] = useState<LeaveItem | null>(null);
+  const [rejectionReason, setRejectionReason] = useState<string>('');
+  const [highlightedLeaveId, setHighlightedLeaveId] = useState<string | null>(
+    initialLeaveId || null,
+  );
+
+  const leaveScrollRef = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const leaveCardPositions = useRef<Record<string, number>>({});
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // A leave notification opens this screen with the relevant request selected.
+  useEffect(() => {
+    if (!initialLeaveId) return;
+
+    setFilter('all');
+    setHighlightedLeaveId(initialLeaveId);
+  }, [initialLeaveId]);
 
   const getHeaders = async () => {
     const token = await AsyncStorage.getItem('token');
@@ -187,6 +213,33 @@ const LeaveManagement = () => {
     void fetchLeaves();
   }, [fetchLeaves]);
 
+  // Scroll to the leave request opened from a notification.
+  useEffect(() => {
+    if (!initialLeaveId || loading || loadError) return;
+
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      const targetY = leaveCardPositions.current[initialLeaveId];
+
+      if (typeof targetY === 'number') {
+        leaveScrollRef.current?.scrollTo({
+          y: Math.max(0, targetY - 18),
+          animated: true,
+        });
+      }
+    }, 350);
+
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = null;
+      }
+    };
+  }, [initialLeaveId, loading, loadError, leaves, filter]);
+
   // Counts are calculated from all loaded requests, not just the
   // currently selected filter.
   const counts = useMemo(() => {
@@ -214,24 +267,20 @@ const LeaveManagement = () => {
     const employee = getEmployee(leave);
     const employeeName = employee?.userName || 'this employee';
 
-    const actionLabel = status === 'approved' ? 'Approve' : 'Reject';
+    if (status === 'rejected') {
+      setRejectionReason('');
+      setRejectingLeave(leave);
+      return;
+    }
 
     Alert.alert(
-      `${actionLabel} leave request?`,
-      `Are you sure you want to ${actionLabel.toLowerCase()} ${employeeName}'s ${
-        leave.leaveType
-      } request?`,
+      'Approve leave request?',
+      `Are you sure you want to approve ${employeeName}'s ${leave.leaveType} request?`,
       [
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: actionLabel,
-          style: status === 'rejected' ? 'destructive' : 'default',
-          onPress: () => {
-            void performStatusUpdate(leave, status);
-          },
+          text: 'Approve',
+          onPress: () => void performStatusUpdate(leave, 'approved'),
         },
       ],
     );
@@ -240,40 +289,70 @@ const LeaveManagement = () => {
   const performStatusUpdate = async (
     leave: LeaveItem,
     status: 'approved' | 'rejected',
+    reviewComment?: string,
   ) => {
     try {
       setProcessingId(leave._id);
-
       const headers = await getHeaders();
 
       await axios.patch(
         `${API_URL}/admin/${leave._id}/status`,
-        { status },
+        {
+          status,
+          ...(status === 'rejected'
+            ? { reviewComment: reviewComment?.trim() }
+            : {}),
+        },
         { headers },
       );
 
-      // Update the UI only after the server confirms the change.
       setLeaves(current =>
         current.map(item =>
-          item._id === leave._id ? { ...item, status } : item,
+          item._id === leave._id
+            ? {
+                ...item,
+                status,
+                ...(status === 'rejected'
+                  ? { reviewComment: reviewComment?.trim() }
+                  : {}),
+              }
+            : item,
         ),
       );
 
+      setRejectingLeave(null);
+      setRejectionReason('');
       Alert.alert('Leave updated', `The leave request has been ${status}.`);
     } catch (error: unknown) {
       const message = getErrorMessage(
         error,
         'Unable to update this leave request.',
       );
-
       Alert.alert('Update failed', message);
-
       console.log('UPDATE LEAVE STATUS ERROR:', message);
-
       await fetchLeaves(true);
     } finally {
       setProcessingId(null);
     }
+  };
+
+  const submitRejection = () => {
+    const reason = rejectionReason.trim();
+
+    if (!reason) {
+      Keyboard.dismiss();
+      Alert.alert(
+        'Reason required',
+        'Please enter the reason for rejecting this leave request.',
+      );
+      return;
+    }
+
+    if (!rejectingLeave) return;
+
+    // Dismiss the keyboard before starting the rejection request.
+    Keyboard.dismiss();
+    void performStatusUpdate(rejectingLeave, 'rejected', reason);
   };
 
   const getStatusColors = (status: string) => {
@@ -312,7 +391,16 @@ const LeaveManagement = () => {
     const isProcessing = processingId === leave._id;
 
     return (
-      <View key={leave._id} style={styles.leaveCard}>
+      <View
+        key={leave._id}
+        onLayout={event => {
+          leaveCardPositions.current[leave._id] = event.nativeEvent.layout.y;
+        }}
+        style={[
+          styles.leaveCard,
+          highlightedLeaveId === leave._id && styles.highlightedLeaveCard,
+        ]}
+      >
         {/* CARD HEADER */}
         <View style={styles.cardHeader}>
           <View style={styles.employeeAvatar}>
@@ -405,6 +493,24 @@ const LeaveManagement = () => {
           </Text>
         </View>
 
+        {status === 'rejected' && leave.reviewComment?.trim() ? (
+          <View style={styles.rejectionReasonContainer}>
+            <View style={styles.rejectionReasonHeading}>
+              <Ionicons
+                name="alert-circle-outline"
+                size={16}
+                color={colors.danger}
+              />
+              <Text style={styles.rejectionReasonLabel}>
+                REASON FOR REJECTION
+              </Text>
+            </View>
+            <Text style={styles.rejectionReasonText}>
+              {leave.reviewComment}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.submittedRow}>
           <Ionicons name="time-outline" size={15} color={colors.muted} />
 
@@ -488,6 +594,7 @@ const LeaveManagement = () => {
   return (
     <View style={styles.screen}>
       <ScrollView
+        ref={leaveScrollRef}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -698,6 +805,111 @@ const LeaveManagement = () => {
 
         <View style={styles.bottomSpace} />
       </ScrollView>
+
+      <Modal
+        visible={!!rejectingLeave}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (!processingId) {
+            Keyboard.dismiss();
+            setRejectingLeave(null);
+            setRejectionReason('');
+          }
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+        >
+          <View style={styles.rejectModal}>
+            <View style={styles.rejectModalHeader}>
+              <View style={styles.rejectModalIcon}>
+                <Ionicons
+                  name="close-circle-outline"
+                  size={25}
+                  color={colors.danger}
+                />
+              </View>
+              <TouchableOpacity
+                disabled={processingId !== null}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setRejectingLeave(null);
+                  setRejectionReason('');
+                }}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={21} color={colors.muted} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.rejectModalTitle}>Reject leave request</Text>
+            <Text style={styles.rejectModalSubtitle}>
+              Please provide a clear reason. The employee will be able to see
+              this message in their leave request.
+            </Text>
+
+            {rejectingLeave ? (
+              <Text style={styles.rejectEmployeeText}>
+                {getEmployee(rejectingLeave)?.userName || 'Employee'} ·{' '}
+                {rejectingLeave.leaveType}
+              </Text>
+            ) : null}
+
+            <Text style={styles.inputLabel}>REASON FOR REJECTION</Text>
+            <TextInput
+              value={rejectionReason}
+              onChangeText={setRejectionReason}
+              placeholder="Explain why this leave request is being rejected..."
+              placeholderTextColor={colors.muted}
+              multiline
+              textAlignVertical="top"
+              editable={processingId === null}
+              style={styles.rejectionInput}
+              maxLength={1000}
+            />
+            <Text style={styles.characterCount}>
+              {rejectionReason.length}/1000
+            </Text>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                disabled={processingId !== null}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setRejectingLeave(null);
+                  setRejectionReason('');
+                }}
+                style={styles.cancelModalButton}
+              >
+                <Text style={styles.cancelModalText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                disabled={processingId !== null}
+                onPress={submitRejection}
+                style={[
+                  styles.confirmRejectButton,
+                  processingId !== null && styles.disabledButton,
+                ]}
+              >
+                {processingId !== null ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Ionicons
+                    name="close-circle-outline"
+                    size={18}
+                    color="#FFFFFF"
+                  />
+                )}
+                <Text style={styles.confirmRejectText}>Confirm rejection</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 };
@@ -859,6 +1071,11 @@ const createStyles = (colors: Colors) =>
       borderRadius: 18,
       padding: 15,
       marginBottom: 13,
+    },
+
+    highlightedLeaveCard: {
+      borderColor: colors.primary,
+      borderWidth: 2,
     },
 
     cardHeader: {
@@ -1146,6 +1363,166 @@ const createStyles = (colors: Colors) =>
 
     retryButtonText: {
       color: colors.primary,
+      fontSize: 12,
+      fontWeight: '800',
+    },
+
+    rejectionReasonContainer: {
+      marginTop: 14,
+      padding: 12,
+      borderRadius: 12,
+      backgroundColor: colors.dangerSoft,
+      borderWidth: 1,
+      borderColor: colors.danger,
+    },
+
+    rejectionReasonHeading: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      marginBottom: 6,
+    },
+
+    rejectionReasonLabel: {
+      color: colors.danger,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+
+    rejectionReasonText: {
+      color: colors.text,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+
+    modalOverlay: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+      backgroundColor: 'rgba(0,0,0,0.55)',
+    },
+
+    rejectModal: {
+      width: '100%',
+      maxWidth: 480,
+      borderRadius: 20,
+      padding: 20,
+      backgroundColor: colors.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+
+    rejectModalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 12,
+    },
+
+    rejectModalIcon: {
+      width: 48,
+      height: 48,
+      borderRadius: 15,
+      backgroundColor: colors.dangerSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    modalCloseButton: {
+      width: 35,
+      height: 35,
+      borderRadius: 12,
+      backgroundColor: colors.background,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    rejectModalTitle: {
+      color: colors.text,
+      fontSize: 19,
+      fontWeight: '800',
+    },
+
+    rejectModalSubtitle: {
+      color: colors.muted,
+      fontSize: 12,
+      lineHeight: 18,
+      marginTop: 7,
+    },
+
+    rejectEmployeeText: {
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '700',
+      marginTop: 13,
+    },
+
+    inputLabel: {
+      color: colors.muted,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.6,
+      marginTop: 18,
+      marginBottom: 7,
+    },
+
+    rejectionInput: {
+      minHeight: 115,
+      maxHeight: 180,
+      padding: 12,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.background,
+      color: colors.text,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+
+    characterCount: {
+      color: colors.muted,
+      fontSize: 10,
+      textAlign: 'right',
+      marginTop: 5,
+    },
+
+    modalActions: {
+      flexDirection: 'row',
+      gap: 9,
+      marginTop: 18,
+    },
+
+    cancelModalButton: {
+      flex: 1,
+      minHeight: 45,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+
+    cancelModalText: {
+      color: colors.text,
+      fontSize: 12,
+      fontWeight: '800',
+    },
+
+    confirmRejectButton: {
+      flex: 1.5,
+      minHeight: 45,
+      borderRadius: 12,
+      backgroundColor: colors.danger,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 7,
+    },
+
+    confirmRejectText: {
+      color: '#FFFFFF',
       fontSize: 12,
       fontWeight: '800',
     },

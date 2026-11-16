@@ -30,6 +30,9 @@ enum NotificationType {
   STATUS_UPDATE
   CUSTOM
   OFFER
+  LEAVE_REQUEST
+  LEAVE_APPROVED
+  LEAVE_REJECTED
 }
 
 enum LeaveStatus {
@@ -315,6 +318,7 @@ model Notification {
 
   complaintId String?
   offerId     String?
+  leaveId     String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -322,11 +326,13 @@ model Notification {
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   complaint Complaint? @relation(fields: [complaintId], references: [id], onDelete: SetNull)
   offer     Offer?     @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  leave     Leave?     @relation(fields: [leaveId], references: [id], onDelete: SetNull)
 
   @@unique([offerId, userId])
   @@index([userId, read])
   @@index([complaintId])
   @@index([offerId])
+  @@index([leaveId])
 }
 
 // =====================================================
@@ -334,17 +340,19 @@ model Notification {
 // =====================================================
 
 model Leave {
-  id         String      @id @default(cuid())
-  employeeId String
-  leaveType  String
-  startDate  DateTime    @db.Date
-  endDate    DateTime    @db.Date
-  reason     String      @db.Text
-  status     LeaveStatus @default(pending)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  id            String      @id @default(cuid())
+  employeeId    String
+  leaveType     String
+  startDate     DateTime    @db.Date
+  endDate       DateTime    @db.Date
+  reason        String      @db.Text
+  reviewComment String?     @db.Text
+  status        LeaveStatus @default(pending)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 
-  employee User @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  employee      User           @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  notifications Notification[]
 
   @@index([employeeId])
   @@index([status])
