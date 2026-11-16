@@ -79,8 +79,10 @@ const ReportPage = () => {
 
     const options: ImageLibraryOptions = {
       mediaType: 'photo',
-      quality: 0.8,
-      // Allow selecting multiple photos in one go, up to the remaining limit.
+      quality: 0.5,
+      maxWidth: 1280,
+      maxHeight: 1280,
+      // Compress selected photos to keep each upload below the backend's 5 MB limit.
       selectionLimit: remainingSlots,
     };
 
@@ -146,7 +148,9 @@ const ReportPage = () => {
 
       const options: CameraOptions = {
         mediaType: 'photo',
-        quality: 0.8,
+        quality: 0.5,
+        maxWidth: 1280,
+        maxHeight: 1280,
         cameraType: 'back',
         saveToPhotos: false,
       };
@@ -219,14 +223,22 @@ const ReportPage = () => {
       formData.append('module', module.trim());
       formData.append('problem', problem.trim());
 
+      // React Native multipart uploads require a URI, MIME type and filename
+      // for every file. The backend expects the repeated field name "image".
       image.forEach((item, index) => {
-        if (item.uri) {
-          formData.append('image', {
-            uri: item.uri,
-            type: item.type || 'image/jpeg',
-            name: item.fileName || `complaint-image-${index}.jpg`,
-          } as any);
+        if (!item.uri) {
+          throw new Error(`Photo ${index + 1} has no valid file URI.`);
         }
+
+        const safeName =
+          item.fileName?.split('/').pop() ||
+          `ticket-photo-${Date.now()}-${index}.jpg`;
+
+        formData.append('image', {
+          uri: item.uri,
+          type: item.type || 'image/jpeg',
+          name: safeName,
+        } as any);
       });
 
       const response = await axios.post(
@@ -235,8 +247,10 @@ const ReportPage = () => {
         {
           headers: {
             Authorization: `Bearer ${token}`,
-            'Content-Type': 'multipart/form-data',
+            // Do not set multipart Content-Type manually.
+            // Axios/React Native must add the boundary automatically.
           },
+          timeout: 60000,
         },
       );
 
@@ -252,9 +266,21 @@ const ReportPage = () => {
       setProblem('');
       setImage([]);
     } catch (error) {
-      console.log('SUBMIT COMPLAINT ERROR:', error);
+      if (axios.isAxiosError(error)) {
+        console.log('TICKET SUBMISSION FAILED:', {
+          url: error.config?.url,
+          status: error.response?.status,
+          response: error.response?.data,
+          message: error.message,
+        });
 
-      setMessage(copy.submitError);
+        setMessage(
+          error.response?.data?.message || error.message || copy.submitError,
+        );
+      } else {
+        console.log('TICKET SUBMISSION ERROR:', error);
+        setMessage(error instanceof Error ? error.message : copy.submitError);
+      }
     } finally {
       setSubmitting(false);
     }
