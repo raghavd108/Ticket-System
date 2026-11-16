@@ -321,36 +321,131 @@ async function formatComplaint(complaint) {
 // =====================================================
 
 async function notifyStatusChange({ complaint, statusName, actorId }) {
-  const [clientEmployees, client, assignee] = await Promise.all([
-    getClientEmployees(complaint.userId),
+  const [client, assignee, admins, superAdmins, management, customerCare] =
+    await Promise.all([
+      // Always notify the client who raised the ticket.
+      prisma.user.findFirst({
+        where: { id: complaint.userId, isRevoked: false },
+        select: recipientSelect,
+      }),
 
-    prisma.user.findUnique({
-      where: {
-        id: complaint.userId,
-      },
-      select: recipientSelect,
-    }),
+      // Notify only the employee currently assigned to this ticket.
+      complaint.assignedEmployeeId
+        ? prisma.user.findFirst({
+            where: {
+              id: complaint.assignedEmployeeId,
+              isRevoked: false,
+            },
+            select: recipientSelect,
+          })
+        : null,
 
-    complaint.assignedEmployeeId
-      ? prisma.user.findUnique({
-          where: {
-            id: complaint.assignedEmployeeId,
-          },
-          select: recipientSelect,
-        })
-      : null,
-  ]);
+      // All active Admin accounts.
+      prisma.user.findMany({
+        where: { role: "admin", isRevoked: false },
+        select: recipientSelect,
+      }),
 
-  const recipients = [...clientEmployees, client, assignee].filter(
-    (recipient) => recipient && recipient.id !== actorId,
-  );
+      // Active SuperAdmin accounts.
+      prisma.user.findMany({
+        where: { isSuperAdmin: true, isRevoked: false },
+        select: recipientSelect,
+      }),
 
-  await notifyUsers(recipients, {
+      // CEO, CTO and other management designations with global ticket access.
+      prisma.user.findMany({
+        where: {
+          role: "employee",
+          isRevoked: false,
+          designationRef: { is: { canViewAllTickets: true } },
+        },
+        select: recipientSelect,
+      }),
+
+      // Customer Care employees, including legacy designation records.
+      prisma.user.findMany({
+        where: {
+          role: "employee",
+          isRevoked: false,
+          OR: [
+            { designationRef: { is: { name: "Customer Care" } } },
+            { designation: "Customer Care" },
+          ],
+        },
+        select: recipientSelect,
+      }),
+    ]);
+
+  // Remove the person who changed the status and deduplicate users
+  // who may match more than one recipient group.
+  const uniqueRecipients = new Map();
+
+  for (const recipient of [
+    client,
+    assignee,
+    ...admins,
+    ...superAdmins,
+    ...management,
+    ...customerCare,
+  ]) {
+    if (recipient?.id && String(recipient.id) !== String(actorId)) {
+      uniqueRecipients.set(String(recipient.id), recipient);
+    }
+  }
+
+  await notifyUsers([...uniqueRecipients.values()], {
     title: "Ticket Status Updated",
     body: `Ticket "${complaint.module}" is now ${statusName}`,
     type: "STATUS_UPDATE",
     complaintId: complaint.id,
   });
+}
+
+// =====================================================
+// STATUS CHANGE PERMISSION
+// =====================================================
+
+// Only the assigned employee, Admin, SuperAdmin, management
+// employees with canViewAllTickets, and Customer Care may
+// change a ticket status.
+
+async function canChangeTicketStatus(user, complaint) {
+  const actorId = getUserId(user);
+
+  if (!actorId) return false;
+
+  if (user?.role === "admin" || user?.isSuperAdmin === true) {
+    return true;
+  }
+
+  // An employee assigned to this exact ticket may change its status.
+  if (
+    user?.role === "employee" &&
+    complaint?.assignedEmployeeId &&
+    String(complaint.assignedEmployeeId) === actorId
+  ) {
+    return true;
+  }
+
+  if (user?.role !== "employee") return false;
+
+  // Check persisted designation permissions/name rather than
+  // trusting a possibly stale permission object on the JWT.
+  const privilegedEmployee = await prisma.user.findFirst({
+    where: {
+      id: actorId,
+      isRevoked: false,
+      role: "employee",
+      OR: [
+        { designationRef: { is: { canViewAllTickets: true } } },
+        { designationRef: { is: { name: "Customer Care" } } },
+        { designation: "Customer Care" },
+      ],
+    },
+    select: { id: true },
+  });
+
+  return Boolean(privilegedEmployee);
 }
 
 // =====================================================
@@ -621,9 +716,9 @@ async function updateComplaintStatus(req, res) {
     const { id } = req.params;
     const actorId = getUserId(req.user);
 
-    if (!["admin", "employee"].includes(req.user?.role)) {
-      return res.status(403).json({
-        message: "You are not authorized to update complaint status",
+    if (!actorId) {
+      return res.status(401).json({
+        message: "Authentication is required to update ticket status",
       });
     }
 
@@ -635,11 +730,29 @@ async function updateComplaintStatus(req, res) {
       });
     }
 
-    const complaint = await findAccessibleComplaint(req.user, id);
+    // Fetch the ticket first, then apply the narrower status-change rule.
+    // This allows Customer Care to change status without granting them
+    // general access to every ticket elsewhere in the application.
+    const complaint = await prisma.complaint.findUnique({
+      where: { id },
+      include: complaintInclude,
+    });
 
     if (!complaint) {
       return res.status(404).json({
-        message: "Complaint not found or you are not authorized to update it",
+        message: "Complaint not found",
+      });
+    }
+
+    const allowedToChangeStatus = await canChangeTicketStatus(
+      req.user,
+      complaint,
+    );
+
+    if (!allowedToChangeStatus) {
+      return res.status(403).json({
+        message:
+          "Only the assigned employee, CEO, CTO, Customer Care, Admin or SuperAdmin can update ticket status",
       });
     }
 
