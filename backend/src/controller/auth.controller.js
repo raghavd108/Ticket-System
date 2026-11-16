@@ -1206,13 +1206,12 @@ async function updateUser(req, res) {
       data.mobileNumber = value || null;
     }
 
-    // Only SuperAdmin can change another user's password. This prevents a
-    // manager from taking over another manager's account (H1, 31 Oct report).
     if (password !== undefined && password !== "") {
-      if (!superAdmin) {
+      if (!superAdmin && !["client", "employee"].includes(target.role)) {
         return res.status(403).json({
           code: "PASSWORD_CHANGE_FORBIDDEN",
-          message: "Only SuperAdmin can change another user's password",
+          message:
+            "You can change passwords only for client accounts and junior employees",
         });
       }
 
@@ -1230,6 +1229,7 @@ async function updateUser(req, res) {
 
       data.password = await bcrypt.hash(password, 10);
 
+      // Invalidate existing sessions and clear the stored push token.
       data.tokenVersion = {
         increment: 1,
       };
@@ -1761,7 +1761,7 @@ async function restoreUser(req, res) {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to restore account access",
+      message: "Failed to restore user access",
     });
   }
 }

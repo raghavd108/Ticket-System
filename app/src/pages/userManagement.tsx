@@ -219,6 +219,26 @@ const ClientPage = () => {
     isSuperAdmin || currentUser?.permissions?.canManageUsers === true;
   const canAccessUserManagement = canManageUsers;
 
+  // Password resets follow the same hierarchy enforced by the backend.
+  // SuperAdmin can reset manageable accounts; managers can reset clients
+  // and employees whose management level is strictly below their own.
+  const canResetUserPassword = (target: User | null) => {
+    if (!target) return false;
+    if (isSuperAdmin) return true;
+    if (!canManageUsers) return false;
+
+    if (target.role === 'client') return true;
+
+    if (target.role === 'employee') {
+      const actorLevel = Number(currentUser?.permissions?.managementLevel ?? 0);
+      const targetLevel = Number(target.permissions?.managementLevel ?? 0);
+
+      return actorLevel > targetLevel;
+    }
+
+    return false;
+  };
+
   // GET USERS WITH SERVER-SIDE PAGINATION
 
   const getUser = async (page: number = 1, append: boolean = false) => {
@@ -1046,12 +1066,11 @@ const ClientPage = () => {
 
     if (!userId || (!isEmployee && !isClient)) return;
 
-    // Only the SuperAdmin may set another user's password; the API
-    // enforces the same rule.
-    if (newPassword.length > 0 && !isSuperAdmin) {
+    // Match the backend password-reset hierarchy before submitting.
+    if (newPassword.length > 0 && !canResetUserPassword(selectedClient)) {
       Alert.alert(
         copy.permissionRequiredTitle,
-        'You do not have permission to reset this user’s password.',
+        'You can reset passwords only for clients and employees below your management level.',
       );
       return;
     }
@@ -3457,8 +3476,8 @@ const ClientPage = () => {
                 </View>
               )}
 
-              {/* OPTIONAL PASSWORD UPDATE - SUPERADMIN ONLY (matches API) */}
-              {isSuperAdmin && (
+              {/* OPTIONAL PASSWORD UPDATE - follows backend hierarchy */}
+              {canResetUserPassword(selectedClient) && (
                 <View style={{ marginBottom: 14 }}>
                   <Text
                     style={{
